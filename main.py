@@ -236,7 +236,8 @@ def set_language(message):
                  f'Here\'s what I can do: chat from the heart, make you laugh, give advice, inspire, and even make a horoscope for you ✨ Just ask — I\'m here.\n\n'
                  f'So, how are you? 💕\n\n'
                  f'✨ *By the way!* If you want to share me with a friend, here\'s the link: {invite_link} I\'ll be happy to meet new people 😘')
-    bot.reply_to(message, reply, parse_mode='Markdown')
+    # Убрали parse_mode='Markdown' – теперь без форматирования
+    bot.reply_to(message, reply)
     add_message(user_id, 'assistant', reply)
 
 # --- Смена имени ---
@@ -336,5 +337,5 @@ def handle_message(message):
         add_message(user_id, 'assistant', error)
 
 if __name__ == '__main__':
-    print('✅ Алёна v13-plus с /quote и приглашением (синтаксис исправлен)')
+    print('✅ Алёна v13-plus с /quote и приглашением (Markdown отключён)')
     bot.infinity_polling()
