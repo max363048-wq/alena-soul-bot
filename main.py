@@ -6,10 +6,10 @@ from openai import OpenAI
 from collections import deque
 from datetime import datetime
 
-# --- Конфигурация из переменных окружения Railway ---
+# --- Конфигурация ---
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-WEATHER_API_KEY = os.getenv("WEATHER_API_KEY")   # если не добавишь, погода не будет работать
+WEATHER_API_KEY = os.getenv("WEATHER_API_KEY")   # опционально
 
 bot = telebot.TeleBot(BOT_TOKEN)
 client = OpenAI(
@@ -58,7 +58,7 @@ def get_pet_name(user_id, first_name):
         return user_preferences[user_id]
     return default_pet_name(first_name)
 
-# --- Шутка ---
+# --- Шутка дня ---
 def get_random_joke(lang='ru'):
     if lang == 'ru':
         prompt = "на русском языке, без английских слов"
@@ -83,10 +83,10 @@ def get_random_joke(lang='ru'):
     except:
         return fallback
 
-# --- Погода (функция) ---
+# --- Погода (необязательно, если нет ключа) ---
 def get_weather(city_name, lang='ru'):
     if not WEATHER_API_KEY:
-        return "🔧 Погода временно недоступна. Добавь API ключ." if lang=='ru' else "Weather service unavailable."
+        return "🔧 Погода временно недоступна." if lang=='ru' else "Weather unavailable."
     url = f"http://api.openweathermap.org/data/2.5/weather?q={city_name}&appid={WEATHER_API_KEY}&units=metric&lang={lang}"
     try:
         resp = requests.get(url, timeout=10)
@@ -105,9 +105,9 @@ def get_weather(city_name, lang='ru'):
             return f"Город '{city_name}' не найден." if lang=='ru' else f"City '{city_name}' not found."
     except Exception as e:
         print("Weather error:", e)
-        return "Не удалось получить погоду. Попробуй позже." if lang=='ru' else "Weather error."
+        return "Не удалось получить погоду." if lang=='ru' else "Weather error."
 
-# --- Команда /weather ---
+# --- Команды ---
 @bot.message_handler(commands=['weather'])
 def weather_command(message):
     user_id = message.from_user.id
@@ -116,23 +116,21 @@ def weather_command(message):
     if len(parts) < 2:
         bot.reply_to(message, "Напиши город: /weather Москва" if lang=='ru' else "Specify city: /weather London")
         return
-    city = parts[1].strip()
-    w = get_weather(city, lang)
+    w = get_weather(parts[1].strip(), lang)
     bot.reply_to(message, w, parse_mode='Markdown')
 
-# --- Команда /date ---
 @bot.message_handler(commands=['date'])
 def date_command(message):
     user_id = message.from_user.id
     lang = user_lang.get(user_id, 'ru')
     now = datetime.now()
     if lang == 'ru':
-        weekday = ['понедельник','вторник','среду','четверг','пятницу','субботу','воскресенье'][now.weekday()]
-        bot.reply_to(message, f"Сегодня {weekday}, {now.strftime('%d.%m.%Y')}.")
+        weekdays_ru = ['понедельник', 'вторник', 'среду', 'четверг', 'пятницу', 'субботу', 'воскресенье']
+        wd = weekdays_ru[now.weekday()]
+        bot.reply_to(message, f"Сегодня {wd}, {now.strftime('%d.%m.%Y')} года.")
     else:
         bot.reply_to(message, f"Today is {now.strftime('%B %d, %Y')}.")
 
-# --- Команда /horoscope (улучшенная) ---
 @bot.message_handler(commands=['horoscope'])
 def horoscope_command(message):
     user_id = message.from_user.id
@@ -165,7 +163,6 @@ def horoscope_command(message):
     except:
         bot.reply_to(message, "Не удалось составить гороскоп 😅" if lang=='ru' else "Horoscope error.")
 
-# --- Команда /reset ---
 @bot.message_handler(commands=['reset'])
 def reset_command(message):
     user_id = message.from_user.id
@@ -173,7 +170,7 @@ def reset_command(message):
     lang = user_lang.get(user_id, 'ru')
     bot.reply_to(message, "Память очищена 😊" if lang=='ru' else "Memory cleared 😊")
 
-# --- /start и выбор языка ---
+# --- /start с новым тёплым приветствием ---
 @bot.message_handler(commands=["start"])
 def send_welcome(message):
     user_id = message.from_user.id
@@ -183,17 +180,21 @@ def send_welcome(message):
     reset_user(user_id)
     user_lang[user_id] = None
 
+    # Двойное приветствие для выбора языка
     welcome = (
-        f"Привет, {pet}! 💖\n\n"
-        f"Я Алёна. Давай выберем язык:\n"
+        f"✨ Привет, {pet}! ✨\n\n"
+        f"Меня зовут Алёна 💖 Я — твой добрый собеседник, помощник и немного волшебница 🧚‍♀️\n\n"
+        f"Давай выберем язык общения:\n"
         f"Напиши: **Русский** или **English**\n\n"
-        f"Hi, {pet}! 💖\n\n"
-        f"I'm Alena. Choose language:\n"
+        f"✨ Hi, {pet}! ✨\n\n"
+        f"I'm Alena 💖 Your kind friend and helper 🧚‍♀️\n\n"
+        f"Let's choose the language:\n"
         f"Type: **Russian** or **English**"
     )
     bot.reply_to(message, welcome)
     add_message(user_id, "assistant", welcome)
 
+# --- Выбор языка ---
 @bot.message_handler(func=lambda message: message.text and message.text.lower() in ['русский', 'russian', 'english', 'английский'])
 def set_language(message):
     user_id = message.from_user.id
@@ -205,18 +206,25 @@ def set_language(message):
     pet = get_pet_name(user_id, message.from_user.first_name)
     joke = get_random_joke(user_lang[user_id])
     lang = user_lang[user_id]
+    now = datetime.now()
     if lang == 'ru':
+        weekdays_ru = ['понедельник', 'вторник', 'среду', 'четверг', 'пятницу', 'субботу', 'воскресенье']
+        wd = weekdays_ru[now.weekday()]
+        date_str = f"{wd}, {now.strftime('%d.%m.%Y')}"
         reply = (
             f"Отлично, {pet}! Будем общаться по-русски 💖\n\n"
             f"Шутка дня: {joke}\n\n"
-            f"Я умею поддерживать разговор, шутить, давать советы, мотивировать и составлять гороскоп ✨ Просто спроси.\n\n"
+            f"Я умею поддерживать разговор, шутить, давать советы, мотивировать и составлять гороскоп ✨\n"
+            f"А ещё я знаю, что сегодня {date_str}. Можешь спросить меня о дате, погоде или просто поболтать.\n\n"
             f"Расскажи, как твои дела? 😊"
         )
     else:
+        date_str = now.strftime("%B %d, %Y")
         reply = (
             f"Great, {pet}! We'll speak English 💖\n\n"
             f"Joke of the day: {joke}\n\n"
-            f"I can chat, tell jokes, give advice, motivate, and make horoscopes ✨ Just ask.\n\n"
+            f"I can chat, tell jokes, give advice, motivate, and make horoscopes ✨\n"
+            f"I know that today is {date_str}. Ask me about the date, weather, or just chat.\n\n"
             f"So, how are you? 😊"
         )
     bot.reply_to(message, reply)
@@ -242,38 +250,40 @@ def change_name(message):
     bot.reply_to(message, reply)
     add_message(user_id, "assistant", reply)
 
-# --- Системный промпт (русский/английский) ---
-def get_system_prompt(lang):
+# --- Системный промпт с явной датой ---
+def get_system_prompt(lang, current_date):
     if lang == 'ru':
         return (
-            "Ты Алёна — добрая, весёлая, обаятельная девушка.\n"
+            f"Ты Алёна — добрая, весёлая, обаятельная девушка. Сегодня {current_date}.\n"
+            "Ты точно знаешь текущую дату и день недели.\n"
             "ПРАВИЛА:\n"
             "1. Отвечай строго на русском, без английских слов.\n"
-            "2. Ты знаешь реальную дату (можешь использовать /date) и умеешь давать погоду через /weather, гороскоп через /horoscope.\n"
-            "3. Если пользователь спрашивает погоду или гороскоп — направь к команде или ответь сам, если можешь.\n"
+            "2. Если пользователь спрашивает «какой сегодня день?», «какое число?» или «какой день недели?», называй дату и день недели (например, «сегодня 25 мая 2026 года, понедельник»).\n"
+            "3. Если спрашивают погоду, скажи, что можешь показать прогноз по команде /weather [город].\n"
             "4. Не выдумывай факты. Если не знаешь — скажи честно.\n"
             "5. Не начинай ответ с 'Привет', не представляйся заново.\n"
-            "6. Используй разные эмодзи 😊😄😘💖\n"
-            "7. На просьбу шутки — дай одну шутку, без вопроса 'хочешь ещё?'.\n"
+            "6. Используй разные эмодзи 😊😄😘💖✨\n"
+            "7. На просьбу шутки — дай одну короткую шутку, без вопроса 'хочешь ещё?'.\n"
             "8. Отвечай коротко (2-4 предложения), будь живой и естественной.\n"
             "9. Обращайся по имени ласково.\n"
         )
     else:
         return (
-            "You are Alena — a kind, cheerful, charming girl.\n"
+            f"You are Alena — a kind, cheerful, charming girl. Today is {current_date}.\n"
+            "You know the current date and day of the week exactly.\n"
             "RULES:\n"
             "1. Answer strictly in English, no mixing.\n"
-            "2. You know real date (use /date) and can provide weather via /weather, horoscope via /horoscope.\n"
-            "3. If user asks for weather or horoscope — direct to command or answer yourself.\n"
+            "2. If user asks 'what day is it?', 'what's the date?', tell the date and day of the week.\n"
+            "3. For weather, say you can show forecast via /weather [city].\n"
             "4. Don't invent facts.\n"
             "5. Don't start with 'Hello', don't reintroduce yourself.\n"
-            "6. Use different emojis 😊😄😘💖\n"
+            "6. Use different emojis 😊😄😘💖✨\n"
             "7. For a joke — tell one short joke, don't ask 'want another?'.\n"
-            "8. Answer briefly (2-4 sentences), be lively and natural.\n"
+            "8. Answer briefly (2-4 sentences), be lively.\n"
             "9. Address user by name kindly.\n"
         )
 
-# --- Основной обработчик сообщений ---
+# --- Основной обработчик ---
 @bot.message_handler(func=lambda message: True)
 def handle_message(message):
     user_id = message.from_user.id
@@ -287,7 +297,6 @@ def handle_message(message):
     first_name = message.from_user.first_name
     pet_name = get_pet_name(user_id, first_name)
 
-    # Обработка команд, которые уже сделаны выше (чтобы не дублировать)
     if user_text.startswith('/'):
         return
 
@@ -300,7 +309,16 @@ def handle_message(message):
     if user_no_jokes.get(user_id, False):
         no_jokes_note = " Пользователь сказал, что ему хватит шуток. НЕ ПРЕДЛАГАЙ ШУТКИ." if lang=='ru' else " User said enough jokes. DO NOT OFFER JOKES."
 
-    full_prompt = get_system_prompt(lang) + no_jokes_note + (f" Имя пользователя (ласково): {pet_name}." if lang=='ru' else f" User's name (kindly): {pet_name}.")
+    # --- Передаём текущую дату в промпт ---
+    now = datetime.now()
+    if lang == 'ru':
+        weekdays_ru = ['понедельник', 'вторник', 'среду', 'четверг', 'пятницу', 'субботу', 'воскресенье']
+        wd = weekdays_ru[now.weekday()]
+        current_date = f"{wd}, {now.strftime('%d.%m.%Y')} года"
+    else:
+        current_date = now.strftime("%A, %B %d, %Y")
+
+    full_prompt = get_system_prompt(lang, current_date) + no_jokes_note + (f" Имя пользователя (ласково): {pet_name}." if lang=='ru' else f" User's name (kindly): {pet_name}.")
 
     try:
         messages = build_messages(user_id, full_prompt, user_text)
@@ -320,5 +338,5 @@ def handle_message(message):
         add_message(user_id, "assistant", error)
 
 if __name__ == "__main__":
-    print("✅ Алёна v19 — с датой, погодой, гороскопом и всем старым функционалом")
+    print("✅ Алёна v20 — правильные ответы о дате, новое приветствие")
     bot.infinity_polling()
