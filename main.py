@@ -88,10 +88,10 @@ def send_welcome(message):
 
     welcome_text = (
         f"Привет, {pet}! 💖\n\n"
-        f"Я Алёна. Давай определимся, на каком языке нам общаться?\n"
+        f"Я Алёна. 💕😘 Давай определимся, на каком языке нам общаться?😊\n"
         f"Напиши: **Русский** или **English**\n\n"
         f"Hi, {pet}! 💖\n\n"
-        f"I'm Alena. Let's choose the language.\n"
+        f"I'm Alena. 💕😘 Let's choose the language.😊\n"
         f"Type: **Russian** or **English**"
     )
     bot.reply_to(message, welcome_text)
