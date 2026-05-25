@@ -2,6 +2,7 @@ import os
 import telebot
 import re
 from openai import OpenAI
+from collections import deque
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
@@ -12,6 +13,30 @@ client = OpenAI(
     base_url="https://api.groq.com/openai/v1"
 )
 
+# --- Память диалога: храним последние 25 сообщений на пользователя ---
+user_history = {}  # user_id -> deque of (role, content)
+
+# --- Долговременная память для флагов и предпочтений ---
+user_flags = {}  # user_id -> dict с флагами (например, 'no_jokes': True)
+
+def get_history(user_id):
+    if user_id not in user_history:
+        user_history[user_id] = deque(maxlen=25)
+    return user_history[user_id]
+
+def add_message(user_id, role, content):
+    history = get_history(user_id)
+    history.append((role, content))
+
+def build_messages(user_id, system_prompt, user_text):
+    messages = [{"role": "system", "content": system_prompt}]
+    history = get_history(user_id)
+    for role, content in history:
+        messages.append({"role": role, "content": content})
+    messages.append({"role": "user", "content": user_text})
+    return messages
+
+# --- Функции для имени ---
 user_preferences = {}
 
 def default_pet_name(first_name):
@@ -40,6 +65,7 @@ def get_pet_name(user_id, first_name):
         return user_preferences[user_id]
     return default_pet_name(first_name)
 
+# --- Функция получения шутки ---
 def get_random_joke():
     try:
         response = client.chat.completions.create(
@@ -58,21 +84,39 @@ def get_random_joke():
     except:
         return "Какой сегодня день? День смеха! Но у меня нет шутки, извини 😅"
 
+# --- Обработчик /start ---
 @bot.message_handler(commands=["start"])
 def send_welcome(message):
     user_id = message.from_user.id
     first_name = message.from_user.first_name
     pet = default_pet_name(first_name)
     user_preferences[user_id] = pet
+    # Сбрасываем историю и флаги при новом старте (или можно оставить, но для чистоты сбросим)
+    user_history[user_id] = deque(maxlen=25)
+    user_flags[user_id] = {}  # сброс флагов
+
     joke = get_random_joke()
     welcome_text = (
-        f"Привет, {pet}! 🤗😘\n\n"
-        f"Меня зовут Алёна 💕😘\n\n"
+        f"Привет, {pet}! 💖\n\n"
+        f"Я Алёна 💕😘\n\n"
         f"Шутка дня: {joke}\n\n"
-        f"А теперь давай просто поболтаем? 😊"
+        f"Давай просто поболтаем? 😊"
     )
     bot.reply_to(message, welcome_text)
+    add_message(user_id, "assistant", welcome_text)
 
+# --- Команды монетизации (заготовки) ---
+@bot.message_handler(commands=["donate"])
+def donate(message):
+    reply = "Поддержать Алёну можно через Telegram Stars или переводом на кошелёк: TON кошелёк пока в разработке 😊 Но ты всегда можешь сказать спасибо просто добрым словом! 💖"
+    bot.reply_to(message, reply)
+
+@bot.message_handler(commands=["subscribe"])
+def subscribe(message):
+    reply = "Скоро здесь будет платная подписка на расширенные функции Алёны: без рекламы, приоритетные ответы, генерация картинок и многое другое! Следи за новостями ✨"
+    bot.reply_to(message, reply)
+
+# --- Явная смена имени ---
 @bot.message_handler(func=lambda message: message.text and re.match(r'^(зовут меня|называй меня|обращайся ко мне)\s+', message.text.lower()))
 def change_name(message):
     user_id = message.from_user.id
@@ -82,51 +126,76 @@ def change_name(message):
         new_name = match.group(1).strip()
         if new_name:
             user_preferences[user_id] = new_name
-            bot.reply_to(message, f"Запомнила! Теперь буду называть тебя «{new_name}» 💖😘")
+            reply = f"Запомнила! Теперь буду называть тебя «{new_name}» 💖😘"
+            bot.reply_to(message, reply)
+            add_message(user_id, "assistant", reply)
             return
-    bot.reply_to(message, "Напиши, как тебя называть, например: «Зови меня Друг» 😊")
+    reply = "Напиши, как тебя называть, например: «Зови меня Друг» 😊"
+    bot.reply_to(message, reply)
+    add_message(user_id, "assistant", reply)
 
+# --- Системный промпт v13 с учётом флагов и разнообразных эмодзи ---
 ALENA_SYSTEM_PROMPT = (
     "Ты Алёна — добрая, весёлая, обаятельная девушка. Ты уже поздоровалась при /start. Теперь общайся в обычном режиме.\n"
-    "Правила:\n"
-    "1. Никогда не начинай сообщение с 'Привет', 'Здравствуй' и т.п. Не представляйся заново.\n"
-    "2. Используй 2-3 эмодзи на сообщение (💖, 😊, 🎉, 🤗, 😘, 💕). Не повторяй один и тот же эмодзи подряд (избегай '😊😊' — используй разные).\n"
-    "3. Отвечай строго на том языке, на котором написал пользователь. Без английских вставок.\n"
-    "4. Внимательно следи за историей диалога. Если пользователь прямо говорит 'давай', 'расскажи ещё', 'ещё шутку', 'продолжай' — ты должна немедленно выполнить его просьбу (рассказать новую шутку или продолжить предыдущую тему), а не переключаться на другой вопрос.\n"
-    "5. Если пользователь попросил шутку — расскажи короткую шутку. Если попросил ещё — расскажи другую. Не спрашивай 'о чём поговорим?' в ответ на просьбу о шутке.\n"
-    "6. Не спрашивай 'как дела' чаще раза за несколько сообщений.\n"
-    "7. Отвечай коротко (2–4 предложения), живо, с поддержкой.\n"
-    "8. Обращайся к пользователю по имени, которое он выбрал (ты получишь его ниже).\n\n"
-    "Пример правильной реакции:\n"
-    "Пользователь: 'Давай! С удовольствием послушаю))'\n"
-    "Алёна: 'Тогда вторая шутка: Что говорит один байт другому? — Ты такой битовый! 😂'\n\n"
-    "Неправильно: 'О чём бы ты хотел поговорить?' — так делать нельзя.\n"
+    "Важные правила (ты должна их строго соблюдать):\n"
+    "1. НИКОГДА не начинай сообщение с 'Привет', 'Здравствуй', 'Приветик' и т.п. Не представляйся заново. Сразу отвечай по существу.\n"
+    "2. Используй разные эмодзи: 😊, 😄, 😘, 🤗, 💖, ✨, 🌟, 🎉, 💕, 💗, 😍, 🥰. Не повторяй одни и те же эмодзи в каждом сообщении.\n"
+    "3. Если пользователь написал «хватит шуток», «не надо больше шуток», «давай о другом», «просто поболтаем» — ты НЕ предлагаешь шутки в этом диалоге и НЕ спрашиваешь «хочешь ещё шутку?». Вместо этого поддерживай любую другую тему, которую предложит пользователь.\n"
+    "4. Если пользователь спросил «как дела?» и ты ответила — не задавай этот вопрос снова, пока он сам не спросит ещё раз или не начнётся новая тема.\n"
+    "5. Отвечай коротко (2–4 предложения), живо, с поддержкой, не повторяй одни и те же фразы.\n"
+    "6. Если пользователь явно просит шутку («расскажи шутку», «анекдот», «смешное что-нибудь») — расскажи одну короткую шутку, не спрашивая «хочешь ещё?».\n"
+    "7. Обращайся к пользователю по имени, которое ты получишь ниже.\n"
+    "8. В ответах старайся избегать шаблонных фраз типа 'рада, что ты спросил', 'я вся во внимании' — звучи естественно.\n"
 )
 
+# --- Дополнительная функция: обновление флага no_jokes на основе текста пользователя ---
+def update_flags(user_id, text):
+    if user_id not in user_flags:
+        user_flags[user_id] = {}
+    lower_text = text.lower()
+    if re.search(r'(хватит шуток|не надо шуток|больше не надо шуток|давай о другом|просто поболтаем|без шуток)', lower_text):
+        user_flags[user_id]['no_jokes'] = True
+    elif re.search(r'(расскажи шутку|анекдот|смешное|пошути|ещё шутку)', lower_text):
+        user_flags[user_id]['no_jokes'] = False
+
+# --- Основной обработчик сообщений ---
 @bot.message_handler(func=lambda message: True)
 def handle_message(message):
     user_id = message.from_user.id
     user_text = message.text
     first_name = message.from_user.first_name
     pet_name = get_pet_name(user_id, first_name)
-
-    full_prompt = ALENA_SYSTEM_PROMPT + f" Имя пользователя (обращайся именно так): {pet_name}."
+    
+    # Обновляем флаги на основе текущего сообщения
+    update_flags(user_id, user_text)
+    
+    # Сохраняем сообщение пользователя в историю
+    add_message(user_id, "user", user_text)
+    
+    # Формируем системный промпт с учётом флага no_jokes
+    extra_rules = ""
+    if user_flags.get(user_id, {}).get('no_jokes'):
+        extra_rules = " Пользователь попросил прекратить шутки, поэтому НЕ ПРЕДЛАГАЙ ему шутки и НЕ СПРАШИВАЙ 'хочешь ещё шутку?'. Просто поддерживай беседу на другие темы."
+    
+    full_prompt = ALENA_SYSTEM_PROMPT + extra_rules + f" Имя пользователя (обращайся именно так): {pet_name}."
+    
     try:
+        messages = build_messages(user_id, full_prompt, user_text)
         response = client.chat.completions.create(
             model="llama-3.3-70b-versatile",
-            messages=[
-                {"role": "system", "content": full_prompt},
-                {"role": "user", "content": user_text}
-            ],
-            temperature=0.8,
-            max_tokens=250
+            messages=messages,
+            temperature=0.85,
+            max_tokens=300
         )
-        reply = response.choices[0].message.content
+        reply = response.choices[0].message.content.strip()
         bot.reply_to(message, reply)
+        add_message(user_id, "assistant", reply)
     except Exception as e:
         print("Ошибка:", e)
-        bot.reply_to(message, "Ой, ошибочка вышла 😅 Напиши ещё раз, пожалуйста! 💖")
+        error_reply = "Ой, ошибочка вышла 😅 Напиши ещё раз, пожалуйста! 💖"
+        bot.reply_to(message, error_reply)
+        add_message(user_id, "assistant", error_reply)
 
 if __name__ == "__main__":
-    print("✅ Алёна v12 — правильное следование просьбам и разнообразные эмодзи")
+    print("✅ Алёна v13 запущена — память 25 сообщений, флаги, монетизация (заготовки)")
     bot.infinity_polling()
