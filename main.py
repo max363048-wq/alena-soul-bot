@@ -12,7 +12,7 @@ client = OpenAI(api_key=OPENAI_API_KEY)
 def handle_message(message):
     try:
         response = client.chat.completions.create(
-            model="gpt-4.1-mini",
+            model="gpt-3.5-turbo",
             messages=[
                 {
                     "role": "system",
