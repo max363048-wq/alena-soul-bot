@@ -10,15 +10,12 @@ from datetime import datetime
 # --- Конфигурация ---
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-WEATHER_API_KEY = os.getenv("WEATHER_API_KEY")
-
-# ВАЖНО: замени на реальный username бота (без @)
-BOT_USERNAME = "AlenaSoul_bot"   # <-- ИСПРАВЬ НА СВОЙ
+WEATHER_API_KEY = os.getenv("WEATHER_API_KEY")   # опционально
 
 bot = telebot.TeleBot(BOT_TOKEN)
 client = OpenAI(api_key=GROQ_API_KEY, base_url="https://api.groq.com/openai/v1")
 
-# --- Память ---
+# --- Память (как в v13: 6 сообщений) ---
 user_history = {}
 user_no_jokes = {}
 user_preferences = {}
@@ -59,10 +56,11 @@ def get_pet_name(user_id, first_name):
         return user_preferences[user_id]
     return default_pet_name(first_name)
 
-# --- Чистка английских слов ---
+# --- Простая чистка английских слов ---
 def clean_english_words(text: str) -> str:
     if not isinstance(text, str):
         return text
+    # Убираем только самые явные английские вкрапления
     text = re.sub(r'\bbirds\b', 'птички', text, flags=re.IGNORECASE)
     text = re.sub(r'\bhappened\b', 'случилось', text, flags=re.IGNORECASE)
     text = re.sub(r'\bpositive\b', 'позитивной', text, flags=re.IGNORECASE)
@@ -71,7 +69,7 @@ def clean_english_words(text: str) -> str:
     text = re.sub(r'\bsuch\b', '', text, flags=re.IGNORECASE)
     return text
 
-# --- Шутка ---
+# --- Шутка (простая, без заморочек) ---
 def get_random_joke(lang='ru'):
     try:
         resp = client.chat.completions.create(
@@ -87,29 +85,7 @@ def get_random_joke(lang='ru'):
     except:
         return "Почему программисты не любят природу? Слишком много багов! 😄"
 
-# --- Мотивирующая цитата ---
-def get_motivation(lang='ru'):
-    if lang == 'ru':
-        prompt = "Ты Алёна. Напиши короткую, тёплую, вдохновляющую фразу или пожелание для друга. Без английских слов. Будь оригинальной."
-    else:
-        prompt = "You are Alena. Write a short, warm, inspiring phrase or wish for a friend. Be original."
-    try:
-        resp = client.chat.completions.create(
-            model="llama-3.1-8b-instant",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.8,
-            max_tokens=100
-        )
-        quote = resp.choices[0].message.content.strip()
-        if lang == 'ru':
-            quote = clean_english_words(quote)
-        if not quote:
-            quote = "Верь в себя, и у тебя всё получится! 💖" if lang=='ru' else "Believe in yourself, and you can do anything! 💖"
-        return quote
-    except:
-        return "Верь в себя, и у тебя всё получится! 💖" if lang=='ru' else "Believe in yourself, and you can do anything! 💖"
-
-# --- Погода ---
+# --- Погода (только команда, без подсказок в диалоге) ---
 def get_current_weather(city_name, lang='ru'):
     if not WEATHER_API_KEY:
         return "🔧 Погода временно недоступна." if lang=='ru' else "Weather unavailable."
@@ -186,14 +162,6 @@ def horoscope_cmd(message):
     except:
         bot.reply_to(message, "Не удалось составить гороскоп 😅" if lang=='ru' else "Horoscope error.")
 
-@bot.message_handler(commands=['quote'])
-def quote_cmd(message):
-    user_id = message.from_user.id
-    lang = user_lang.get(user_id, 'ru')
-    pet = get_pet_name(user_id, message.from_user.first_name)
-    quote = get_motivation(lang)
-    bot.reply_to(message, f"{pet}, {quote}")
-
 @bot.message_handler(commands=['reset'])
 def reset_cmd(message):
     user_id = message.from_user.id
@@ -216,35 +184,21 @@ def send_welcome(message):
 
 @bot.message_handler(func=lambda message: message.text and message.text.lower() in ['русский', 'russian', 'english', 'английский'])
 def set_language(message):
-    try:
-        user_id = message.from_user.id
-        text = message.text.lower()
-        if text in ['русский', 'russian']:
-            user_lang[user_id] = 'ru'
-        else:
-            user_lang[user_id] = 'en'
-        pet = get_pet_name(user_id, message.from_user.first_name)
-        joke = get_random_joke(user_lang[user_id])
-        lang = user_lang[user_id]
-        invite_link = f"https://t.me/{BOT_USERNAME}"
-
-        if lang == 'ru':
-            reply = (f"Отлично, {pet}! Будем общаться по-русски 💖\n\n"
-                     f"😊 Шутка для настроения: {joke}\n\n"
-                     f"А вот что я умею: могу поболтать по душам, рассмешить шуткой, поддержать советом, вдохновить и даже составить для тебя гороскоп ✨ Просто спроси — и я рядом.\n\n"
-                     f"Расскажи, как твои дела? 💕\n\n"
-                     f"✨ *Кстати!* Если хочешь поделиться мной с другом, вот ссылочка: {invite_link} Буду рада новым знакомствам 😘")
-        else:
-            reply = (f"Great, {pet}! We'll speak English 💖\n\n"
-                     f"😊 A joke to cheer you up: {joke}\n\n"
-                     f"Here's what I can do: chat from the heart, make you laugh, give advice, inspire, and even make a horoscope for you ✨ Just ask — I'm here.\n\n"
-                     f"So, how are you? 💕\n\n"
-                     f"✨ *By the way!* If you want to share me with a friend, here's the link: {invite_link} I'll be happy to meet new people 😘")
-        bot.reply_to(message, reply, parse_mode='Markdown')
-        add_message(user_id, "assistant", reply)
-    except Exception as e:
-        print("Ошибка в set_language:", e)
-        bot.reply_to(message, "Произошла ошибка, давай попробуем ещё раз. Напиши /start")
+    user_id = message.from_user.id
+    text = message.text.lower()
+    if text in ['русский', 'russian']:
+        user_lang[user_id] = 'ru'
+    else:
+        user_lang[user_id] = 'en'
+    pet = get_pet_name(user_id, message.from_user.first_name)
+    joke = get_random_joke(user_lang[user_id])
+    lang = user_lang[user_id]
+    if lang == 'ru':
+        reply = (f"Отлично, {pet}! Будем общаться по-русски 💖\n\n😊 Шутка для настроения: {joke}\n\nА вот что я умею: могу поболтать по душам, рассмешить шуткой, поддержать советом, вдохновить и даже составить для тебя гороскоп ✨ Просто спроси — и я рядом.\n\nРасскажи, как твои дела? 💕")
+    else:
+        reply = (f"Great, {pet}! We'll speak English 💖\n\n😊 A joke to cheer you up: {joke}\n\nHere's what I can do: chat from the heart, make you laugh, give advice, inspire, and even make a horoscope for you ✨ Just ask — I'm here.\n\nSo, how are you? 💕")
+    bot.reply_to(message, reply)
+    add_message(user_id, "assistant", reply)
 
 # --- Смена имени ---
 @bot.message_handler(func=lambda message: message.text and re.match(r'^(зовут меня|называй меня|обращайся ко мне|call me|name me)\s+', message.text.lower()))
@@ -265,7 +219,7 @@ def change_name(message):
     bot.reply_to(message, reply)
     add_message(user_id, "assistant", reply)
 
-# --- Системный промпт ---
+# --- Системный промпт (как в v13, но без лишнего) ---
 ALENA_SYSTEM_PROMPT_RU = (
     "Ты Алёна — добрая, весёлая, обаятельная девушка. Ты уже поздоровалась при /start.\n"
     "ПРАВИЛА:\n"
@@ -308,12 +262,6 @@ def handle_message(message):
     if user_text.startswith('/'):
         return
 
-    # Если просят вдохновение, но не командой
-    if re.search(r'(вдохнов|мотивируй|подними дух|пожелай)', user_text, re.IGNORECASE):
-        quote = get_motivation(lang)
-        bot.reply_to(message, f"{pet_name}, {quote}")
-        return
-
     if re.search(r'(хватит шуток|не надо шуток|давай о другом)', user_text, re.IGNORECASE):
         user_no_jokes[user_id] = True
 
@@ -345,5 +293,5 @@ def handle_message(message):
         add_message(user_id, "assistant", error)
 
 if __name__ == "__main__":
-    print("✅ Алёна v13-plus с цитатой и приглашением")
+    print("✅ Алёна v13-plus — стабильная, с погодой и датой по командам, без глюков")
     bot.infinity_polling()
