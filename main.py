@@ -58,7 +58,7 @@ def get_pet_name(user_id, first_name):
         return user_preferences[user_id]
     return default_pet_name(first_name)
 
-# --- Локальные шутки (без надоевшей «компьютер и вирус») ---
+# --- Локальные шутки (без упоминания компьютера и вируса) ---
 FALLBACK_JOKES_RU = [
     'Почему программисты не любят природу? Слишком много багов! 😄',
     'Что говорит один байт другому? — Ты такой битовый! 😂',
@@ -70,6 +70,12 @@ FALLBACK_JOKES_RU = [
     'Зачем таксисту часы? Чтобы знать, когда закончится смена, а не чтобы вовремя приехать! 🚕',
     'Почему математик решил стать садовником? Потому что он любил решать квадратные корни! 🌱',
 ]
+
+def is_virus_joke(text):
+    """Проверяет, не является ли шутка про компьютер и вирус"""
+    text_lower = text.lower()
+    return ('компьютер' in text_lower and ('вирус' in text_lower or 'инфекц' in text_lower)) or \
+           ('компьютер' in text_lower and 'врач' in text_lower)
 
 def get_random_joke(lang='ru'):
     if lang != 'ru':
@@ -83,9 +89,8 @@ def get_random_joke(lang='ru'):
             timeout=5
         )
         joke = resp.choices[0].message.content.strip()
-        # Фильтруем шутку про компьютер и вирус
         if joke and 5 < len(joke) < 200 and not re.search(r'[a-zA-Z]', joke):
-            if 'компьютер' in joke.lower() and 'вирус' in joke.lower():
+            if is_virus_joke(joke):
                 return random.choice(FALLBACK_JOKES_RU)
             return joke
         return random.choice(FALLBACK_JOKES_RU)
@@ -134,7 +139,6 @@ def get_current_weather(city_name, lang='ru'):
             wind = data['wind']['speed']
             if lang == 'ru':
                 result = (f'🌡️ *Сейчас в {city_name}*:\n☁️ {desc.capitalize()}\n🌡️ {temp:.0f}°C (ощущается {feels:.0f}°C)\n💧 Влажность {hum}%\n🌬️ Ветер {wind} м/с')
-                # Добавляем подсказку про прогноз
                 result += f'\n\n✨ Хочешь узнать погоду на неделю? Напиши: `/weather {city_name} неделя`'
                 return result
             else:
@@ -171,8 +175,7 @@ def get_forecast(city_name, lang='ru'):
             return f'📅 *Прогноз для {city_name} на ближайшие дни:*\n' + '\n'.join(forecasts)
         else:
             return f'📅 *Forecast for {city_name} for the next days:*\n' + '\n'.join(forecasts)
-    except Exception as e:
-        print('Ошибка прогноза:', e)
+    except:
         return 'Не удалось получить прогноз.' if lang=='ru' else 'Forecast error.'
 
 # --- Команды ---
@@ -244,8 +247,7 @@ def horoscope_cmd(message):
         )
         text = resp.choices[0].message.content.strip()
         bot.reply_to(message, text)
-    except Exception as e:
-        print('Ошибка гороскопа:', e)
+    except:
         bot.reply_to(message, 'Не удалось составить гороскоп 😅' if lang=='ru' else 'Horoscope error.')
 
 @bot.message_handler(commands=['quote'])
@@ -339,7 +341,7 @@ def get_system_prompt(lang, current_date):
             '2. Не начинай ответ с "Привет", не представляйся заново.\n'
             '3. Используй эмодзи 😊😄😘💖✨, но не слишком много.\n'
             '4. Если просят шутку — дай одну короткую шутку, не спрашивай "хочешь ещё?".\n'
-            '5. Если спрашивают погоду, скажи: "Я могу показать прогноз по команде /weather [город]".\n'
+            '5. Если спрашивают погоду, сначала покажи текущую через /weather, а на вопрос "а что будет в ближайшие дни?" отвечай: "Напиши /weather [город] неделя или /forecast [город], чтобы узнать прогноз на несколько дней".\n'
             '6. Если спрашивают гороскоп, скажи: "Напиши /horoscope [твой знак]".\n'
             '7. Отвечай коротко (2-4 предложения), будь живой и естественной.\n'
             '8. Обращайся по имени ласково.\n'
@@ -352,7 +354,7 @@ def get_system_prompt(lang, current_date):
             '2. Don\'t start with "Hello", don\'t reintroduce yourself.\n'
             '3. Use emojis 😊😄😘💖✨ but not too many.\n'
             '4. If asked for a joke — tell one short joke, don\'t ask "want another?".\n'
-            '5. If asked about weather, say: "I can show forecast with /weather [city]".\n'
+            '5. If asked about weather, first show current via /weather, and on "what about the next days?" answer: "Type /weather [city] week or /forecast [city] for several days".\n'
             '6. If asked for horoscope, say: "Type /horoscope [your sign]".\n'
             '7. Answer briefly (2-4 sentences), be lively and natural.\n'
             '8. Address the user by name kindly.\n'
@@ -374,11 +376,22 @@ def handle_message(message):
     if user_text.startswith('/'):
         return
 
+    # Вдохновение
     if re.search(r'(вдохнов|мотивируй|подними дух|пожелай|скажи что-то хорошее)', user_text, re.IGNORECASE):
         quote = get_motivation(lang)
         bot.reply_to(message, f'{pet_name}, {quote}')
         return
 
+    # Прямой вопрос о прогнозе на дни (без команды)
+    if re.search(r'(в ближайшие дни|на неделю|прогноз погоды на|какая погода будет|что с погодой дальше)', user_text, re.IGNORECASE):
+        if lang == 'ru':
+            reply = f'{pet_name}, чтобы узнать прогноз на несколько дней, напиши: `/weather [город] неделя` или `/forecast [город]`. Например: `/weather Санкт-Петербург неделя` 😊'
+        else:
+            reply = f'{pet_name}, to see the forecast for several days, type: `/weather [city] week` or `/forecast [city]`. Example: `/weather London week` 😊'
+        bot.reply_to(message, reply)
+        return
+
+    # Вопрос о дате
     if re.search(r'(какой сегодня день|какое сегодня число|какой день недели|сегодняшняя дата)', user_text, re.IGNORECASE):
         now = datetime.now()
         if lang == 'ru':
@@ -427,5 +440,5 @@ def handle_message(message):
         add_message(user_id, 'assistant', error)
 
 if __name__ == '__main__':
-    print('✅ Алёна v13-plus с прогнозом, полным гороскопом, датой и исправленными повторами шуток')
+    print('✅ Алёна финальная — без повтора шуток, с понятным прогнозом')
     bot.infinity_polling()
