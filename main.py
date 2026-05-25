@@ -58,22 +58,41 @@ def get_pet_name(user_id, first_name):
         return user_preferences[user_id]
     return default_pet_name(first_name)
 
-# --- Шутка ---
+# --- Локальные хорошие шутки (запасной вариант) ---
+FALLBACK_JOKES_RU = [
+    'Почему программисты не любят природу? Слишком много багов! 😄',
+    'Что говорит один байт другому? — Ты такой битовый! 😂',
+    'Почему физики не могут найти работу? Потому что их постоянно ускоряют! 🤣',
+    'Как назвать кота, который ловит мышей? Компьютерный мыш! 😸',
+    'Почему рыбы не играют в шахматы? Они боятся ладей! 🐟',
+    'Что общего между пиццей и программистом? Оба могут быть с разными начинками! 🍕',
+    'Почему понедельник пошёл к психологу? Потому что у него был кризис вторника! 😂',
+    'Зачем таксисту часы? Чтобы знать, когда закончится смена, а не чтобы вовремя приехать! 🚕',
+    'Почему математик решил стать садовником? Потому что он любил решать квадратные корни! 🌱',
+]
+
+# --- Улучшенная функция шутки ---
 def get_random_joke(lang='ru'):
+    if lang != 'ru':
+        return "Why don't programmers like nature? Too many bugs! 😄"
+    # Сначала пробуем через Groq
     try:
         resp = client.chat.completions.create(
             model='llama-3.1-8b-instant',
-            messages=[{'role': 'user', 'content': 'Придумай одну короткую смешную шутку на русском языке, без английских слов. Только текст.'}],
+            messages=[{'role': 'user', 'content': 'Придумай одну короткую, смешную шутку на русском языке в формате "вопрос-ответ" или короткую историю. Без английских слов. Только текст шутки.'}],
             temperature=0.9,
             max_tokens=100,
             timeout=5
         )
         joke = resp.choices[0].message.content.strip()
-        if joke and len(joke) < 200:
+        # Проверяем, что шутка не слишком длинная и не пустая, нет английских букв
+        if joke and 5 < len(joke) < 200 and not re.search(r'[a-zA-Z]', joke):
             return joke
-        return 'Почему программисты не любят природу? Слишком много багов! 😄'
-    except:
-        return 'Почему программисты не любят природу? Слишком много багов! 😄'
+        # Если шутка не подходит, берём случайную из локального списка
+        return random.choice(FALLBACK_JOKES_RU)
+    except Exception as e:
+        print('Ошибка генерации шутки:', e)
+        return random.choice(FALLBACK_JOKES_RU)
 
 # --- Мотивирующая фраза ---
 MOTIVATION_FALLBACK = [
@@ -101,7 +120,7 @@ def get_motivation(lang='ru'):
     except:
         return random.choice(MOTIVATION_FALLBACK)
 
-# --- Погода ---
+# --- Погода (только текущая, для прогноза позже) ---
 def get_current_weather(city_name, lang='ru'):
     if not WEATHER_API_KEY:
         return '🔧 Погода временно недоступна.' if lang=='ru' else 'Weather unavailable.'
@@ -236,7 +255,7 @@ def set_language(message):
                  f'Here\'s what I can do: chat from the heart, make you laugh, give advice, inspire, and even make a horoscope for you ✨ Just ask — I\'m here.\n\n'
                  f'So, how are you? 💕\n\n'
                  f'✨ *By the way!* If you want to share me with a friend, here\'s the link: {invite_link} I\'ll be happy to meet new people 😘')
-    # Убрали parse_mode='Markdown' – теперь без форматирования
+    # Отправляем без Markdown, чтобы избежать ошибок форматирования
     bot.reply_to(message, reply)
     add_message(user_id, 'assistant', reply)
 
@@ -337,5 +356,5 @@ def handle_message(message):
         add_message(user_id, 'assistant', error)
 
 if __name__ == '__main__':
-    print('✅ Алёна v13-plus с /quote и приглашением (Markdown отключён)')
+    print('✅ Алёна v13-plus с улучшенными шутками')
     bot.infinity_polling()
