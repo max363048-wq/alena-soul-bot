@@ -58,7 +58,7 @@ def get_pet_name(user_id, first_name):
         return user_preferences[user_id]
     return default_pet_name(first_name)
 
-# --- Локальные хорошие шутки (запасной вариант) ---
+# --- Локальные шутки ---
 FALLBACK_JOKES_RU = [
     'Почему программисты не любят природу? Слишком много багов! 😄',
     'Что говорит один байт другому? — Ты такой битовый! 😂',
@@ -71,11 +71,9 @@ FALLBACK_JOKES_RU = [
     'Почему математик решил стать садовником? Потому что он любил решать квадратные корни! 🌱',
 ]
 
-# --- Улучшенная функция шутки ---
 def get_random_joke(lang='ru'):
     if lang != 'ru':
         return "Why don't programmers like nature? Too many bugs! 😄"
-    # Сначала пробуем через Groq
     try:
         resp = client.chat.completions.create(
             model='llama-3.1-8b-instant',
@@ -85,13 +83,10 @@ def get_random_joke(lang='ru'):
             timeout=5
         )
         joke = resp.choices[0].message.content.strip()
-        # Проверяем, что шутка не слишком длинная и не пустая, нет английских букв
         if joke and 5 < len(joke) < 200 and not re.search(r'[a-zA-Z]', joke):
             return joke
-        # Если шутка не подходит, берём случайную из локального списка
         return random.choice(FALLBACK_JOKES_RU)
-    except Exception as e:
-        print('Ошибка генерации шутки:', e)
+    except:
         return random.choice(FALLBACK_JOKES_RU)
 
 # --- Мотивирующая фраза ---
@@ -120,7 +115,7 @@ def get_motivation(lang='ru'):
     except:
         return random.choice(MOTIVATION_FALLBACK)
 
-# --- Погода (только текущая, для прогноза позже) ---
+# --- Погода (только текущая) ---
 def get_current_weather(city_name, lang='ru'):
     if not WEATHER_API_KEY:
         return '🔧 Погода временно недоступна.' if lang=='ru' else 'Weather unavailable.'
@@ -255,7 +250,6 @@ def set_language(message):
                  f'Here\'s what I can do: chat from the heart, make you laugh, give advice, inspire, and even make a horoscope for you ✨ Just ask — I\'m here.\n\n'
                  f'So, how are you? 💕\n\n'
                  f'✨ *By the way!* If you want to share me with a friend, here\'s the link: {invite_link} I\'ll be happy to meet new people 😘')
-    # Отправляем без Markdown, чтобы избежать ошибок форматирования
     bot.reply_to(message, reply)
     add_message(user_id, 'assistant', reply)
 
@@ -278,7 +272,7 @@ def change_name(message):
     bot.reply_to(message, reply)
     add_message(user_id, 'assistant', reply)
 
-# --- Системный промпт ---
+# --- Системный промпт (добавлено понимание даты, но основная логика в хендлере) ---
 ALENA_SYSTEM_PROMPT_RU = (
     'Ты Алёна — добрая, весёлая, обаятельная девушка. Ты уже поздоровалась при /start.\n'
     'ПРАВИЛА:\n'
@@ -290,6 +284,7 @@ ALENA_SYSTEM_PROMPT_RU = (
     '6. Если спрашивают гороскоп, скажи: "Напиши /horoscope [твой знак]".\n'
     '7. Отвечай коротко (2-4 предложения), будь живой и естественной.\n'
     '8. Обращайся по имени ласково.\n'
+    # Убираем отсюда ответы на дату, чтобы не дублировать с кодом
 )
 
 ALENA_SYSTEM_PROMPT_EN = (
@@ -305,7 +300,7 @@ ALENA_SYSTEM_PROMPT_EN = (
     '8. Address the user by name kindly.\n'
 )
 
-# --- Основной обработчик ---
+# --- Основной обработчик (добавлен блок распознавания даты) ---
 @bot.message_handler(func=lambda message: True)
 def handle_message(message):
     user_id = message.from_user.id
@@ -321,11 +316,28 @@ def handle_message(message):
     if user_text.startswith('/'):
         return
 
+    # ----- НОВЫЙ БЛОК: ответы на вопросы о дате -----
+    # Проверяем, спрашивает ли пользователь о дате, дне недели, числе
+    date_keywords = re.compile(r'(какой\s+сегодня\s+день|какое\s+сегодня\s+число|какой\s+сегодня\s+день\s+недели|какое\s+число|какая\s+сегодня\s+дата|сегодняшняя\s+дата|день\s+недели|число\s+сегодня|дня\s+недели|какой\s+день|какое\s+число|сегодня\s+какое\s+число|сегодня\s+какой\s+день)', re.IGNORECASE)
+    if date_keywords.search(user_text):
+        now = datetime.now()
+        if lang == 'ru':
+            weekdays = ['понедельник', 'вторник', 'среда', 'четверг', 'пятница', 'суббота', 'воскресенье']
+            wd = weekdays[now.weekday()]
+            reply = f'Сегодня {wd}, {now.strftime("%d.%m.%Y")} года. 😊'
+        else:
+            reply = f'Today is {now.strftime("%A, %B %d, %Y")}. 😊'
+        bot.reply_to(message, reply)
+        add_message(user_id, 'assistant', reply)
+        return
+
+    # Вдохновение
     if re.search(r'(вдохнов|мотивируй|подними дух|пожелай|скажи что-то хорошее)', user_text, re.IGNORECASE):
         quote = get_motivation(lang)
         bot.reply_to(message, f'{pet_name}, {quote}')
         return
 
+    # Запрет шуток
     if re.search(r'(хватит шуток|не надо шуток|давай о другом)', user_text, re.IGNORECASE):
         user_no_jokes[user_id] = True
 
@@ -356,5 +368,5 @@ def handle_message(message):
         add_message(user_id, 'assistant', error)
 
 if __name__ == '__main__':
-    print('✅ Алёна v13-plus с улучшенными шутками')
+    print('✅ Алёна v13-plus с улучшенными шутками и определением даты')
     bot.infinity_polling()
