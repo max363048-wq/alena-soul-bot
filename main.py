@@ -6,10 +6,9 @@ from openai import OpenAI
 from collections import deque
 from datetime import datetime
 
-# --- Конфигурация ---
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-WEATHER_API_KEY = os.getenv("WEATHER_API_KEY")   # опционально
+WEATHER_API_KEY = os.getenv("WEATHER_API_KEY")
 
 bot = telebot.TeleBot(BOT_TOKEN)
 client = OpenAI(
@@ -17,7 +16,7 @@ client = OpenAI(
     base_url="https://api.groq.com/openai/v1"
 )
 
-# --- Хранилища ---
+# --- Память ---
 user_history = {}
 user_no_jokes = {}
 user_preferences = {}
@@ -83,7 +82,7 @@ def get_random_joke(lang='ru'):
     except:
         return fallback
 
-# --- Погода (необязательно, если нет ключа) ---
+# --- Погода (опционально) ---
 def get_weather(city_name, lang='ru'):
     if not WEATHER_API_KEY:
         return "🔧 Погода временно недоступна." if lang=='ru' else "Weather unavailable."
@@ -170,7 +169,7 @@ def reset_command(message):
     lang = user_lang.get(user_id, 'ru')
     bot.reply_to(message, "Память очищена 😊" if lang=='ru' else "Memory cleared 😊")
 
-# --- /start с новым тёплым приветствием ---
+# --- /start ---
 @bot.message_handler(commands=["start"])
 def send_welcome(message):
     user_id = message.from_user.id
@@ -180,7 +179,6 @@ def send_welcome(message):
     reset_user(user_id)
     user_lang[user_id] = None
 
-    # Двойное приветствие для выбора языка
     welcome = (
         f"✨ Привет, {pet}! ✨\n\n"
         f"Меня зовут Алёна 💖 Я — твой добрый собеседник, помощник и немного волшебница 🧚‍♀️\n\n"
@@ -206,26 +204,20 @@ def set_language(message):
     pet = get_pet_name(user_id, message.from_user.first_name)
     joke = get_random_joke(user_lang[user_id])
     lang = user_lang[user_id]
-    now = datetime.now()
+
     if lang == 'ru':
-        weekdays_ru = ['понедельник', 'вторник', 'среду', 'четверг', 'пятницу', 'субботу', 'воскресенье']
-        wd = weekdays_ru[now.weekday()]
-        date_str = f"{wd}, {now.strftime('%d.%m.%Y')}"
         reply = (
             f"Отлично, {pet}! Будем общаться по-русски 💖\n\n"
-            f"Шутка дня: {joke}\n\n"
-            f"Я умею поддерживать разговор, шутить, давать советы, мотивировать и составлять гороскоп ✨\n"
-            f"А ещё я знаю, что сегодня {date_str}. Можешь спросить меня о дате, погоде или просто поболтать.\n\n"
-            f"Расскажи, как твои дела? 😊"
+            f"😊 Шутка для настроения: {joke}\n\n"
+            f"А вот что я умею: могу поболтать по душам, рассмешить шуткой, поддержать советом, вдохновить и даже составить для тебя гороскоп ✨ Просто спроси — и я рядом.\n\n"
+            f"Расскажи, как твои дела? 💕"
         )
     else:
-        date_str = now.strftime("%B %d, %Y")
         reply = (
             f"Great, {pet}! We'll speak English 💖\n\n"
-            f"Joke of the day: {joke}\n\n"
-            f"I can chat, tell jokes, give advice, motivate, and make horoscopes ✨\n"
-            f"I know that today is {date_str}. Ask me about the date, weather, or just chat.\n\n"
-            f"So, how are you? 😊"
+            f"😊 A joke to cheer you up: {joke}\n\n"
+            f"And here's what I can do: chat heart-to-heart, make you laugh with a joke, support with advice, inspire, and even make a horoscope for you ✨ Just ask — I'm here.\n\n"
+            f"So, how are you? 💕"
         )
     bot.reply_to(message, reply)
     add_message(user_id, "assistant", reply)
@@ -250,18 +242,17 @@ def change_name(message):
     bot.reply_to(message, reply)
     add_message(user_id, "assistant", reply)
 
-# --- Системный промпт с явной датой ---
+# --- Системный промпт (без упоминания даты и погоды, если не спросят) ---
 def get_system_prompt(lang, current_date):
     if lang == 'ru':
         return (
-            f"Ты Алёна — добрая, весёлая, обаятельная девушка. Сегодня {current_date}.\n"
-            "Ты точно знаешь текущую дату и день недели.\n"
+            f"Ты Алёна — добрая, весёлая, обаятельная девушка. Сегодня {current_date} (ты знаешь дату и день недели, но не говоришь о них, пока не спросят).\n"
             "ПРАВИЛА:\n"
             "1. Отвечай строго на русском, без английских слов.\n"
-            "2. Если пользователь спрашивает «какой сегодня день?», «какое число?» или «какой день недели?», называй дату и день недели (например, «сегодня 25 мая 2026 года, понедельник»).\n"
-            "3. Если спрашивают погоду, скажи, что можешь показать прогноз по команде /weather [город].\n"
+            "2. Если пользователь спрашивает «какой сегодня день?», «какое число?», «какой день недели?» — назови дату и день недели (например, «сегодня 25 мая 2026 года, понедельник»).\n"
+            "3. Если спрашивают погоду, скажи, что можешь показать прогноз по команде /weather [город]. Но не предлагай погоду сама, если не спросили.\n"
             "4. Не выдумывай факты. Если не знаешь — скажи честно.\n"
-            "5. Не начинай ответ с 'Привет', не представляйся заново.\n"
+            "5. Не начинай ответ с 'Привет', не представляйся заново (кроме первого сообщения после выбора языка).\n"
             "6. Используй разные эмодзи 😊😄😘💖✨\n"
             "7. На просьбу шутки — дай одну короткую шутку, без вопроса 'хочешь ещё?'.\n"
             "8. Отвечай коротко (2-4 предложения), будь живой и естественной.\n"
@@ -269,14 +260,13 @@ def get_system_prompt(lang, current_date):
         )
     else:
         return (
-            f"You are Alena — a kind, cheerful, charming girl. Today is {current_date}.\n"
-            "You know the current date and day of the week exactly.\n"
+            f"You are Alena — a kind, cheerful, charming girl. Today is {current_date} (you know the date and day, but don't mention it unless asked).\n"
             "RULES:\n"
             "1. Answer strictly in English, no mixing.\n"
-            "2. If user asks 'what day is it?', 'what's the date?', tell the date and day of the week.\n"
-            "3. For weather, say you can show forecast via /weather [city].\n"
+            "2. If user asks 'what day is it?', 'what's the date?' — tell the date and day of the week.\n"
+            "3. If asked about weather, say you can provide forecast via /weather [city]. Don't offer weather yourself.\n"
             "4. Don't invent facts.\n"
-            "5. Don't start with 'Hello', don't reintroduce yourself.\n"
+            "5. Don't start with 'Hello', don't reintroduce yourself (except first message after language choice).\n"
             "6. Use different emojis 😊😄😘💖✨\n"
             "7. For a joke — tell one short joke, don't ask 'want another?'.\n"
             "8. Answer briefly (2-4 sentences), be lively.\n"
@@ -309,7 +299,6 @@ def handle_message(message):
     if user_no_jokes.get(user_id, False):
         no_jokes_note = " Пользователь сказал, что ему хватит шуток. НЕ ПРЕДЛАГАЙ ШУТКИ." if lang=='ru' else " User said enough jokes. DO NOT OFFER JOKES."
 
-    # --- Передаём текущую дату в промпт ---
     now = datetime.now()
     if lang == 'ru':
         weekdays_ru = ['понедельник', 'вторник', 'среду', 'четверг', 'пятницу', 'субботу', 'воскресенье']
@@ -338,5 +327,5 @@ def handle_message(message):
         add_message(user_id, "assistant", error)
 
 if __name__ == "__main__":
-    print("✅ Алёна v20 — правильные ответы о дате, новое приветствие")
+    print("✅ Алёна v21 — душевное приветствие, дата и погода только по запросу")
     bot.infinity_polling()
