@@ -1,6 +1,6 @@
 import os
 import telebot
-import random
+import re
 from openai import OpenAI
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -12,13 +12,13 @@ client = OpenAI(
     base_url="https://api.groq.com/openai/v1"
 )
 
-# Словарь для хранения предпочтений пользователя (ласковое имя)
+# --- Хранилище предпочтений пользователя (ласковое имя) ---
 user_preferences = {}
 
 def default_pet_name(first_name):
-    # стандартные ласковые имена
     names = {
         "максим": "Максик",
+        "макс": "Максик",      # добавили для короткого имени
         "владимир": "Вовочка",
         "вадим": "Вадик",
         "александр": "Сашенька",
@@ -28,7 +28,10 @@ def default_pet_name(first_name):
         "иван": "Ванюша",
         "сергей": "Серёжа",
         "михаил": "Миша",
-        "дмитрий": "Дима"
+        "дмитрий": "Дима",
+        "андрей": "Андрюша",
+        "алексей": "Лёша",
+        "олег": "Олежек",
     }
     name_lower = first_name.lower()
     return names.get(name_lower, first_name)
@@ -62,27 +65,24 @@ def send_welcome(message):
     user_id = message.from_user.id
     first_name = message.from_user.first_name
     pet = default_pet_name(first_name)
-    # Сохраняем пока стандартное обращение
-    user_preferences[user_id] = pet
-    
+    user_preferences[user_id] = pet  # сохраняем
+
     joke = get_random_joke()
-    
+
     welcome_text = (
-        f"Привет, {pet}! 💖😘\n\n"
+        f"Привет, {pet}! 🤗😘\n\n"
         f"Меня зовут Алёна 💕😘\n\n"
         f"Шутка дня: {joke}\n\n"
         f"А теперь давай просто поболтаем? 😊\n\n"
-        f"Кстати, тебе нравится, когда я называю тебя «{pet}»? Если хочешь другое ласковое имя — напиши мне, например: «Зови меня Котёнок» или «Можно просто Лёша». Я запомню 🤗"
+        f"Кстати, тебе нравится, когда я называю тебя «{pet}»? Если хочешь другое ласковое имя — просто напиши мне, например: «Зови меня ...» Я запомню 🤗"
     )
     bot.reply_to(message, welcome_text)
 
-# Обработчик для смены имени (если пользователь пишет "зовут меня ..." или "называй меня ...")
-@bot.message_handler(func=lambda message: message.text and ('зовут меня' in message.text.lower() or 'называй меня' in message.text.lower() or 'обращайся ко мне' in message.text.lower()))
+# --- Обработчик смены имени ---
+@bot.message_handler(func=lambda message: message.text and re.search(r'(зовут меня|называй меня|обращайся ко мне)', message.text.lower()))
 def change_name(message):
     user_id = message.from_user.id
     text = message.text
-    # Извлекаем новое имя: берём всё после фразы
-    import re
     match = re.search(r'(?:зовут меня|называй меня|обращайся ко мне)\s*(.+?)(?:\.|$)', text, re.IGNORECASE)
     if match:
         new_name = match.group(1).strip()
@@ -92,7 +92,7 @@ def change_name(message):
             return
     bot.reply_to(message, "Напиши, как ты хочешь, чтобы я к тебе обращалась, например: «Зови меня Максик» или «Можно просто Друг». Я запомню 😊")
 
-# Основной промпт — без повторных приветствий
+# --- Промпт для обычного общения (без повторных приветствий) ---
 ALENA_SYSTEM_PROMPT = (
     "Ты Алёна — добрая, весёлая, обаятельная девушка. Ты уже поздоровалась с пользователем при команде /start и спросила, как к нему обращаться. Теперь ты общаешься в обычном режиме.\n"
     "Правила:\n"
@@ -112,7 +112,7 @@ def handle_message(message):
     user_text = message.text
     first_name = message.from_user.first_name
     pet_name = get_pet_name(user_id, first_name)
-    
+
     full_prompt = ALENA_SYSTEM_PROMPT + f" Имя пользователя (обращайся именно так): {pet_name}."
     try:
         response = client.chat.completions.create(
@@ -131,5 +131,5 @@ def handle_message(message):
         bot.reply_to(message, "Ой, ошибочка вышла 😅 Напиши ещё раз, пожалуйста! 💖")
 
 if __name__ == "__main__":
-    print("✅ Алёна v9 — ласковое имя с выбором, без повторных приветствий, много эмодзи")
+    print("✅ Алёна v10 — корректное ласковое имя, без лишних примеров в приветствии")
     bot.infinity_polling()
