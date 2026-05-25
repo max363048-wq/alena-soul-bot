@@ -23,6 +23,7 @@ user_history = {}
 user_no_jokes = {}
 user_preferences = {}
 user_lang = {}
+user_joke_history = {}  # user_id -> deque последних шуток (макс 5)
 
 def get_history(user_id):
     if user_id not in user_history:
@@ -42,6 +43,8 @@ def build_messages(user_id, system_prompt, user_text):
 def reset_user(user_id):
     user_history[user_id] = deque(maxlen=25)
     user_no_jokes[user_id] = False
+    # Сброс истории шуток при /reset или /start
+    user_joke_history[user_id] = deque(maxlen=5)
 
 # --- Ласковые имена ---
 def default_pet_name(first_name):
@@ -78,13 +81,29 @@ JOKES_EN = [
     "What do you call a cat that catches mice? A computer mouse! 😸"
 ]
 
-def get_random_joke(lang='ru'):
+def ensure_emoji(text, lang='ru'):
+    """Добавляет случайный смайлик в конец текста, если их нет"""
+    if not text:
+        return text
+    if lang == 'ru':
+        emojis = ['😊', '😄', '😂', '🤣', '💖', '✨', '🎉', '😘']
+    else:
+        emojis = ['😊', '😄', '😂', '🤣', '💖', '✨', '🎉', '😘']
+    if not re.search(r'[😊😄😂🤣😁😅😆😉😘😍🤗😎💖✨🎉]', text):
+        text += ' ' + random.choice(emojis)
+    return text
+
+def get_random_joke(user_id, lang='ru'):
+    if user_id not in user_joke_history:
+        user_joke_history[user_id] = deque(maxlen=5)
+    used_jokes = set(user_joke_history[user_id])
+    
     # Сначала пробуем через Groq
     try:
         if lang == 'ru':
-            prompt = "на русском языке, без английских слов. Только текст шутки."
+            prompt = "на русском языке, без английских слов. Только текст шутки. Придумай что-то оригинальное, не банальное."
         else:
-            prompt = "in English, without mixing languages. Only the joke text."
+            prompt = "in English, without mixing languages. Only the joke text. Make it original."
         response = client.chat.completions.create(
             model="llama-3.1-8b-instant",
             messages=[
@@ -96,17 +115,29 @@ def get_random_joke(lang='ru'):
             timeout=5
         )
         joke = response.choices[0].message.content.strip()
-        if joke and len(joke) < 200:
+        if joke and len(joke) < 200 and joke not in used_jokes:
+            user_joke_history[user_id].append(joke)
+            joke = ensure_emoji(joke, lang)
             return joke
     except Exception as e:
         print("Joke API error:", e)
-    # Запасной вариант: локальные шутки
+    
+    # Запасной вариант: локальные шутки (исключая уже использованные)
     if lang == 'ru':
-        return random.choice(JOKES_RU)
+        available = [j for j in JOKES_RU if j not in used_jokes]
+        if not available:
+            available = JOKES_RU
+        joke = random.choice(available)
     else:
-        return random.choice(JOKES_EN)
+        available = [j for j in JOKES_EN if j not in used_jokes]
+        if not available:
+            available = JOKES_EN
+        joke = random.choice(available)
+    user_joke_history[user_id].append(joke)
+    joke = ensure_emoji(joke, lang)
+    return joke
 
-# --- Погода и прогноз (как в v23) ---
+# --- Функции для чистки текста ---
 def remove_cjk(text: str) -> str:
     cjk_pattern = re.compile(r'[\u4e00-\u9fff\u3400-\u4dbf\u20000-\u2a6df\u3000-\u303f]', re.UNICODE)
     return cjk_pattern.sub('', text)
@@ -137,6 +168,7 @@ def clean_text(text: str, lang: str) -> str:
     text = re.sub(r'\s+', ' ', text).strip()
     return text
 
+# --- Погода и прогноз ---
 def get_current_weather(city_name, lang='ru'):
     if not WEATHER_API_KEY:
         return "🔧 Погода временно недоступна." if lang=='ru' else "Weather unavailable."
@@ -263,6 +295,7 @@ def horoscope_command(message):
         text = resp.choices[0].message.content.strip()
         if lang == 'ru':
             text = clean_text(text, lang)
+        text = ensure_emoji(text, lang)
         bot.reply_to(message, text)
     except:
         bot.reply_to(message, "Не удалось составить гороскоп 😅" if lang=='ru' else "Horoscope error.")
@@ -274,7 +307,7 @@ def reset_command(message):
     lang = user_lang.get(user_id, 'ru')
     bot.reply_to(message, "Память очищена 😊" if lang=='ru' else "Memory cleared 😊")
 
-# --- /start ---
+# --- /start и выбор языка ---
 @bot.message_handler(commands=["start"])
 def send_welcome(message):
     user_id = message.from_user.id
@@ -287,7 +320,6 @@ def send_welcome(message):
         f"✨ Привет, {pet}! ✨\n\nМеня зовут Алёна 💖 Я — твой добрый собеседник, помощник и немного волшебница 🧚‍♀️\n\nДавай выберем язык общения:\nНапиши: **Русский** или **English**\n\n✨ Hi, {pet}! ✨\n\nI'm Alena 💖 Your kind friend and helper 🧚‍♀️\n\nLet's choose the language:\nType: **Russian** or **English**")
     add_message(user_id, "assistant", "Приветствие с выбором языка")
 
-# --- Выбор языка ---
 @bot.message_handler(func=lambda message: message.text and message.text.lower() in ['русский', 'russian', 'english', 'английский'])
 def set_language(message):
     user_id = message.from_user.id
@@ -297,7 +329,7 @@ def set_language(message):
     else:
         user_lang[user_id] = 'en'
     pet = get_pet_name(user_id, message.from_user.first_name)
-    joke = get_random_joke(user_lang[user_id])
+    joke = get_random_joke(user_id, user_lang[user_id])
     lang = user_lang[user_id]
     if lang == 'ru':
         reply = (f"Отлично, {pet}! Будем общаться по-русски 💖\n\n😊 Шутка для настроения: {joke}\n\nА вот что я умею: могу поболтать по душам, рассмешить шуткой, поддержать советом, вдохновить и даже составить для тебя гороскоп ✨ Просто спроси — и я рядом.\n\nРасскажи, как твои дела? 💕")
@@ -325,7 +357,7 @@ def change_name(message):
     bot.reply_to(message, reply)
     add_message(user_id, "assistant", reply)
 
-# --- Системный промпт (упрощён) ---
+# --- Системный промпт ---
 def get_system_prompt(lang):
     if lang == 'ru':
         return (
@@ -354,7 +386,7 @@ def get_system_prompt(lang):
             "8. Address user by name kindly.\n"
         )
 
-# --- Основной обработчик с приоритетом на шутки ---
+# --- Основной обработчик ---
 @bot.message_handler(func=lambda message: True)
 def handle_message(message):
     user_id = message.from_user.id
@@ -367,18 +399,17 @@ def handle_message(message):
     lang = user_lang[user_id]
     pet_name = get_pet_name(user_id, message.from_user.first_name)
 
-    # Команды уже обработаны выше, пропускаем
     if user_text.startswith('/'):
         return
 
     # Явная просьба о шутке (приоритет)
     if re.search(r'(шутк|анекдот|рассмеши|смешн|расскажи шутк|подними настроение)', user_text, re.IGNORECASE):
-        joke = get_random_joke(lang)
+        joke = get_random_joke(user_id, lang)
         bot.reply_to(message, joke)
         add_message(user_id, "assistant", joke)
         return
 
-    # Запрет шуток, если пользователь сказал "хватит"
+    # Запрет шуток
     if re.search(r'(хватит шуток|не надо шуток|давай о другом)', user_text, re.IGNORECASE):
         user_no_jokes[user_id] = True
 
@@ -402,6 +433,7 @@ def handle_message(message):
         reply = response.choices[0].message.content.strip()
         if lang == 'ru':
             reply = clean_text(reply, lang)
+        reply = ensure_emoji(reply, lang)
         bot.reply_to(message, reply)
         add_message(user_id, "assistant", reply)
     except Exception as e:
@@ -411,5 +443,5 @@ def handle_message(message):
         add_message(user_id, "assistant", fallback)
 
 if __name__ == "__main__":
-    print("✅ Алёна v24 — шутки работают, есть локальный запасной список")
+    print("✅ Алёна v25 — память шуток, смайлики, без повторов")
     bot.infinity_polling()
