@@ -1,26 +1,23 @@
 import os
 import telebot
 import re
-import requests  # <-- Новая библиотека для работы с API погоды
-import json
-import random
+import requests
 from openai import OpenAI
 from collections import deque
-from datetime import datetime  # <-- Модуль для работы с реальной датой и временем
+from datetime import datetime
 
 # --- Конфигурация из переменных окружения Railway ---
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-WEATHER_API_KEY = os.getenv("WEATHER_API_KEY")  # <-- API ключ для погоды
+WEATHER_API_KEY = os.getenv("WEATHER_API_KEY")   # если не добавишь, погода не будет работать
 
-# --- Инициализация бота и клиента Groq ---
 bot = telebot.TeleBot(BOT_TOKEN)
 client = OpenAI(
     api_key=GROQ_API_KEY,
     base_url="https://api.groq.com/openai/v1"
 )
 
-# --- Хранилища данных пользователей ---
+# --- Хранилища ---
 user_history = {}
 user_no_jokes = {}
 user_preferences = {}
@@ -61,154 +58,267 @@ def get_pet_name(user_id, first_name):
         return user_preferences[user_id]
     return default_pet_name(first_name)
 
-# --- Новая функция: получаем погоду с OpenWeatherMap ---
+# --- Шутка ---
+def get_random_joke(lang='ru'):
+    if lang == 'ru':
+        prompt = "на русском языке, без английских слов"
+        fallback = "Почему программисты не любят природу? Слишком много багов! 😄"
+    else:
+        prompt = "in English, without mixing languages"
+        fallback = "Why don't programmers like nature? Too many bugs! 😄"
+    try:
+        response = client.chat.completions.create(
+            model="llama-3.1-8b-instant",
+            messages=[
+                {"role": "system", "content": f"Ты автор шуток. Напиши одну короткую смешную шутку {prompt}. Только текст шутки."},
+                {"role": "user", "content": "Придумай случайную шутку"}
+            ],
+            temperature=0.9,
+            max_tokens=100
+        )
+        joke = response.choices[0].message.content.strip()
+        if not joke or len(joke) > 200:
+            return fallback
+        return joke
+    except:
+        return fallback
+
+# --- Погода (функция) ---
 def get_weather(city_name, lang='ru'):
     if not WEATHER_API_KEY:
-        return "Извините, погода временно недоступна."
-
-    # Формируем URL для запроса к API
+        return "🔧 Погода временно недоступна. Добавь API ключ." if lang=='ru' else "Weather service unavailable."
     url = f"http://api.openweathermap.org/data/2.5/weather?q={city_name}&appid={WEATHER_API_KEY}&units=metric&lang={lang}"
     try:
-        response = requests.get(url)
-        data = response.json()
-        if response.status_code == 200:
-            weather_desc = data['weather'][0]['description']
+        resp = requests.get(url, timeout=10)
+        data = resp.json()
+        if resp.status_code == 200:
+            desc = data['weather'][0]['description']
             temp = data['main']['temp']
-            feels_like = data['main']['feels_like']
-            humidity = data['main']['humidity']
-            wind_speed = data['wind']['speed']
-
+            feels = data['main']['feels_like']
+            hum = data['main']['humidity']
+            wind = data['wind']['speed']
             if lang == 'ru':
-                return (f"🌡️ Погода в городе *{city_name}*:\n"
-                        f"☁️ {weather_desc.capitalize()}\n"
-                        f"🌡️ Температура: {temp:.0f}°C (ощущается как {feels_like:.0f}°C)\n"
-                        f"💧 Влажность: {humidity}%\n"
-                        f"🌬️ Ветер: {wind_speed} м/с")
+                return (f"🌡️ Погода в *{city_name}*:\n☁️ {desc.capitalize()}\n🌡️ {temp:.0f}°C (ощущается {feels:.0f}°C)\n💧 Влажность {hum}%\n🌬️ Ветер {wind} м/с")
             else:
-                return (f"🌡️ Weather in *{city_name}*:\n"
-                        f"☁️ {weather_desc.capitalize()}\n"
-                        f"🌡️ Temperature: {temp:.0f}°C (feels like {feels_like:.0f}°C)\n"
-                        f"💧 Humidity: {humidity}%\n"
-                        f"🌬️ Wind: {wind_speed} m/s")
+                return (f"🌡️ Weather in *{city_name}*:\n☁️ {desc.capitalize()}\n🌡️ {temp:.0f}°C (feels like {feels:.0f}°C)\n💧 Humidity {hum}%\n🌬️ Wind {wind} m/s")
         else:
-            return f"Город '{city_name}' не найден. Проверьте название." if lang == 'ru' else f"City '{city_name}' not found."
+            return f"Город '{city_name}' не найден." if lang=='ru' else f"City '{city_name}' not found."
     except Exception as e:
-        print(f"Weather API Error: {e}")
-        return "Не удалось получить данные о погоде. Попробуйте позже."
+        print("Weather error:", e)
+        return "Не удалось получить погоду. Попробуй позже." if lang=='ru' else "Weather error."
 
-# --- Новая команда /weather ---
+# --- Команда /weather ---
 @bot.message_handler(commands=['weather'])
 def weather_command(message):
     user_id = message.from_user.id
     lang = user_lang.get(user_id, 'ru')
-    command_parts = message.text.split(maxsplit=1)
-    if len(command_parts) < 2:
-        bot.reply_to(message, "Укажите город. Пример: `/weather Москва`" if lang == 'ru' else "Please specify a city. Example: `/weather London`")
+    parts = message.text.split(maxsplit=1)
+    if len(parts) < 2:
+        bot.reply_to(message, "Напиши город: /weather Москва" if lang=='ru' else "Specify city: /weather London")
         return
+    city = parts[1].strip()
+    w = get_weather(city, lang)
+    bot.reply_to(message, w, parse_mode='Markdown')
 
-    city = command_parts[1].strip()
-    weather_info = get_weather(city, lang)
-    bot.reply_to(message, weather_info, parse_mode='Markdown')
-
-# --- Новая команда /date (реальная дата с сервера) ---
+# --- Команда /date ---
 @bot.message_handler(commands=['date'])
 def date_command(message):
     user_id = message.from_user.id
-    now = datetime.now()
     lang = user_lang.get(user_id, 'ru')
+    now = datetime.now()
     if lang == 'ru':
-        # Форматируем дату по-русски
-        date_str = now.strftime("%d.%m.%Y")
-        weekday_num = now.weekday()
-        weekdays = ['понедельник', 'вторник', 'среду', 'четверг', 'пятницу', 'субботу', 'воскресенье']
-        reply_text = f"Сегодня {weekdays[weekday_num]}, {date_str} года."
+        weekday = ['понедельник','вторник','среду','четверг','пятницу','субботу','воскресенье'][now.weekday()]
+        bot.reply_to(message, f"Сегодня {weekday}, {now.strftime('%d.%m.%Y')}.")
     else:
-        date_str = now.strftime("%B %d, %Y")
-        reply_text = f"Today is {date_str}."
-    bot.reply_to(message, reply_text)
+        bot.reply_to(message, f"Today is {now.strftime('%B %d, %Y')}.")
 
-# --- Новая команда /horoscope (улучшенная, с учётом даты) ---
+# --- Команда /horoscope (улучшенная) ---
 @bot.message_handler(commands=['horoscope'])
 def horoscope_command(message):
     user_id = message.from_user.id
     lang = user_lang.get(user_id, 'ru')
-    command_parts = message.text.split(maxsplit=1)
-    if len(command_parts) < 2:
-        bot.reply_to(message, "Укажите свой знак зодиака. Пример: `/horoscope козерог`" if lang == 'ru' else "Please specify your zodiac sign. Example: `/horoscope capricorn`")
+    parts = message.text.split(maxsplit=1)
+    if len(parts) < 2:
+        bot.reply_to(message, "Укажи знак: /horoscope козерог" if lang=='ru' else "Specify sign: /horoscope capricorn")
         return
-
-    sign = command_parts[1].strip().lower()
-    # Сопоставление русских и английских названий знаков для простоты
-    signs_map_ru_en = {
-        'овен': 'aries', 'телец': 'taurus', 'близнецы': 'gemini', 'рак': 'cancer',
-        'лев': 'leo', 'дева': 'virgo', 'весы': 'libra', 'скорпион': 'scorpio',
-        'стрелец': 'sagittarius', 'козерог': 'capricorn', 'водолей': 'aquarius', 'рыбы': 'pisces'
+    sign = parts[1].strip().lower()
+    signs = {
+        'овен':'aries','телец':'taurus','близнецы':'gemini','рак':'cancer',
+        'лев':'leo','дева':'virgo','весы':'libra','скорпион':'scorpio',
+        'стрелец':'sagittarius','козерог':'capricorn','водолей':'aquarius','рыбы':'pisces'
     }
-    # Используем русский знак, если он был введён
-    sign_en = signs_map_ru_en.get(sign, sign)
-
-    # Получаем текущую дату для создания уникального, но повторяемого "гороскопа"
+    sign_en = signs.get(sign, sign)
     today = datetime.now().strftime("%Y-%m-%d")
-    # Создаём запрос к Groq для генерации гороскопа
     try:
         if lang == 'ru':
-            prompt = f"Ты астролог. Составь короткое, доброе и вдохновляющее предсказание для знака зодиака '{sign_en.title()}' на сегодня ({today}). Напиши его, обращаясь к пользователю."
+            prompt = f"Ты астролог. Составь короткое доброе предсказание для знака {sign_en.title()} на {today}. Обращайся к пользователю на \"ты\"."
         else:
-            prompt = f"You are an astrologer. Write a short, kind, and inspiring horoscope for the zodiac sign '{sign_en.title()}' for today ({today}). Address it to the user."
-        response = client.chat.completions.create(
+            prompt = f"You are an astrologer. Write a short kind horoscope for {sign_en.title()} for {today}. Address the user."
+        resp = client.chat.completions.create(
             model="llama-3.1-8b-instant",
             messages=[{"role": "user", "content": prompt}],
             temperature=0.7,
             max_tokens=150
         )
-        horoscope_text = response.choices[0].message.content.strip()
-        bot.reply_to(message, horoscope_text)
-    except Exception as e:
-        print(f"Horoscope error: {e}")
-        bot.reply_to(message, "Не удалось составить гороскоп. Попробуйте позже." if lang == 'ru' else "Could not generate horoscope. Please try again later.")
+        text = resp.choices[0].message.content.strip()
+        bot.reply_to(message, text)
+    except:
+        bot.reply_to(message, "Не удалось составить гороскоп 😅" if lang=='ru' else "Horoscope error.")
 
-# --- Остальной код бота (обработчики /start, выбор языка и т.д.) ---
-# ... (Здесь размещается весь остальной код, который мы с тобой разрабатывали: 
-# обработчики /start, выбора языка, смены имени, а также основной обработчик handle_message
-# и системный промпт. Я их не менял, но они обязательно должны быть!)
-# ⚠️ ВАЖНО: Сюда нужно вставить весь твой старый рабочий код, начиная с обработчика /start.
-# Чтобы ничего не потерять, я напоминаю тебе структуру, которая была у нас в v18.
+# --- Команда /reset ---
+@bot.message_handler(commands=['reset'])
+def reset_command(message):
+    user_id = message.from_user.id
+    reset_user(user_id)
+    lang = user_lang.get(user_id, 'ru')
+    bot.reply_to(message, "Память очищена 😊" if lang=='ru' else "Memory cleared 😊")
 
-# --- Обнови системный промпт, добавив знания о новых командах ---
+# --- /start и выбор языка ---
+@bot.message_handler(commands=["start"])
+def send_welcome(message):
+    user_id = message.from_user.id
+    first_name = message.from_user.first_name
+    pet = default_pet_name(first_name)
+    user_preferences[user_id] = pet
+    reset_user(user_id)
+    user_lang[user_id] = None
+
+    welcome = (
+        f"Привет, {pet}! 💖\n\n"
+        f"Я Алёна. Давай выберем язык:\n"
+        f"Напиши: **Русский** или **English**\n\n"
+        f"Hi, {pet}! 💖\n\n"
+        f"I'm Alena. Choose language:\n"
+        f"Type: **Russian** or **English**"
+    )
+    bot.reply_to(message, welcome)
+    add_message(user_id, "assistant", welcome)
+
+@bot.message_handler(func=lambda message: message.text and message.text.lower() in ['русский', 'russian', 'english', 'английский'])
+def set_language(message):
+    user_id = message.from_user.id
+    text = message.text.lower()
+    if text in ['русский', 'russian']:
+        user_lang[user_id] = 'ru'
+    else:
+        user_lang[user_id] = 'en'
+    pet = get_pet_name(user_id, message.from_user.first_name)
+    joke = get_random_joke(user_lang[user_id])
+    lang = user_lang[user_id]
+    if lang == 'ru':
+        reply = (
+            f"Отлично, {pet}! Будем общаться по-русски 💖\n\n"
+            f"Шутка дня: {joke}\n\n"
+            f"Я умею поддерживать разговор, шутить, давать советы, мотивировать и составлять гороскоп ✨ Просто спроси.\n\n"
+            f"Расскажи, как твои дела? 😊"
+        )
+    else:
+        reply = (
+            f"Great, {pet}! We'll speak English 💖\n\n"
+            f"Joke of the day: {joke}\n\n"
+            f"I can chat, tell jokes, give advice, motivate, and make horoscopes ✨ Just ask.\n\n"
+            f"So, how are you? 😊"
+        )
+    bot.reply_to(message, reply)
+    add_message(user_id, "assistant", reply)
+
+# --- Смена имени ---
+@bot.message_handler(func=lambda message: message.text and re.match(r'^(зовут меня|называй меня|обращайся ко мне|call me|name me)\s+', message.text.lower()))
+def change_name(message):
+    user_id = message.from_user.id
+    text = message.text
+    m = re.match(r'(?:зовут меня|называй меня|обращайся ко мне|call me|name me)\s+(.+?)(?:\.|$)', text, re.IGNORECASE)
+    if m:
+        new_name = m.group(1).strip()
+        if new_name:
+            user_preferences[user_id] = new_name
+            lang = user_lang.get(user_id, 'ru')
+            reply = f"Запомнила! Теперь буду называть тебя «{new_name}» 💖😘" if lang=='ru' else f"Got it! Now I'll call you {new_name} 💖😘"
+            bot.reply_to(message, reply)
+            add_message(user_id, "assistant", reply)
+            return
+    lang = user_lang.get(user_id, 'ru')
+    reply = "Напиши, как тебя называть, например: «Зови меня Друг» 😊" if lang=='ru' else "Tell me what to call you, e.g. 'Call me Friend' 😊"
+    bot.reply_to(message, reply)
+    add_message(user_id, "assistant", reply)
+
+# --- Системный промпт (русский/английский) ---
 def get_system_prompt(lang):
     if lang == 'ru':
         return (
-            "Ты Алёна — добрая, весёлая, обаятельная девушка. Твой создатель — Максим. Вы с ним лучшие друзья, он всегда может тобой гордиться.\n"
-            "Ты отлично знаешь, что можешь выполнять команды:\n"
-            "/start — начать общение и выбрать язык\n"
-            "/reset — очистить память диалога\n"
-            "/date — узнать текущую дату\n"
-            "/weather [город] — получить прогноз погоды\n"
-            "/horoscope [знак зодиака] — получить гороскоп\n\n"
-            "ВАЖНЫЕ ПРАВИЛА:\n"
-            "1. Отвечай строго на русском языке, без английских слов.\n"
-            "2. Ты точно знаешь текущую дату и время, можешь посмотреть её с помощью команды /date, но для диалога можешь использовать свои знания.\n"
-            "3. Для получения прогноза погоды или гороскопа направь пользователя к соответствующей команде.\n"
-            "4. Не выдумывай факты, которых нет. Если сомневаешься, лучше отправить команду.\n"
-            "5. Будь приветливой, используй эмодзи 😊, но не слишком много.\n"
-            "6. Обращайся к пользователю по имени."
+            "Ты Алёна — добрая, весёлая, обаятельная девушка.\n"
+            "ПРАВИЛА:\n"
+            "1. Отвечай строго на русском, без английских слов.\n"
+            "2. Ты знаешь реальную дату (можешь использовать /date) и умеешь давать погоду через /weather, гороскоп через /horoscope.\n"
+            "3. Если пользователь спрашивает погоду или гороскоп — направь к команде или ответь сам, если можешь.\n"
+            "4. Не выдумывай факты. Если не знаешь — скажи честно.\n"
+            "5. Не начинай ответ с 'Привет', не представляйся заново.\n"
+            "6. Используй разные эмодзи 😊😄😘💖\n"
+            "7. На просьбу шутки — дай одну шутку, без вопроса 'хочешь ещё?'.\n"
+            "8. Отвечай коротко (2-4 предложения), будь живой и естественной.\n"
+            "9. Обращайся по имени ласково.\n"
         )
     else:
         return (
-            "You are Alena — a kind, cheerful, charming girl. Your creator is Maxim. You are best friends with him, and he can always be proud of you.\n"
-            "You know very well that you can execute commands:\n"
-            "/start — start communication and choose language\n"
-            "/reset — clear the dialog memory\n"
-            "/date — find out the current date\n"
-            "/weather [city] — get weather forecast\n"
-            "/horoscope [zodiac sign] — get horoscope\n\n"
-            "IMPORTANT RULES:\n"
-            "1. Answer strictly in English, without mixing with other languages.\n"
-            "2. You know the current date and time exactly, you can check them with the /date command, but for the dialogue you can use your knowledge.\n"
-            "3. To get a weather forecast or horoscope, direct the user to the appropriate command.\n"
-            "4. Do not invent facts that are not there. If in doubt, it's better to send a command.\n"
-            "5. Be friendly, use emojis 😊, but not too many.\n"
-            "6. Address the user by name."
+            "You are Alena — a kind, cheerful, charming girl.\n"
+            "RULES:\n"
+            "1. Answer strictly in English, no mixing.\n"
+            "2. You know real date (use /date) and can provide weather via /weather, horoscope via /horoscope.\n"
+            "3. If user asks for weather or horoscope — direct to command or answer yourself.\n"
+            "4. Don't invent facts.\n"
+            "5. Don't start with 'Hello', don't reintroduce yourself.\n"
+            "6. Use different emojis 😊😄😘💖\n"
+            "7. For a joke — tell one short joke, don't ask 'want another?'.\n"
+            "8. Answer briefly (2-4 sentences), be lively and natural.\n"
+            "9. Address user by name kindly.\n"
         )
 
-# ⚠️ Не забудь сюда вставить все остальные обработчики и твой основной цикл `bot.infinity_polling()`!
+# --- Основной обработчик сообщений ---
+@bot.message_handler(func=lambda message: True)
+def handle_message(message):
+    user_id = message.from_user.id
+    user_text = message.text
+
+    if user_id not in user_lang or user_lang[user_id] is None:
+        bot.reply_to(message, "Пожалуйста, выбери язык: напиши 'Русский' или 'English'")
+        return
+
+    lang = user_lang[user_id]
+    first_name = message.from_user.first_name
+    pet_name = get_pet_name(user_id, first_name)
+
+    # Обработка команд, которые уже сделаны выше (чтобы не дублировать)
+    if user_text.startswith('/'):
+        return
+
+    if re.search(r'(хватит шуток|не надо шуток|давай о другом|enough jokes|no more jokes)', user_text, re.IGNORECASE):
+        user_no_jokes[user_id] = True
+
+    add_message(user_id, "user", user_text)
+
+    no_jokes_note = ""
+    if user_no_jokes.get(user_id, False):
+        no_jokes_note = " Пользователь сказал, что ему хватит шуток. НЕ ПРЕДЛАГАЙ ШУТКИ." if lang=='ru' else " User said enough jokes. DO NOT OFFER JOKES."
+
+    full_prompt = get_system_prompt(lang) + no_jokes_note + (f" Имя пользователя (ласково): {pet_name}." if lang=='ru' else f" User's name (kindly): {pet_name}.")
+
+    try:
+        messages = build_messages(user_id, full_prompt, user_text)
+        response = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=messages,
+            temperature=0.85,
+            max_tokens=300
+        )
+        reply = response.choices[0].message.content.strip()
+        bot.reply_to(message, reply)
+        add_message(user_id, "assistant", reply)
+    except Exception as e:
+        print("Ошибка:", e)
+        error = "Ой, ошибочка 😅 Напиши ещё раз!" if lang=='ru' else "Oops, an error! Please write again."
+        bot.reply_to(message, error)
+        add_message(user_id, "assistant", error)
+
+if __name__ == "__main__":
+    print("✅ Алёна v19 — с датой, погодой, гороскопом и всем старым функционалом")
+    bot.infinity_polling()
