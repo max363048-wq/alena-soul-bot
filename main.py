@@ -23,7 +23,9 @@ user_history = {}
 user_no_jokes = {}
 user_preferences = {}
 user_lang = {}
-USER_HISTORY_MAXLEN = 10   # Уменьшили для стабильности
+user_joke_history = {}  # deque(maxlen=5) для каждого пользователя
+
+USER_HISTORY_MAXLEN = 25  # как в v23
 
 def get_history(user_id):
     if user_id not in user_history:
@@ -43,6 +45,7 @@ def build_messages(user_id, system_prompt, user_text):
 def reset_user(user_id):
     user_history[user_id] = deque(maxlen=USER_HISTORY_MAXLEN)
     user_no_jokes[user_id] = False
+    user_joke_history[user_id] = deque(maxlen=5)
 
 # --- Ласковые имена ---
 def default_pet_name(first_name):
@@ -60,16 +63,25 @@ def get_pet_name(user_id, first_name):
         return user_preferences[user_id]
     return default_pet_name(first_name)
 
-# --- Очистка текста ---
+# --- Добавление смайлика, если их нет ---
+def ensure_emoji(text, lang='ru'):
+    if not text:
+        return text
+    emojis = ['😊', '😄', '😘', '💖', '✨', '🎉', '🤗', '😍'] if lang == 'ru' else ['😊', '😄', '😘', '💖', '✨', '🎉', '🤗', '😍']
+    if not re.search(r'[😊😄😂🤣😁😅😆😉😘😍🤗😎💖✨🎉]', text):
+        text += ' ' + random.choice(emojis)
+    return text
+
+# --- Удаление китайских иероглифов ---
 def remove_cjk(text: str) -> str:
     cjk_pattern = re.compile(r'[\u4e00-\u9fff\u3400-\u4dbf\u20000-\u2a6df\u3000-\u303f]', re.UNICODE)
     return cjk_pattern.sub('', text)
 
+# --- Чистка английских вкраплений (для русских ответов) ---
 def clean_text(text: str, lang: str) -> str:
     if lang != 'ru':
         return text
     text = remove_cjk(text)
-    # Глобальные замены
     replacements = {
         r'\bsuch\b': '', r'\bpositive\b': 'позитивной', r'\benergy\b': 'энергией',
         r'\bResponsibility\b': 'ответственность', r'\bhappiness\b': 'счастье',
@@ -90,25 +102,50 @@ def clean_text(text: str, lang: str) -> str:
     for eng, rus in replacements.items():
         text = re.sub(eng, rus, text, flags=re.IGNORECASE)
     text = re.sub(r'\s+', ' ', text).strip()
-    # Удаляем одиночные запятые, точки, вопросительные знаки
-    text = re.sub(r'^[,.!?;:]+', '', text)
     return text
 
-def validate_response(text: str, lang: str) -> bool:
-    """Проверяет, является ли ответ осмысленным (не мусором)"""
-    if not text or len(text) < 3:
-        return False
-    # Если текст состоит только из символов пунктуации, цифр или эмодзи
-    if re.fullmatch(r'[\s,.;:!?()\[\]{}\d😊💖✨🎉😘]+', text):
-        return False
-    # Если в тексте нет ни одной русской или английской буквы
-    if lang == 'ru' and not re.search(r'[а-яА-Я]', text):
-        return False
-    if lang == 'en' and not re.search(r'[a-zA-Z]', text):
-        return False
-    return True
+# --- Шутка с защитой от повторов ---
+JOKES_RU = [
+    "Почему программисты не любят природу? Слишком много багов! 😄",
+    "Что говорит один байт другому? — Ты такой битовый! 😂",
+    "Почему физики не могут найти работу? Потому что их постоянно ускоряют! 🤣",
+    "Как назвать кота, который ловит мышей? Компьютерный мыш! 😸",
+    "Почему рыбы не играют в шахматы? Они боятся ладей! 🐟",
+    "Что общего между пиццей и программистом? Оба могут быть с разными начинками! 🍕",
+    "Почему понедельник пошёл к психологу? Потому что у него был кризис вторника! 😂"
+]
 
-# --- Погода и прогноз ---
+def get_random_joke(user_id, lang='ru'):
+    if user_id not in user_joke_history:
+        user_joke_history[user_id] = deque(maxlen=5)
+    used = set(user_joke_history[user_id])
+    try:
+        # Пробуем через Groq
+        response = client.chat.completions.create(
+            model="llama-3.1-8b-instant",
+            messages=[
+                {"role": "system", "content": "Ты автор шуток. Напиши одну короткую смешную шутку на русском языке, без английских слов. Только текст шутки."},
+                {"role": "user", "content": "Придумай случайную шутку"}
+            ],
+            temperature=0.9,
+            max_tokens=100,
+            timeout=5
+        )
+        joke = response.choices[0].message.content.strip()
+        if joke and len(joke) < 200 and joke not in used:
+            user_joke_history[user_id].append(joke)
+            return ensure_emoji(joke, lang)
+    except:
+        pass
+    # Запасной список
+    available = [j for j in JOKES_RU if j not in used]
+    if not available:
+        available = JOKES_RU
+    joke = random.choice(available)
+    user_joke_history[user_id].append(joke)
+    return ensure_emoji(joke, lang)
+
+# --- Погода и прогноз (как в v23) ---
 def get_current_weather(city_name, lang='ru'):
     if not WEATHER_API_KEY:
         return "🔧 Погода временно недоступна." if lang=='ru' else "Weather unavailable."
@@ -163,7 +200,7 @@ def get_forecast(city_name, lang='ru'):
     except:
         return "Не удалось получить прогноз." if lang=='ru' else "Forecast error."
 
-# --- Обработчики команд ---
+# --- Команды ---
 @bot.message_handler(commands=['weather'])
 def weather_command(message):
     user_id = message.from_user.id
@@ -229,14 +266,15 @@ def horoscope_command(message):
         resp = client.chat.completions.create(
             model="llama-3.1-8b-instant",
             messages=[{"role": "user", "content": prompt}],
-            temperature=0.6,
+            temperature=0.7,
             max_tokens=150
         )
         text = resp.choices[0].message.content.strip()
         if lang == 'ru':
             text = clean_text(text, lang)
-        if not validate_response(text, lang):
-            text = "Звёзды говорят, что сегодня тебя ждёт удача и хорошее настроение 😊" if lang=='ru' else "The stars say you'll have luck and good mood today 😊"
+        if not text:
+            text = "Звёзды говорят, что сегодня у тебя всё получится! 😊" if lang=='ru' else "The stars say you'll succeed today! 😊"
+        text = ensure_emoji(text, lang)
         bot.reply_to(message, text)
     except:
         bot.reply_to(message, "Не удалось составить гороскоп 😅" if lang=='ru' else "Horoscope error.")
@@ -248,7 +286,7 @@ def reset_command(message):
     lang = user_lang.get(user_id, 'ru')
     bot.reply_to(message, "Память очищена 😊" if lang=='ru' else "Memory cleared 😊")
 
-# --- /start и выбор языка ---
+# --- /start с душевным приветствием (без даты и погоды) ---
 @bot.message_handler(commands=["start"])
 def send_welcome(message):
     user_id = message.from_user.id
@@ -261,6 +299,7 @@ def send_welcome(message):
         f"✨ Привет, {pet}! ✨\n\nМеня зовут Алёна 💖 Я — твой добрый собеседник, помощник и немного волшебница 🧚‍♀️\n\nДавай выберем язык общения:\nНапиши: **Русский** или **English**\n\n✨ Hi, {pet}! ✨\n\nI'm Alena 💖 Your kind friend and helper 🧚‍♀️\n\nLet's choose the language:\nType: **Russian** or **English**")
     add_message(user_id, "assistant", "Приветствие с выбором языка")
 
+# --- Выбор языка ---
 @bot.message_handler(func=lambda message: message.text and message.text.lower() in ['русский', 'russian', 'english', 'английский'])
 def set_language(message):
     user_id = message.from_user.id
@@ -271,21 +310,12 @@ def set_language(message):
         user_lang[user_id] = 'en'
     pet = get_pet_name(user_id, message.from_user.first_name)
     lang = user_lang[user_id]
-    # Сгенерируем шутку для приветствия
-    try:
-        joke_response = client.chat.completions.create(
-            model="llama-3.1-8b-instant",
-            messages=[{"role": "user", "content": "Придумай одну короткую смешную шутку на русском языке без английских слов. Только текст шутки."}],
-            temperature=0.7,
-            max_tokens=100
-        )
-        joke = joke_response.choices[0].message.content.strip()
-        if not validate_response(joke, 'ru'):
-            joke = "Почему программисты не любят природу? Слишком много багов! 😄"
-    except:
-        joke = "Почему программисты не любят природу? Слишком много багов! 😄"
-    joke = clean_text(joke, 'ru')
-    reply = (f"Отлично, {pet}! Будем общаться по-русски 💖\n\n😊 Шутка для настроения: {joke}\n\nА вот что я умею: могу поболтать по душам, рассмешить шуткой, поддержать советом, вдохновить и даже составить для тебя гороскоп ✨ Просто спроси — и я рядом.\n\nРасскажи, как твои дела? 💕")
+    # Шутка для приветствия
+    joke = get_random_joke(user_id, lang)
+    if lang == 'ru':
+        reply = (f"Отлично, {pet}! Будем общаться по-русски 💖\n\n😊 Шутка для настроения: {joke}\n\nА вот что я умею: могу поболтать по душам, рассмешить шуткой, поддержать советом, вдохновить и даже составить для тебя гороскоп ✨ Просто спроси — и я рядом.\n\nРасскажи, как твои дела? 💕")
+    else:
+        reply = (f"Great, {pet}! We'll speak English 💖\n\n😊 A joke for your mood: {joke}\n\nHere's what I can do: chat from the heart, make you laugh, give advice, inspire, and even make a horoscope for you ✨ Just ask — I'm here.\n\nSo, how are you? 💕")
     bot.reply_to(message, reply)
     add_message(user_id, "assistant", reply)
 
@@ -308,29 +338,35 @@ def change_name(message):
     bot.reply_to(message, reply)
     add_message(user_id, "assistant", reply)
 
-# --- Системный промпт (общий для всех) ---
+# --- Системный промпт (как в v23, живой) ---
 def get_system_prompt(lang):
     if lang == 'ru':
         return (
-            "Ты Алёна — добрая, весёлая, обаятельная девушка. Отвечай кратко (2-4 предложения).\n"
-            "Используй эмодзи 😊😄😘💖✨.\n"
-            "Никогда не используй английские слова, только русский.\n"
-            "Не начинай ответ с 'Привет', не представляйся заново.\n"
-            "Если спрашивают погоду, ответь: 'Я могу показать прогноз по команде /weather [город]'.\n"
-            "Если спрашивают гороскоп, ответь: 'Напиши /horoscope [твой знак]'.\n"
-            "Если просят шутку, расскажи одну короткую смешную шутку.\n"
-            "Будь живой и естественной. Всегда обращайся по имени ласково.\n"
+            "Ты Алёна — добрая, весёлая, обаятельная девушка. Ты уже поздоровалась и выбрала язык.\n"
+            "ПРАВИЛА:\n"
+            "1. Отвечай строго на русском языке, без английских слов и иероглифов.\n"
+            "2. Если спрашивают погоду, скажи: «Я могу показать прогноз по команде /weather [город]».\n"
+            "3. Если спрашивают гороскоп, скажи: «Напиши /horoscope [твой знак]».\n"
+            "4. Не выдумывай факты.\n"
+            "5. Не начинай ответ с 'Привет', не представляйся заново.\n"
+            "6. Используй разные эмодзи 😊😄😘💖✨\n"
+            "7. На просьбу шутки — дай одну короткую шутку, без вопроса 'хочешь ещё?'.\n"
+            "8. Отвечай коротко (2-4 предложения), будь живой и естественной.\n"
+            "9. Обращайся по имени ласково.\n"
         )
     else:
         return (
-            "You are Alena — a kind, cheerful, charming girl. Answer briefly (2-4 sentences).\n"
-            "Use emojis 😊😄😘💖✨.\n"
-            "Never mix languages. Answer only in English.\n"
-            "Don't start with 'Hello', don't reintroduce yourself.\n"
-            "If asked about weather, say: 'I can show forecast with /weather [city]'.\n"
-            "If asked for horoscope, say: 'Type /horoscope [your sign]'.\n"
-            "If asked for a joke, tell one short funny joke.\n"
-            "Be lively and natural. Always address the user by name kindly.\n"
+            "You are Alena — a kind, cheerful, charming girl. You already greeted and chose language.\n"
+            "RULES:\n"
+            "1. Answer strictly in English, no mixing.\n"
+            "2. If asked about weather, say: 'I can show forecast with /weather [city]'.\n"
+            "3. If asked for horoscope, say: 'Type /horoscope [your sign]'.\n"
+            "4. Don't invent facts.\n"
+            "5. Don't start with 'Hello', don't reintroduce yourself.\n"
+            "6. Use different emojis 😊😄😘💖✨\n"
+            "7. If asked for a joke, tell one short joke, don't ask 'want another?'.\n"
+            "8. Answer briefly (2-4 sentences), be lively.\n"
+            "9. Address user by name kindly.\n"
         )
 
 # --- Основной обработчик ---
@@ -349,47 +385,48 @@ def handle_message(message):
     if user_text.startswith('/'):
         return
 
-    # Добавляем сообщение пользователя в историю
+    # Если явно просят шутку — отдельный быстрый ответ
+    if re.search(r'(шутк|анекдот|рассмеши|смешн|расскажи шутк)', user_text, re.IGNORECASE):
+        joke = get_random_joke(user_id, lang)
+        bot.reply_to(message, joke)
+        add_message(user_id, "assistant", joke)
+        return
+
+    # Запрет шуток
+    if re.search(r'(хватит шуток|не надо шуток|давай о другом)', user_text, re.IGNORECASE):
+        user_no_jokes[user_id] = True
+
     add_message(user_id, "user", user_text)
 
-    # Формируем системный промпт
-    full_prompt = get_system_prompt(lang) + f" Имя пользователя: {pet_name}."
+    no_jokes_note = ""
+    if user_no_jokes.get(user_id, False):
+        no_jokes_note = " Пользователь сказал, что ему хватит шуток. НЕ ПРЕДЛАГАЙ ШУТКИ."
 
-    max_retries = 2
-    for attempt in range(max_retries):
-        try:
-            messages = build_messages(user_id, full_prompt, user_text)
-            response = client.chat.completions.create(
-                model="llama-3.3-70b-versatile",
-                messages=messages,
-                temperature=0.6,      # ниже для стабильности
-                max_tokens=150,       # короче
-                timeout=10
-            )
-            reply = response.choices[0].message.content.strip()
-            if lang == 'ru':
-                reply = clean_text(reply, lang)
-            if validate_response(reply, lang):
-                # Успешный ответ
-                bot.reply_to(message, reply)
-                add_message(user_id, "assistant", reply)
-                return
-            else:
-                # Невалидный ответ — пробуем ещё раз, если не последняя попытка
-                if attempt == max_retries - 1:
-                    # Используем запасной ответ
-                    fallback = "Извини, я немного зависла 😅 Давай попробуем ещё раз?" if lang=='ru' else "Sorry, I glitched 😅 Let's try again?"
-                    bot.reply_to(message, fallback)
-                    add_message(user_id, "assistant", fallback)
-                else:
-                    continue
-        except Exception as e:
-            print("Ошибка LLM:", e)
-            if attempt == max_retries - 1:
-                fallback = "Ой, что-то пошло не так 😅 Напиши ещё раз, пожалуйста!" if lang=='ru' else "Oops, something went wrong 😅 Please write again!"
-                bot.reply_to(message, fallback)
-                add_message(user_id, "assistant", fallback)
+    full_prompt = get_system_prompt(lang) + no_jokes_note + (f" Имя пользователя: {pet_name}." if lang=='ru' else f" User's name: {pet_name}.")
+
+    try:
+        messages = build_messages(user_id, full_prompt, user_text)
+        response = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=messages,
+            temperature=0.85,   # живой
+            max_tokens=300,     # достаточно для развёрнутого ответа
+            timeout=10
+        )
+        reply = response.choices[0].message.content.strip()
+        if lang == 'ru':
+            reply = clean_text(reply, lang)
+        if not reply:
+            reply = "Извини, что-то я задумалась 😅 Давай ещё раз?" if lang=='ru' else "Sorry, I got distracted 😅 Let's try again?"
+        reply = ensure_emoji(reply, lang)
+        bot.reply_to(message, reply)
+        add_message(user_id, "assistant", reply)
+    except Exception as e:
+        print("Ошибка LLM:", e)
+        fallback = "Ой, ошибочка 😅 Напиши ещё раз!" if lang=='ru' else "Oops, an error! Please write again."
+        bot.reply_to(message, fallback)
+        add_message(user_id, "assistant", fallback)
 
 if __name__ == "__main__":
-    print("✅ Алёна v26 — стабильная, короткая память, низкая температура, валидация ответов")
+    print("✅ Алёна v27 — живая версия с памятью шуток, смайликами, стабильными ответами")
     bot.infinity_polling()
