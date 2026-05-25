@@ -58,39 +58,23 @@ def get_pet_name(user_id, first_name):
         return user_preferences[user_id]
     return default_pet_name(first_name)
 
-# --- Шутка дня (без английских слов) ---
-def get_random_joke(lang='ru'):
-    if lang == 'ru':
-        prompt = "на русском языке, без любых английских слов и фраз"
-        fallback = "Почему программисты не любят природу? Слишком много багов! 😄"
-    else:
-        prompt = "in English, without mixing languages"
-        fallback = "Why don't programmers like nature? Too many bugs! 😄"
-    try:
-        response = client.chat.completions.create(
-            model="llama-3.1-8b-instant",
-            messages=[
-                {"role": "system", "content": f"Ты автор шуток. Напиши одну короткую смешную шутку {prompt}. Только текст шутки."},
-                {"role": "user", "content": "Придумай случайную шутку"}
-            ],
-            temperature=0.9,
-            max_tokens=100
-        )
-        joke = response.choices[0].message.content.strip()
-        if not joke or len(joke) > 200:
-            return fallback
-        # дополнительная чистка от английского
-        joke = clean_english_words(joke)
-        return joke
-    except:
-        return fallback
+# --- Удаление китайских, японских, корейских иероглифов ---
+def remove_cjk(text: str) -> str:
+    # CJK Unified Ideographs и расширения
+    cjk_pattern = re.compile(r'[\u4e00-\u9fff\u3400-\u4dbf\u20000-\u2a6df\u2a700-\u2b73f\u2b740-\u2b81f\u2b820-\u2ceaf\u2ceb0-\u2ebe0\u3000-\u303f]', re.UNICODE)
+    return cjk_pattern.sub('', text)
 
-# --- Усиленная чистка английских слов (для русских ответов) ---
-def clean_english_words(text: str) -> str:
+# --- Усиленная чистка английских слов и иероглифов ---
+def clean_text(text: str, lang: str) -> str:
+    if lang != 'ru':
+        return text  # для английского не трогаем
     if not isinstance(text, str):
         return text
-    # Замены самых частых английских вкраплений
+    # Сначала удаляем иероглифы
+    text = remove_cjk(text)
+    # Замены английских слов и фраз
     replacements = {
+        r'\bsuch\b': '',
         r'\bpositive\b': 'позитивной',
         r'\benergy\b': 'энергией',
         r'\bResponsibility\b': 'ответственность',
@@ -120,7 +104,7 @@ def clean_english_words(text: str) -> str:
         r'\bwith\b': 'с',
         r'\bfrom\b': 'из',
         r'\bto\b': 'в',
-        r'\bof\b': 'из',
+        r'\bof\b': '',
         r'\bthe\b': '',
         r'\ba\b': '',
         r'\ban\b': '',
@@ -147,11 +131,39 @@ def clean_english_words(text: str) -> str:
     }
     for eng, rus in replacements.items():
         text = re.sub(eng, rus, text, flags=re.IGNORECASE)
-    # Убираем возможные двойные пробелы
+    # Убираем лишние пробелы
     text = re.sub(r'\s+', ' ', text).strip()
+    # Удаляем возможные артефакты типа "  " и " ."
+    text = re.sub(r'\s+\.', '.', text)
     return text
 
-# --- Текущая погода (одна точка) ---
+# --- Шутка дня ---
+def get_random_joke(lang='ru'):
+    if lang == 'ru':
+        prompt = "на русском языке, без любых английских слов и иероглифов"
+        fallback = "Почему программисты не любят природу? Слишком много багов! 😄"
+    else:
+        prompt = "in English, without mixing languages"
+        fallback = "Why don't programmers like nature? Too many bugs! 😄"
+    try:
+        response = client.chat.completions.create(
+            model="llama-3.1-8b-instant",
+            messages=[
+                {"role": "system", "content": f"Ты автор шуток. Напиши одну короткую смешную шутку {prompt}. Только текст шутки."},
+                {"role": "user", "content": "Придумай случайную шутку"}
+            ],
+            temperature=0.9,
+            max_tokens=100
+        )
+        joke = response.choices[0].message.content.strip()
+        if not joke or len(joke) > 200:
+            return fallback
+        joke = clean_text(joke, lang)
+        return joke
+    except:
+        return fallback
+
+# --- Текущая погода ---
 def get_current_weather(city_name, lang='ru'):
     if not WEATHER_API_KEY:
         return "🔧 Погода временно недоступна." if lang=='ru' else "Weather unavailable."
@@ -166,16 +178,21 @@ def get_current_weather(city_name, lang='ru'):
             hum = data['main']['humidity']
             wind = data['wind']['speed']
             if lang == 'ru':
-                return (f"🌡️ *Сейчас в {city_name}*:\n☁️ {desc.capitalize()}\n🌡️ {temp:.0f}°C (ощущается {feels:.0f}°C)\n💧 Влажность {hum}%\n🌬️ Ветер {wind} м/с")
+                result = (f"🌡️ *Сейчас в {city_name}*:\n☁️ {desc.capitalize()}\n🌡️ {temp:.0f}°C (ощущается {feels:.0f}°C)\n💧 Влажность {hum}%\n🌬️ Ветер {wind} м/с")
+                # Добавляем подсказку про прогноз
+                result += f"\n\n✨ Хочешь узнать прогноз на неделю? Напиши: `/weather {city_name} неделя`"
+                return result
             else:
-                return (f"🌡️ *Now in {city_name}*:\n☁️ {desc.capitalize()}\n🌡️ {temp:.0f}°C (feels like {feels:.0f}°C)\n💧 Humidity {hum}%\n🌬️ Wind {wind} m/s")
+                result = (f"🌡️ *Now in {city_name}*:\n☁️ {desc.capitalize()}\n🌡️ {temp:.0f}°C (feels like {feels:.0f}°C)\n💧 Humidity {hum}%\n🌬️ Wind {wind} m/s")
+                result += f"\n\n✨ Want a weekly forecast? Type: `/weather {city_name} week`"
+                return result
         else:
             return f"Город '{city_name}' не найден." if lang=='ru' else f"City '{city_name}' not found."
     except Exception as e:
         print("Current weather error:", e)
         return "Не удалось получить погоду." if lang=='ru' else "Weather error."
 
-# --- Прогноз на 5 дней (каждые 8 часов) ---
+# --- Прогноз на 5 дней ---
 def get_forecast(city_name, lang='ru'):
     if not WEATHER_API_KEY:
         return "🔧 Прогноз временно недоступен." if lang=='ru' else "Forecast unavailable."
@@ -185,8 +202,6 @@ def get_forecast(city_name, lang='ru'):
         data = resp.json()
         if resp.status_code != 200:
             return f"Город '{city_name}' не найден." if lang=='ru' else f"City '{city_name}' not found."
-        
-        # Берём уникальные дни (без дублирования каждые 8 часов)
         forecasts = []
         seen_dates = set()
         for item in data['list']:
@@ -200,15 +215,14 @@ def get_forecast(city_name, lang='ru'):
             if len(forecasts) >= 5:
                 break
         if lang == 'ru':
-            result = f"📅 *Прогноз для {city_name} на ближайшие дни:*\n" + "\n".join(forecasts)
+            return f"📅 *Прогноз для {city_name} на ближайшие дни:*\n" + "\n".join(forecasts)
         else:
-            result = f"📅 *Forecast for {city_name} for the next days:*\n" + "\n".join(forecasts)
-        return result
+            return f"📅 *Forecast for {city_name} for the next days:*\n" + "\n".join(forecasts)
     except Exception as e:
         print("Forecast error:", e)
         return "Не удалось получить прогноз." if lang=='ru' else "Forecast error."
 
-# --- Обработчики команд ---
+# --- Обработчик /weather с автораспознаванием прогноза ---
 @bot.message_handler(commands=['weather'])
 def weather_command(message):
     user_id = message.from_user.id
@@ -217,17 +231,19 @@ def weather_command(message):
     if len(parts) < 2:
         bot.reply_to(message, "Напиши город: /weather Москва" if lang=='ru' else "Specify city: /weather London")
         return
-    city = parts[1].strip()
-    # Если в запросе есть "неделя", "прогноз", "forecast" — показываем прогноз
-    if re.search(r'(неделя|прогноз|forecast|на неделю|на дни)', city, re.IGNORECASE):
-        # убираем эти слова из названия города
-        city_clean = re.sub(r'(неделя|прогноз|forecast|на неделю|на дни)', '', city, flags=re.IGNORECASE).strip()
+    city_input = parts[1].strip()
+    # Ключевые слова, указывающие на прогноз
+    forecast_keywords = re.compile(r'(неделя|прогноз|forecast|на неделю|на дни|3 дня|три дня|5 дней|на 3 дня|на 5 дней)', re.IGNORECASE)
+    if forecast_keywords.search(city_input):
+        # Убираем ключевые слова из строки города
+        city_clean = forecast_keywords.sub('', city_input).strip()
         if city_clean:
             result = get_forecast(city_clean, lang)
         else:
-            result = get_forecast(city, lang) if city else "Укажи город." if lang=='ru' else "Specify city."
+            result = get_forecast(city_input, lang) if city_input else "Укажи город." if lang=='ru' else "Specify city."
     else:
-        result = get_current_weather(city, lang)
+        # Показываем текущую погоду
+        result = get_current_weather(city_input, lang)
     bot.reply_to(message, result, parse_mode='Markdown')
 
 @bot.message_handler(commands=['forecast'])
@@ -272,7 +288,7 @@ def horoscope_command(message):
     today = datetime.now().strftime("%Y-%m-%d")
     try:
         if lang == 'ru':
-            prompt = f"Ты астролог. Составь короткое доброе предсказание для знака {sign_en.title()} на {today}. Обращайся к пользователю на \"ты\". Без английских слов."
+            prompt = f"Ты астролог. Составь короткое доброе предсказание для знака {sign_en.title()} на {today}. Обращайся к пользователю на \"ты\". Без английских слов и иероглифов."
         else:
             prompt = f"You are an astrologer. Write a short kind horoscope for {sign_en.title()} for {today}. Address the user."
         resp = client.chat.completions.create(
@@ -283,7 +299,7 @@ def horoscope_command(message):
         )
         text = resp.choices[0].message.content.strip()
         if lang == 'ru':
-            text = clean_english_words(text)
+            text = clean_text(text, lang)
         bot.reply_to(message, text)
     except:
         bot.reply_to(message, "Не удалось составить гороскоп 😅" if lang=='ru' else "Horoscope error.")
@@ -295,7 +311,7 @@ def reset_command(message):
     lang = user_lang.get(user_id, 'ru')
     bot.reply_to(message, "Память очищена 😊" if lang=='ru' else "Memory cleared 😊")
 
-# --- /start с душевным приветствием (без даты и погоды) ---
+# --- /start с душевным приветствием ---
 @bot.message_handler(commands=["start"])
 def send_welcome(message):
     user_id = message.from_user.id
@@ -318,7 +334,7 @@ def send_welcome(message):
     bot.reply_to(message, welcome)
     add_message(user_id, "assistant", welcome)
 
-# --- Выбор языка (убрал лишнее упоминание даты и погоды) ---
+# --- Выбор языка ---
 @bot.message_handler(func=lambda message: message.text and message.text.lower() in ['русский', 'russian', 'english', 'английский'])
 def set_language(message):
     user_id = message.from_user.id
@@ -368,15 +384,15 @@ def change_name(message):
     bot.reply_to(message, reply)
     add_message(user_id, "assistant", reply)
 
-# --- Системный промпт (без упоминания даты и погоды в начале) ---
+# --- Системный промпт ---
 def get_system_prompt(lang):
     if lang == 'ru':
         return (
             "Ты Алёна — добрая, весёлая, обаятельная девушка.\n"
             "Ты уже поздоровалась и выбрала язык.\n"
             "ПРАВИЛА:\n"
-            "1. Отвечай строго на русском языке, без любых английских слов. Если пользователь спросил, какой сегодня день, назови дату (ты можешь узнать её через /date в коде, но для диалога ты её знаешь).\n"
-            "2. Если спрашивают погоду, скажи: «Я могу показать прогноз по команде /weather [город]».\n"
+            "1. Отвечай строго на русском языке, без английских слов и без иероглифов.\n"
+            "2. Если спрашивают погоду, скажи: «Я могу показать прогноз по команде /weather [город]». После текущей погоды добавляй подсказку про прогноз.\n"
             "3. Если спрашивают гороскоп, скажи: «Напиши /horoscope [твой знак]».\n"
             "4. Не выдумывай факты. Если не знаешь — скажи честно.\n"
             "5. Не начинай ответ с 'Привет', не представляйся заново.\n"
@@ -391,7 +407,7 @@ def get_system_prompt(lang):
             "You have already greeted and chosen the language.\n"
             "RULES:\n"
             "1. Answer strictly in English, no mixing.\n"
-            "2. If asked about weather, say: 'I can show the forecast with /weather [city]'.\n"
+            "2. If asked about weather, say: 'I can show the forecast with /weather [city]'. After current weather, add a hint about forecast.\n"
             "3. If asked for horoscope, say: 'Type /horoscope [your sign]'.\n"
             "4. Don't invent facts.\n"
             "5. Don't start with 'Hello', don't reintroduce yourself.\n"
@@ -438,8 +454,7 @@ def handle_message(message):
             max_tokens=300
         )
         reply = response.choices[0].message.content.strip()
-        if lang == 'ru':
-            reply = clean_english_words(reply)
+        reply = clean_text(reply, lang)
         bot.reply_to(message, reply)
         add_message(user_id, "assistant", reply)
     except Exception as e:
@@ -449,5 +464,5 @@ def handle_message(message):
         add_message(user_id, "assistant", error)
 
 if __name__ == "__main__":
-    print("✅ Алёна v22 — прогноз погоды на 5 дней, чистка английского, душевное приветствие")
+    print("✅ Алёна v23 — финальная: чистка иероглифов, автоопределение прогноза, подсказки")
     bot.infinity_polling()
