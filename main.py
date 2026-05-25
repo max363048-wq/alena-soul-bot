@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 # --- Конфигурация ---
 BOT_TOKEN = os.getenv('BOT_TOKEN')
 GROQ_API_KEY = os.getenv('GROQ_API_KEY')
-WEATHER_API_KEY = os.getenv('WEATHER_API_KEY')  # Обязательно для прогноза
+WEATHER_API_KEY = os.getenv('WEATHER_API_KEY')
 
 bot = telebot.TeleBot(BOT_TOKEN)
 client = OpenAI(api_key=GROQ_API_KEY, base_url='https://api.groq.com/openai/v1')
@@ -58,7 +58,7 @@ def get_pet_name(user_id, first_name):
         return user_preferences[user_id]
     return default_pet_name(first_name)
 
-# --- Локальные шутки (запасной вариант) ---
+# --- Локальные шутки (без надоевшей «компьютер и вирус») ---
 FALLBACK_JOKES_RU = [
     'Почему программисты не любят природу? Слишком много багов! 😄',
     'Что говорит один байт другому? — Ты такой битовый! 😂',
@@ -83,7 +83,10 @@ def get_random_joke(lang='ru'):
             timeout=5
         )
         joke = resp.choices[0].message.content.strip()
+        # Фильтруем шутку про компьютер и вирус
         if joke and 5 < len(joke) < 200 and not re.search(r'[a-zA-Z]', joke):
+            if 'компьютер' in joke.lower() and 'вирус' in joke.lower():
+                return random.choice(FALLBACK_JOKES_RU)
             return joke
         return random.choice(FALLBACK_JOKES_RU)
     except:
@@ -130,9 +133,14 @@ def get_current_weather(city_name, lang='ru'):
             hum = data['main']['humidity']
             wind = data['wind']['speed']
             if lang == 'ru':
-                return (f'🌡️ *Сейчас в {city_name}*:\n☁️ {desc.capitalize()}\n🌡️ {temp:.0f}°C (ощущается {feels:.0f}°C)\n💧 Влажность {hum}%\n🌬️ Ветер {wind} м/с')
+                result = (f'🌡️ *Сейчас в {city_name}*:\n☁️ {desc.capitalize()}\n🌡️ {temp:.0f}°C (ощущается {feels:.0f}°C)\n💧 Влажность {hum}%\n🌬️ Ветер {wind} м/с')
+                # Добавляем подсказку про прогноз
+                result += f'\n\n✨ Хочешь узнать погоду на неделю? Напиши: `/weather {city_name} неделя`'
+                return result
             else:
-                return (f'🌡️ *Now in {city_name}*:\n☁️ {desc.capitalize()}\n🌡️ {temp:.0f}°C (feels like {feels:.0f}°C)\n💧 Humidity {hum}%\n🌬️ Wind {wind} m/s')
+                result = (f'🌡️ *Now in {city_name}*:\n☁️ {desc.capitalize()}\n🌡️ {temp:.0f}°C (feels like {feels:.0f}°C)\n💧 Humidity {hum}%\n🌬️ Wind {wind} m/s')
+                result += f'\n\n✨ Want a weekly forecast? Type: `/weather {city_name} week`'
+                return result
         else:
             return f'Город \'{city_name}\' не найден.' if lang=='ru' else f'City \'{city_name}\' not found.'
     except:
@@ -177,7 +185,6 @@ def weather_cmd(message):
         bot.reply_to(message, 'Напиши город: /weather Москва\nЧтобы узнать прогноз на несколько дней: /weather Москва неделя' if lang=='ru' else 'Specify city: /weather London\nFor forecast: /weather London week')
         return
     city_input = parts[1].strip()
-    # Если есть ключевые слова прогноза
     if re.search(r'(неделя|прогноз|forecast|на неделю|на дни|3 дня|5 дней)', city_input, re.IGNORECASE):
         city_clean = re.sub(r'(неделя|прогноз|forecast|на неделю|на дни|3 дня|5 дней)', '', city_input, flags=re.IGNORECASE).strip()
         if city_clean:
@@ -232,7 +239,7 @@ def horoscope_cmd(message):
             model='llama-3.1-8b-instant',
             messages=[{'role': 'user', 'content': prompt}],
             temperature=0.7,
-            max_tokens=300,   # Увеличено, чтобы гороскоп не обрезался
+            max_tokens=300,
             timeout=5
         )
         text = resp.choices[0].message.content.strip()
@@ -351,7 +358,7 @@ def get_system_prompt(lang, current_date):
             '8. Address the user by name kindly.\n'
         )
 
-# --- Основной обработчик (с добавлением текущей даты в промпт) ---
+# --- Основной обработчик ---
 @bot.message_handler(func=lambda message: True)
 def handle_message(message):
     user_id = message.from_user.id
@@ -367,13 +374,11 @@ def handle_message(message):
     if user_text.startswith('/'):
         return
 
-    # Если просят вдохновение
     if re.search(r'(вдохнов|мотивируй|подними дух|пожелай|скажи что-то хорошее)', user_text, re.IGNORECASE):
         quote = get_motivation(lang)
         bot.reply_to(message, f'{pet_name}, {quote}')
         return
 
-    # Если спрашивают дату в самом сообщении (на всякий случай)
     if re.search(r'(какой сегодня день|какое сегодня число|какой день недели|сегодняшняя дата)', user_text, re.IGNORECASE):
         now = datetime.now()
         if lang == 'ru':
@@ -422,5 +427,5 @@ def handle_message(message):
         add_message(user_id, 'assistant', error)
 
 if __name__ == '__main__':
-    print('✅ Алёна v13-plus с прогнозом погоды, полным гороскопом и знанием даты')
+    print('✅ Алёна v13-plus с прогнозом, полным гороскопом, датой и исправленными повторами шуток')
     bot.infinity_polling()
