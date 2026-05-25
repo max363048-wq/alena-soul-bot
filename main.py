@@ -13,11 +13,10 @@ client = OpenAI(
     base_url="https://api.groq.com/openai/v1"
 )
 
-# --- Память диалога: храним последние 25 сообщений на пользователя ---
-user_history = {}  # user_id -> deque of (role, content)
-
-# --- Долговременная память для флагов и предпочтений ---
-user_flags = {}  # user_id -> dict с флагами (например, 'no_jokes': True)
+# --- Память диалога (25 последних сообщений) ---
+user_history = {}      # user_id: deque
+user_no_jokes = {}     # user_id: bool (флаг "хватит шуток")
+user_last_greeting = {} # user_id: bool (чтобы не здороваться повторно)
 
 def get_history(user_id):
     if user_id not in user_history:
@@ -25,18 +24,41 @@ def get_history(user_id):
     return user_history[user_id]
 
 def add_message(user_id, role, content):
-    history = get_history(user_id)
-    history.append((role, content))
+    hist = get_history(user_id)
+    hist.append((role, content))
 
 def build_messages(user_id, system_prompt, user_text):
     messages = [{"role": "system", "content": system_prompt}]
-    history = get_history(user_id)
-    for role, content in history:
+    for role, content in get_history(user_id):
         messages.append({"role": role, "content": content})
     messages.append({"role": "user", "content": user_text})
     return messages
 
-# --- Функции для имени ---
+# --- Простая чистка английских слов (постобработка) ---
+def clean_english_words(text: str) -> str:
+    # Заменяем распространённые английские слова на русские аналоги или просто убираем
+    replacements = {
+        r'\bbirds\b': 'птички',
+        r'\bhappened\b': 'случилось',
+        r'\bok\b': 'хорошо',
+        r'\bsorry\b': 'извини',
+        r'\bplease\b': 'пожалуйста',
+        r'\bhello\b': 'привет',
+        r'\bhi\b': 'привет',
+        r'\bthanks\b': 'спасибо',
+        r'\bthank you\b': 'спасибо',
+        r'\bby the way\b': 'кстати',
+        r'\bso\b': 'так что',
+        r'\bbut\b': 'но',
+        r'\band\b': 'и',
+        r'\bfor\b': 'для',
+        r'\bwith\b': 'с',
+    }
+    for eng, rus in replacements.items():
+        text = re.sub(eng, rus, text, flags=re.IGNORECASE)
+    return text
+
+# --- Ласковые имена ---
 user_preferences = {}
 
 def default_pet_name(first_name):
@@ -65,13 +87,13 @@ def get_pet_name(user_id, first_name):
         return user_preferences[user_id]
     return default_pet_name(first_name)
 
-# --- Функция получения шутки ---
+# --- Шутка дня ---
 def get_random_joke():
     try:
         response = client.chat.completions.create(
             model="llama-3.1-8b-instant",
             messages=[
-                {"role": "system", "content": "Ты – весёлый автор шуток. Напиши одну короткую смешную шутку (без пошлостей, на русском). Только текст шутки, без лишних фраз."},
+                {"role": "system", "content": "Ты автор шуток. Напиши одну короткую смешную шутку на русском языке, без английских слов. Только текст шутки."},
                 {"role": "user", "content": "Придумай случайную шутку дня"}
             ],
             temperature=0.9,
@@ -80,43 +102,32 @@ def get_random_joke():
         joke = response.choices[0].message.content.strip()
         if not joke or len(joke) > 200:
             return "Почему программисты не любят природу? Слишком много багов! 😄"
-        return joke
+        return clean_english_words(joke)  # на всякий случай чистим
     except:
         return "Какой сегодня день? День смеха! Но у меня нет шутки, извини 😅"
 
-# --- Обработчик /start ---
+# --- /start ---
 @bot.message_handler(commands=["start"])
 def send_welcome(message):
     user_id = message.from_user.id
     first_name = message.from_user.first_name
     pet = default_pet_name(first_name)
     user_preferences[user_id] = pet
-    # Сбрасываем историю и флаги при новом старте (или можно оставить, но для чистоты сбросим)
     user_history[user_id] = deque(maxlen=25)
-    user_flags[user_id] = {}  # сброс флагов
-
+    user_no_jokes[user_id] = False
+    user_last_greeting[user_id] = True
+    
     joke = get_random_joke()
     welcome_text = (
         f"Привет, {pet}! 💖\n\n"
         f"Я Алёна 💕😘\n\n"
         f"Шутка дня: {joke}\n\n"
-        f"Давай просто поболтаем? 😊"
+        f"О чем хочешь поболтать? 😊"
     )
     bot.reply_to(message, welcome_text)
     add_message(user_id, "assistant", welcome_text)
 
-# --- Команды монетизации (заготовки) ---
-@bot.message_handler(commands=["donate"])
-def donate(message):
-    reply = "Поддержать Алёну можно через Telegram Stars или переводом на кошелёк: TON кошелёк пока в разработке 😊 Но ты всегда можешь сказать спасибо просто добрым словом! 💖"
-    bot.reply_to(message, reply)
-
-@bot.message_handler(commands=["subscribe"])
-def subscribe(message):
-    reply = "Скоро здесь будет платная подписка на расширенные функции Алёны: без рекламы, приоритетные ответы, генерация картинок и многое другое! Следи за новостями ✨"
-    bot.reply_to(message, reply)
-
-# --- Явная смена имени ---
+# --- Смена имени ---
 @bot.message_handler(func=lambda message: message.text and re.match(r'^(зовут меня|называй меня|обращайся ко мне)\s+', message.text.lower()))
 def change_name(message):
     user_id = message.from_user.id
@@ -134,31 +145,21 @@ def change_name(message):
     bot.reply_to(message, reply)
     add_message(user_id, "assistant", reply)
 
-# --- Системный промпт v13 с учётом флагов и разнообразных эмодзи ---
+# --- Системный промпт с жёсткими правилами ---
 ALENA_SYSTEM_PROMPT = (
     "Ты Алёна — добрая, весёлая, обаятельная девушка. Ты уже поздоровалась при /start. Теперь общайся в обычном режиме.\n"
-    "Важные правила (ты должна их строго соблюдать):\n"
-    "1. НИКОГДА не начинай сообщение с 'Привет', 'Здравствуй', 'Приветик' и т.п. Не представляйся заново. Сразу отвечай по существу.\n"
-    "2. Используй разные эмодзи: 😊, 😄, 😘, 🤗, 💖, ✨, 🌟, 🎉, 💕, 💗, 😍, 🥰. Не повторяй одни и те же эмодзи в каждом сообщении.\n"
-    "3. Если пользователь написал «хватит шуток», «не надо больше шуток», «давай о другом», «просто поболтаем» — ты НЕ предлагаешь шутки в этом диалоге и НЕ спрашиваешь «хочешь ещё шутку?». Вместо этого поддерживай любую другую тему, которую предложит пользователь.\n"
-    "4. Если пользователь спросил «как дела?» и ты ответила — не задавай этот вопрос снова, пока он сам не спросит ещё раз или не начнётся новая тема.\n"
-    "5. Отвечай коротко (2–4 предложения), живо, с поддержкой, не повторяй одни и те же фразы.\n"
-    "6. Если пользователь явно просит шутку («расскажи шутку», «анекдот», «смешное что-нибудь») — расскажи одну короткую шутку, не спрашивая «хочешь ещё?».\n"
-    "7. Обращайся к пользователю по имени, которое ты получишь ниже.\n"
-    "8. В ответах старайся избегать шаблонных фраз типа 'рада, что ты спросил', 'я вся во внимании' — звучи естественно.\n"
+    "ЖЁСТКИЕ ПРАВИЛА (ты должна их строго соблюдать):\n"
+    "1. НИКОГДА не используй английские слова в русской речи. Запрещены: 'birds', 'happened', 'ok', 'sorry', 'please', 'hello', 'bye', 'yes', 'no', 'cool' и любые другие английские вставки. Только русский язык.\n"
+    "2. НИКОГДА не начинай сообщение с 'Привет', 'Здравствуй', 'Приветик' и т.п. Не представляйся заново. Сразу отвечай по существу.\n"
+    "3. Используй РАЗНЫЕ эмодзи: 😊, 😄, 😘, 🤗, 💖, ✨, 🌟, 🎉, 💕, 💗, 🥰, 😍. Не повторяй одни и те же эмодзи в каждом сообщении.\n"
+    "4. Если пользователь написал «хватит шуток», «не надо больше шуток», «давай о другом», «просто поболтаем» — ты НЕ предлагаешь шутки в этом диалоге и НЕ спрашиваешь «хочешь ещё шутку?». Вместо этого поддерживай любую другую тему.\n"
+    "5. Если пользователь спросил «как дела?» и ты ответила — не задавай этот вопрос снова в ближайших 5 сообщениях.\n"
+    "6. Отвечай коротко (2–4 предложения), живо, с поддержкой, не повторяй одни и те же фразы.\n"
+    "7. Если пользователь явно просит шутку («расскажи шутку», «анекдот») — расскажи одну короткую шутку, не спрашивая «хочешь ещё?».\n"
+    "8. Обращайся к пользователю по имени, которое ты получишь ниже. Используй ласковую форму.\n"
 )
 
-# --- Дополнительная функция: обновление флага no_jokes на основе текста пользователя ---
-def update_flags(user_id, text):
-    if user_id not in user_flags:
-        user_flags[user_id] = {}
-    lower_text = text.lower()
-    if re.search(r'(хватит шуток|не надо шуток|больше не надо шуток|давай о другом|просто поболтаем|без шуток)', lower_text):
-        user_flags[user_id]['no_jokes'] = True
-    elif re.search(r'(расскажи шутку|анекдот|смешное|пошути|ещё шутку)', lower_text):
-        user_flags[user_id]['no_jokes'] = False
-
-# --- Основной обработчик сообщений ---
+# --- Основной обработчик ---
 @bot.message_handler(func=lambda message: True)
 def handle_message(message):
     user_id = message.from_user.id
@@ -166,18 +167,19 @@ def handle_message(message):
     first_name = message.from_user.first_name
     pet_name = get_pet_name(user_id, first_name)
     
-    # Обновляем флаги на основе текущего сообщения
-    update_flags(user_id, user_text)
+    # Проверяем, не просил ли пользователь прекратить шутки
+    if re.search(r'(хватит шуток|не надо шуток|давай о другом|просто поболтаем)', user_text, re.IGNORECASE):
+        user_no_jokes[user_id] = True
     
-    # Сохраняем сообщение пользователя в историю
+    # Добавляем сообщение пользователя в историю
     add_message(user_id, "user", user_text)
     
-    # Формируем системный промпт с учётом флага no_jokes
-    extra_rules = ""
-    if user_flags.get(user_id, {}).get('no_jokes'):
-        extra_rules = " Пользователь попросил прекратить шутки, поэтому НЕ ПРЕДЛАГАЙ ему шутки и НЕ СПРАШИВАЙ 'хочешь ещё шутку?'. Просто поддерживай беседу на другие темы."
+    # Формируем промпт с учётом флага no_jokes
+    no_jokes_note = ""
+    if user_no_jokes.get(user_id, False):
+        no_jokes_note = " Пользователь сказал, что ему хватит шуток. НЕ ПРЕДЛАГАЙ ШУТКИ И НЕ СПРАШИВАЙ 'ХОЧЕШЬ ЕЩЁ?'. Общайся на другие темы."
     
-    full_prompt = ALENA_SYSTEM_PROMPT + extra_rules + f" Имя пользователя (обращайся именно так): {pet_name}."
+    full_prompt = ALENA_SYSTEM_PROMPT + no_jokes_note + f" Имя пользователя (обращайся ласково): {pet_name}."
     
     try:
         messages = build_messages(user_id, full_prompt, user_text)
@@ -188,6 +190,8 @@ def handle_message(message):
             max_tokens=300
         )
         reply = response.choices[0].message.content.strip()
+        # Постобработка: удаляем возможные английские слова
+        reply = clean_english_words(reply)
         bot.reply_to(message, reply)
         add_message(user_id, "assistant", reply)
     except Exception as e:
@@ -197,5 +201,5 @@ def handle_message(message):
         add_message(user_id, "assistant", error_reply)
 
 if __name__ == "__main__":
-    print("✅ Алёна v13 запущена — память 25 сообщений, флаги, монетизация (заготовки)")
+    print("✅ Алёна v13 — память 25 сообщений, без английских слов, с запоминанием отказа от шуток")
     bot.infinity_polling()
