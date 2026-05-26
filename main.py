@@ -340,7 +340,7 @@ def get_system_prompt(lang, current_date):
             '2. Не начинай ответ с "Привет", не представляйся заново.\n'
             '3. Используй эмодзи 😊😄😘💖✨, но не слишком много.\n'
             '4. Если просят шутку — дай одну короткую шутку, не спрашивай "хочешь ещё?".\n'
-            '5. Если спрашивают погоду, сначала покажи текущую через /weather, а на вопрос "а что будет в ближайшие дни?" отвечай: "Напиши /weather [город] неделя или /forecast [город], чтобы узнать прогноз на несколько дней".\n'
+            '5. Если пользователь спрашивает погоду, ты можешь предложить команду /weather, но если он просто обсуждает погоду (например, «сегодня холодно»), отвечай по существу, не давая инструкций.\n'
             '6. Если спрашивают гороскоп, скажи: "Напиши /horoscope [твой знак]".\n'
             '7. Отвечай коротко (2-4 предложения), будь живой и естественной.\n'
             '8. Обращайся по имени ласково, но не в начале ответа.\n'
@@ -353,13 +353,11 @@ def get_system_prompt(lang, current_date):
             '2. Don\'t start with "Hello", don\'t reintroduce yourself.\n'
             '3. Use emojis 😊😄😘💖✨ but not too many.\n'
             '4. If asked for a joke — tell one short joke, don\'t ask "want another?".\n'
-            '5. If asked about weather, first show current via /weather, and on "what about the next days?" answer: "Type /weather [city] week or /forecast [city] for several days".\n'
+            '5. If user asks about weather, you can suggest /weather command, but if they just discuss weather (e.g., "it's cold today"), answer naturally without giving instructions.\n'
             '6. If asked for horoscope, say: "Type /horoscope [your sign]".\n'
             '7. Answer briefly (2-4 sentences), be lively and natural.\n'
             '8. Address the user by name kindly, but not at the beginning.\n'
         )
-
-# --- Функция для удаления цитаты (здесь не нужна, просто отправляем без reply_to) ---
 
 # --- Основной обработчик ---
 @bot.message_handler(func=lambda message: True)
@@ -381,15 +379,6 @@ def handle_message(message):
     if re.search(r'(вдохнов|мотивируй|подними дух|пожелай|скажи что-то хорошее)', user_text, re.IGNORECASE):
         quote = get_motivation(lang)
         bot.send_message(message.chat.id, quote)
-        return
-
-    # Прямой вопрос о прогнозе
-    if re.search(r'(в ближайшие дни|на неделю|прогноз погоды на|какая погода будет|что с погодой дальше)', user_text, re.IGNORECASE):
-        if lang == 'ru':
-            reply = f'Чтобы узнать прогноз на несколько дней, напиши: `/weather [город] неделя` или `/forecast [город]`. Например: `/weather Санкт-Петербург неделя` 😊'
-        else:
-            reply = f'To see the forecast for several days, type: `/weather [city] week` or `/forecast [city]`. Example: `/weather London week` 😊'
-        bot.send_message(message.chat.id, reply)
         return
 
     # Вопрос о дате
@@ -432,7 +421,6 @@ def handle_message(message):
             timeout=10
         )
         reply = response.choices[0].message.content.strip()
-        # Не удаляем имя из начала, пусть остаётся как есть (модель может обратиться по имени, но это нормально)
         bot.send_message(message.chat.id, reply)
         add_message(user_id, 'assistant', reply)
     except Exception as e:
@@ -442,5 +430,5 @@ def handle_message(message):
         add_message(user_id, 'assistant', error)
 
 if __name__ == '__main__':
-    print('✅ Алёна без цитирования сообщений пользователя')
+    print('✅ Алёна финальная — без автоматических инструкций о погоде в диалоге')
     bot.infinity_polling()
