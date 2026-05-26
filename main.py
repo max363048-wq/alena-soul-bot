@@ -61,7 +61,7 @@ def get_pet_name(user_id, first_name):
         return user_preferences[user_id]
     return default_pet_name(first_name)
 
-# --- Определение знака зодиака ---
+# --- Знаки зодиака ---
 def zodiac_sign(day, month):
     if (month == 1 and day >= 20) or (month == 2 and day <= 18): return 'водолей'
     elif (month == 2 and day >= 19) or (month == 3 and day <= 20): return 'рыбы'
@@ -97,13 +97,11 @@ FALLBACK_JOKES_RU = [
     'Почему программисты не любят природу? Слишком много багов! 😄',
     'Что говорит один байт другому? — Ты такой битовый! 😂',
     'Почему физики не могут найти работу? Потому что их постоянно ускоряют! 🤣',
-    'Как назвать кота, который ловит мышей? Компьютерный мыш! 😸',
 ]
 
 def is_virus_joke(text):
     text_lower = text.lower()
-    return ('компьютер' in text_lower and ('вирус' in text_lower or 'инфекц' in text_lower)) or \
-           ('компьютер' in text_lower and 'врач' in text_lower)
+    return ('компьютер' in text_lower and 'вирус' in text_lower) or ('компьютер' in text_lower and 'врач' in text_lower)
 
 def get_random_joke(lang='ru'):
     if lang != 'ru':
@@ -150,25 +148,25 @@ def get_motivation(lang='ru'):
 def clean_english_words(text: str) -> str:
     if not text:
         return text
-    replacements = {
+    reps = {
         r'\balmost\b': 'почти', r'\btemperature\b': 'температура', r'\bdegrees?\b': 'градусов',
         r'\bso\b': 'так что', r'\bbut\b': 'но', r'\band\b': 'и', r'\bok\b': 'хорошо',
         r'\bplease\b': 'пожалуйста', r'\bsorry\b': 'извини', r'\bthanks\b': 'спасибо',
-        r'\bhello\b': 'привет', r'\bhi\b': 'привет', r'\bgreat\b': 'отлично',
-        r'\bgood\b': 'хороший', r'\bvery\b': 'очень', r'\blike\b': 'как',
-        r'\breally\b': 'действительно', r'\bwhat\b': 'что', r'\bwhy\b': 'почему',
-        r'\byes\b': 'да', r'\bno\b': 'нет', r'\bI\b': 'я', r'\byou\b': 'ты',
-        r'\bwe\b': 'мы', r'\bthey\b': 'они', r'\bfor\b': 'для', r'\bwith\b': 'с',
-        r'\bfrom\b': 'из', r'\bto\b': 'в', r'\bof\b': '', r'\bthe\b': '',
-        r'\ba\b': '', r'\san\b': '', r'\bnot\b': 'не'
+        r'\bhello\b': 'привет', r'\bhi\b': 'привет', r'\bgreat\b': 'отлично', r'\bgood\b': 'хороший',
+        r'\bvery\b': 'очень', r'\blike\b': 'как', r'\breally\b': 'действительно',
+        r'\bwhat\b': 'что', r'\bwhy\b': 'почему', r'\byes\b': 'да', r'\bno\b': 'нет',
+        r'\bI\b': 'я', r'\byou\b': 'ты', r'\bwe\b': 'мы', r'\bthey\b': 'они',
+        r'\bfor\b': 'для', r'\bwith\b': 'с', r'\bfrom\b': 'из', r'\bto\b': 'в',
+        r'\bof\b': '', r'\bthe\b': '', r'\ba\b': '', r'\ban\b': '', r'\bnot\b': 'не'
     }
-    for eng, rus in replacements.items():
+    for eng, rus in reps.items():
         text = re.sub(eng, rus, text, flags=re.IGNORECASE)
     text = re.sub(r'\s+', ' ', text).strip()
     return text
 
-# --- Погода ---
+# --- Погода: извлечение города с учётом контекста ---
 def extract_city(text, user_id=None):
+    # Сначала явное указание города
     match = re.search(r'\b(?:в|во|в городе)\s+([А-Яа-я\-]+(?:[-\s]?[А-Яа-я]+)?)', text, re.IGNORECASE)
     if match:
         city = match.group(1).strip().lower()
@@ -185,21 +183,25 @@ def extract_city(text, user_id=None):
             if city.endswith('ы'): city = city[:-1]
             city = city[0].upper() + city[1:]
         return city
+    # Фразы "у нас", "в нашем городе"
     if re.search(r'(у нас|в нашем городе|в моём городе|в своем городе|в нашем)', text, re.IGNORECASE):
         if user_id and user_id in user_last_city:
             return user_last_city[user_id]
-    if re.search(r'(сколько градусов|температура|погода|градусов|холодно|тепло|завтра|послезавтра)', text, re.IGNORECASE):
+    # Если вопрос о завтра/послезавтра и есть сохранённый город
+    if re.search(r'(завтра|послезавтра|будет)', text, re.IGNORECASE) and re.search(r'(погод|температур|дождь|солнце|ветер|градусов)', text, re.IGNORECASE):
+        if user_id and user_id in user_last_city:
+            return user_last_city[user_id]
+    # Если просто спрашивают "сколько градусов" без города
+    if re.search(r'(сколько градусов|температура|погода|градусов|холодно|тепло)', text, re.IGNORECASE):
         if user_id and user_id in user_last_city:
             return user_last_city[user_id]
     return None
 
 def is_weather_query(text):
-    if re.search(r'(какая погода|какой прогноз|что с погодой|сколько градусов|температура какая|будет завтра|будет послезавтра)', text, re.IGNORECASE):
+    if re.search(r'(какая погода|какой прогноз|что с погодой|сколько градусов|температура какая|будет завтра|будет послезавтра|завтра погода|послезавтра погода)', text, re.IGNORECASE):
         return True
     if re.search(r'(будет|ожидается|прогноз|скажи|покажи).*(погод|температур|дождь|солнце|ветер)', text, re.IGNORECASE):
         return True
-    if not re.search(r'[?]', text) and re.match(r'^[^?!]*[.?!]?$', text):
-        return False
     return False
 
 def get_current_weather(city_name, lang='ru'):
@@ -245,7 +247,8 @@ def get_forecast_for_day(city_name, day_delta, lang='ru'):
             common_desc = max(set(descs), key=descs.count)
             return {'desc': common_desc, 'temp': avg_temp}
         return None
-    except:
+    except Exception as e:
+        print(f"❌ Ошибка прогноза: {e}")
         return None
 
 def generate_natural_weather_response(city, weather_data, lang='ru', is_forecast=False, day_name=''):
@@ -254,7 +257,6 @@ def generate_natural_weather_response(city, weather_data, lang='ru', is_forecast
     if is_forecast:
         temp = weather_data['temp']
         desc = weather_data['desc']
-        # Шаблон на случай, если LLM откажется работать
         fallback = f"На {day_name} в {city} ожидается {desc}, около {temp:.0f} градусов. Уютного дня! 😊"
         prompt = f"Ты Алёна. Пользователь спросил погоду на {day_name} в {city}. Реальные данные: {desc}, температура {temp:.0f}°C. Ответь тепло, коротко (2-3 предложения). НЕ ВЫДУМЫВАЙ СВОИ ЦИФРЫ! Используй именно {temp:.0f}°C и описание {desc}. Можешь добавить сравнение с осенью, если холодно. Без английских слов."
     else:
@@ -269,13 +271,10 @@ def generate_natural_weather_response(city, weather_data, lang='ru', is_forecast
         resp = client.chat.completions.create(
             model='llama-3.1-8b-instant',
             messages=[{'role': 'user', 'content': prompt}],
-            temperature=0.7,  # ниже для надёжности
-            max_tokens=150,
-            timeout=5
+            temperature=0.7, max_tokens=150, timeout=5
         )
         reply = resp.choices[0].message.content.strip()
         reply = clean_english_words(reply)
-        # Проверяем, есть ли в ответе реальная температура
         temp_int = int(round(temp))
         if str(temp_int) not in reply and str(temp_int+1) not in reply and str(temp_int-1) not in reply:
             print(f"⚠️ LLM проигнорировала температуру, используем шаблон")
@@ -319,7 +318,7 @@ def handle_weather_query(message, user_text, lang, user_id):
     add_message(user_id, 'assistant', reply)
     return True
 
-# --- Остальные команды (без изменений) ---
+# --- Команды (короткие) ---
 @bot.message_handler(commands=['weather'])
 def weather_cmd(message):
     user_id = message.from_user.id
@@ -333,7 +332,7 @@ def weather_cmd(message):
     if weather:
         reply = generate_natural_weather_response(city, weather, lang, is_forecast=False)
     else:
-        reply = f"Не удалось получить погоду для {city}. Проверь название."
+        reply = f"Не удалось получить погоду для {city}."
     bot.send_message(message.chat.id, reply)
 
 @bot.message_handler(commands=['forecast'])
@@ -413,8 +412,7 @@ def horoscope_cmd(message):
 def quote_cmd(message):
     user_id = message.from_user.id
     lang = user_lang.get(user_id, 'ru')
-    quote = get_motivation(lang)
-    bot.send_message(message.chat.id, quote)
+    bot.send_message(message.chat.id, get_motivation(lang))
 
 @bot.message_handler(commands=['reset'])
 def reset_cmd(message):
@@ -473,7 +471,7 @@ def change_name(message):
     bot.send_message(message.chat.id, reply)
     add_message(user_id, 'assistant', reply)
 
-# --- Системный промпт (упрощён) ---
+# --- Системный промпт ---
 def get_system_prompt(lang, current_date):
     if lang == 'ru':
         return (
@@ -569,5 +567,5 @@ def handle_message(message):
         add_message(user_id, 'assistant', error)
 
 if __name__ == '__main__':
-    print('✅ Алёна финальная — реальная погода без выдумок, шаблонный запасной вариант')
+    print('✅ Алёна финальная — использует сохранённый город для вопросов "завтра"')
     bot.infinity_polling()
