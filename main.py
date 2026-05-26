@@ -22,7 +22,7 @@ user_history = {}
 user_no_jokes = {}
 user_preferences = {}
 user_lang = {}
-user_last_city = {}  # запоминаем последний город для каждого пользователя
+user_last_city = {}
 
 def get_history(user_id):
     if user_id not in user_history:
@@ -61,7 +61,7 @@ def get_pet_name(user_id, first_name):
         return user_preferences[user_id]
     return default_pet_name(first_name)
 
-# --- Определение знака зодиака по дате ---
+# --- Определение знака зодиака ---
 def zodiac_sign(day, month):
     if (month == 1 and day >= 20) or (month == 2 and day <= 18):
         return 'водолей'
@@ -166,9 +166,46 @@ def get_motivation(lang='ru'):
     except:
         return random.choice(MOTIVATION_FALLBACK)
 
-# --- Погода: функции с контекстом города ---
+# --- Чистка английских слов ---
+def clean_english_words(text: str) -> str:
+    if not text:
+        return text
+    text = re.sub(r'\balmost\b', 'почти', text, flags=re.IGNORECASE)
+    text = re.sub(r'\bso\b', 'так что', text, flags=re.IGNORECASE)
+    text = re.sub(r'\bbut\b', 'но', text, flags=re.IGNORECASE)
+    text = re.sub(r'\band\b', 'и', text, flags=re.IGNORECASE)
+    text = re.sub(r'\bok\b', 'хорошо', text, flags=re.IGNORECASE)
+    text = re.sub(r'\bplease\b', 'пожалуйста', text, flags=re.IGNORECASE)
+    text = re.sub(r'\bsorry\b', 'извини', text, flags=re.IGNORECASE)
+    text = re.sub(r'\bthanks\b', 'спасибо', text, flags=re.IGNORECASE)
+    text = re.sub(r'\bhello\b', 'привет', text, flags=re.IGNORECASE)
+    text = re.sub(r'\bhi\b', 'привет', text, flags=re.IGNORECASE)
+    text = re.sub(r'\bgreat\b', 'отлично', text, flags=re.IGNORECASE)
+    text = re.sub(r'\bgood\b', 'хороший', text, flags=re.IGNORECASE)
+    text = re.sub(r'\bvery\b', 'очень', text, flags=re.IGNORECASE)
+    text = re.sub(r'\blike\b', 'как', text, flags=re.IGNORECASE)
+    text = re.sub(r'\breally\b', 'действительно', text, flags=re.IGNORECASE)
+    text = re.sub(r'\bwhat\b', 'что', text, flags=re.IGNORECASE)
+    text = re.sub(r'\bwhy\b', 'почему', text, flags=re.IGNORECASE)
+    text = re.sub(r'\byes\b', 'да', text, flags=re.IGNORECASE)
+    text = re.sub(r'\bno\b', 'нет', text, flags=re.IGNORECASE)
+    text = re.sub(r'\bI\b', 'я', text, flags=re.IGNORECASE)
+    text = re.sub(r'\byou\b', 'ты', text, flags=re.IGNORECASE)
+    text = re.sub(r'\bwe\b', 'мы', text, flags=re.IGNORECASE)
+    text = re.sub(r'\bthey\b', 'они', text, flags=re.IGNORECASE)
+    text = re.sub(r'\bfor\b', 'для', text, flags=re.IGNORECASE)
+    text = re.sub(r'\bwith\b', 'с', text, flags=re.IGNORECASE)
+    text = re.sub(r'\bfrom\b', 'из', text, flags=re.IGNORECASE)
+    text = re.sub(r'\bto\b', 'в', text, flags=re.IGNORECASE)
+    text = re.sub(r'\bof\b', '', text, flags=re.IGNORECASE)
+    text = re.sub(r'\bthe\b', '', text, flags=re.IGNORECASE)
+    text = re.sub(r'\ba\b', '', text, flags=re.IGNORECASE)
+    text = re.sub(r'\san\b', '', text, flags=re.IGNORECASE)
+    text = re.sub(r'\s+', ' ', text).strip()
+    return text
+
+# --- Погода ---
 def extract_city(text, user_id=None):
-    # Прямое указание города после "в", "во", "в городе"
     match = re.search(r'\b(?:в|во|в городе)\s+([А-Яа-я\-]+(?:[-\s]?[А-Яа-я]+)?)', text, re.IGNORECASE)
     if match:
         city = match.group(1).strip()
@@ -192,23 +229,19 @@ def extract_city(text, user_id=None):
                 city = city[:-1]
             city = city[0].upper() + city[1:]
         return city
-    # Фразы, означающие "текущий город"
     if re.search(r'(у нас|в нашем городе|в моём городе|в своем городе|в нашем)', text, re.IGNORECASE):
         if user_id and user_id in user_last_city:
             return user_last_city[user_id]
-    # Если нет явного города, но есть ключевые слова погоды и сохранённый город
     if re.search(r'(сколько градусов|температура|погода|градусов|холодно|тепло)', text, re.IGNORECASE):
         if user_id and user_id in user_last_city:
             return user_last_city[user_id]
     return None
 
 def is_weather_query(text):
-    """Определяет, является ли сообщение вопросом о погоде (а не просто упоминанием)"""
     if re.search(r'(какая погода|какой прогноз|что с погодой|сколько градусов|температура какая|будет завтра|будет послезавтра)', text, re.IGNORECASE):
         return True
     if re.search(r'(будет|ожидается|прогноз|скажи|покажи).*(погод|температур|дождь|солнце|ветер)', text, re.IGNORECASE):
         return True
-    # Короткие утверждения без вопросительного знака не считаем вопросами
     if not re.search(r'[?]', text) and re.match(r'^[^?!]*[.?!]?$', text):
         return False
     return False
@@ -267,14 +300,14 @@ def generate_natural_weather_response(city, weather_data, lang='ru', is_forecast
     if is_forecast:
         temp = weather_data['temp']
         desc = weather_data['desc']
-        prompt = f"Ты Алёна. Пользователь спросил погоду на {day_name} в {city}. Реальные данные: {desc}, температура {temp:.0f}°C. Ответь тепло, коротко (2-3 предложения), можешь пошутить или сравнить с осенью, если холодно. Обращайся на «ты»."
+        prompt = f"Ты Алёна. Пользователь спросил погоду на {day_name} в {city}. Реальные данные: {desc}, температура {temp:.0f}°C. Ответь тепло, коротко (2-3 предложения), можешь пошутить или сравнить с осенью, если холодно. Обращайся на «ты». Не используй английские слова."
     else:
         desc = weather_data['desc']
         temp = weather_data['temp']
         feels = weather_data['feels']
         hum = weather_data['hum']
         wind = weather_data['wind']
-        prompt = f"Ты Алёна. Пользователь спросил о погоде в {city}. Реальные данные: сейчас {desc}, температура {temp:.0f}°C, ощущается как {feels:.0f}°C, влажность {hum}%, ветер {wind} м/с. Ответь тепло, коротко (2-3 предложения), можешь добавить небольшую шутку или сравнение (например, «почти как осень»). Не используй сухих цифр, вплети их естественно. Обращайся к пользователю на «ты»."
+        prompt = f"Ты Алёна. Пользователь спросил о погоде в {city}. Реальные данные: сейчас {desc}, температура {temp:.0f}°C, ощущается как {feels:.0f}°C, влажность {hum}%, ветер {wind} м/с. Ответь тепло, коротко (2-3 предложения), можешь добавить небольшую шутку или сравнение (например, «почти как осень»). Не используй сухих цифр, вплети их естественно. Обращайся к пользователю на «ты». Не используй английские слова."
     try:
         resp = client.chat.completions.create(
             model='llama-3.1-8b-instant',
@@ -284,6 +317,7 @@ def generate_natural_weather_response(city, weather_data, lang='ru', is_forecast
             timeout=5
         )
         reply = resp.choices[0].message.content.strip()
+        reply = clean_english_words(reply)
         return reply if reply else f"Сейчас в {city} около {temp:.0f} градусов, {desc}. Хорошего дня! 😊"
     except:
         if is_forecast:
@@ -291,7 +325,6 @@ def generate_natural_weather_response(city, weather_data, lang='ru', is_forecast
         else:
             return f"Сейчас в {city} {desc}, температура около {temp:.0f} градусов. Хорошего дня! 😊"
 
-# --- Обработчик погоды в диалоге ---
 def handle_weather_query(message, user_text, lang, user_id):
     if not is_weather_query(user_text):
         return False
@@ -310,7 +343,6 @@ def handle_weather_query(message, user_text, lang, user_id):
     if not city:
         bot.send_message(message.chat.id, "В каком городе тебя интересует погода? Напиши название, например: Санкт-Петербург 😊")
         return True
-    # Запоминаем город
     user_last_city[user_id] = city
     if day_delta == 0:
         weather = get_current_weather(city, lang)
@@ -325,9 +357,10 @@ def handle_weather_query(message, user_text, lang, user_id):
         else:
             reply = f"Не удалось получить прогноз на {day_name} для {city}. Попробуй позже 😊"
     bot.send_message(message.chat.id, reply)
+    add_message(user_id, 'assistant', reply)
     return True
 
-# --- Команды ---
+# --- Команды (с очисткой английских слов) ---
 @bot.message_handler(commands=['weather'])
 def weather_cmd(message):
     user_id = message.from_user.id
@@ -382,9 +415,10 @@ def date_cmd(message):
     if lang == 'ru':
         weekdays = ['понедельник', 'вторник', 'среду', 'четверг', 'пятницу', 'субботу', 'воскресенье']
         wd = weekdays[now.weekday()]
-        bot.send_message(message.chat.id, f"Сегодня {wd}, {now.strftime('%d.%m.%Y')} года.")
+        reply = f"Сегодня {wd}, {now.strftime('%d.%m.%Y')} года. 😊"
     else:
-        bot.send_message(message.chat.id, f"Today is {now.strftime('%B %d, %Y')}.")
+        reply = f"Today is {now.strftime('%B %d, %Y')}. 😊"
+    bot.send_message(message.chat.id, reply)
 
 @bot.message_handler(commands=['horoscope'])
 def horoscope_cmd(message):
@@ -405,7 +439,7 @@ def horoscope_cmd(message):
         else:
             bot.send_message(message.chat.id, "Не поняла знак или дату. Напиши, например: /horoscope козерог или /horoscope 15 июня")
             return
-    today = datetime.now().strftime("%Y-%m-%d")
+    today = datetime.now().strftime('%Y-%m-%d')
     try:
         prompt = f"Ты астролог. Составь короткое доброе предсказание для знака {sign.capitalize()} на {today}. Обращайся к пользователю на 'ты'. Пиши на русском, без английских слов."
         resp = client.chat.completions.create(
@@ -416,6 +450,7 @@ def horoscope_cmd(message):
             timeout=5
         )
         text = resp.choices[0].message.content.strip()
+        text = clean_english_words(text)
         bot.send_message(message.chat.id, text)
     except:
         bot.send_message(message.chat.id, "Не удалось составить гороскоп 😅 Попробуй позже.")
@@ -433,7 +468,7 @@ def reset_cmd(message):
     reset_user(user_id)
     bot.send_message(message.chat.id, "Память очищена 😊")
 
-# --- /start ---
+# --- /start и выбор языка ---
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
     user_id = message.from_user.id
@@ -545,7 +580,7 @@ def handle_message(message):
         bot.send_message(message.chat.id, reply)
         return
 
-    # Погода (только если это явный запрос)
+    # Погода
     if handle_weather_query(message, user_text, lang, user_id):
         return
 
@@ -578,6 +613,7 @@ def handle_message(message):
             timeout=10
         )
         reply = response.choices[0].message.content.strip()
+        reply = clean_english_words(reply)
         bot.send_message(message.chat.id, reply)
         add_message(user_id, 'assistant', reply)
     except Exception as e:
@@ -587,5 +623,5 @@ def handle_message(message):
         add_message(user_id, 'assistant', error)
 
 if __name__ == '__main__':
-    print('✅ Алёна суперфинальная — с контекстом города, фразой "у нас", гороскопом по дате')
+    print('✅ Алёна суперфинальная — чистка английских слов, память погоды, контекст города')
     bot.infinity_polling()
