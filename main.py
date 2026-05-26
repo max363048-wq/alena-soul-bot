@@ -22,6 +22,7 @@ user_history = {}
 user_no_jokes = {}
 user_preferences = {}
 user_lang = {}
+user_last_city = {}  # запоминаем последний упомянутый город для каждого пользователя
 
 def get_history(user_id):
     if user_id not in user_history:
@@ -41,6 +42,7 @@ def build_messages(user_id, system_prompt, user_text):
 def reset_user(user_id):
     user_history[user_id] = deque(maxlen=6)
     user_no_jokes[user_id] = False
+    user_last_city.pop(user_id, None)
 
 # --- Ласковые имена ---
 def default_pet_name(first_name):
@@ -164,30 +166,47 @@ def get_motivation(lang='ru'):
     except:
         return random.choice(MOTIVATION_FALLBACK)
 
-# --- Погода: извлечение города из фразы ---
-def extract_city(text):
-    """Извлекает название города после предлога 'в', 'во', приводит к именительному падежу."""
-    # Поиск паттерна "в Город" или "во Город"
-    match = re.search(r'\b(?:в|во)\s+([А-Яа-я\-]+(?:[-\s]?[А-Яа-я]+)?)', text, re.IGNORECASE)
-    if not match:
-        return None
-    city = match.group(1).strip()
-    # Приводим к нормальной форме (убираем окончания падежей)
-    # Простые правила для русского языка:
-    if city.endswith('е') and city not in ['Санкт-Петербург', 'Ростов-на-Дону']:
-        city = city[:-1]  # убираем "е"
-    if city.endswith('у'):
-        city = city[:-1]
-    if city.endswith('ы'):
-        city = city[:-1]
-    # Исправление частых ошибок
-    if city.lower() == 'санкт-петербурге':
-        city = 'Санкт-Петербург'
-    if city.lower() == 'санкт-петербург':
-        city = 'Санкт-Петербург'
-    # Первая буква заглавная, остальные строчные
-    city = city[0].upper() + city[1:].lower()
-    return city
+# --- Погода: извлечение города из фразы с учётом контекста ---
+def extract_city(text, user_id=None):
+    # Сначала ищем прямое указание города после предлога "в", "во", "в городе"
+    match = re.search(r'\b(?:в|во|в городе)\s+([А-Яа-я\-]+(?:[-\s]?[А-Яа-я]+)?)', text, re.IGNORECASE)
+    if match:
+        city = match.group(1).strip()
+        # Приводим к именительному падежу
+        city = city.lower()
+        # Словарь коррекций
+        corrections = {
+            'санкт-петербурге': 'Санкт-Петербург',
+            'санкт-петербург': 'Санкт-Петербург',
+            'москве': 'Москва',
+            'москва': 'Москва',
+            'питере': 'Санкт-Петербург',
+            'питер': 'Санкт-Петербург',
+        }
+        if city in corrections:
+            city = corrections[city]
+        else:
+            # Убираем окончания "е", "у", "ы" для простых названий
+            if city.endswith('е') and city not in ['Санкт-Петербург', 'Ростов-на-Дону']:
+                city = city[:-1]
+            if city.endswith('у'):
+                city = city[:-1]
+            if city.endswith('ы'):
+                city = city[:-1]
+            city = city[0].upper() + city[1:]
+        return city
+    # Если нет явного города, но есть фразы "в нашем городе", "в моём городе"
+    if re.search(r'(в нашем городе|в моём городе|в своем городе)', text, re.IGNORECASE):
+        # используем последний известный город для этого пользователя
+        if user_id and user_id in user_last_city:
+            return user_last_city[user_id]
+        else:
+            return None
+    # Если есть фраза "сколько градусов" и нет города, берём последний город
+    if re.search(r'(сколько градусов|температура|погода)', text, re.IGNORECASE):
+        if user_id and user_id in user_last_city:
+            return user_last_city[user_id]
+    return None
 
 def get_current_weather(city_name, lang='ru'):
     if not WEATHER_API_KEY:
@@ -208,42 +227,7 @@ def get_current_weather(city_name, lang='ru'):
     except:
         return None
 
-def get_forecast(city_name, lang='ru'):
-    if not WEATHER_API_KEY:
-        return None
-    url = f"http://api.openweathermap.org/data/2.5/forecast?q={city_name}&appid={WEATHER_API_KEY}&units=metric&lang={lang}"
-    try:
-        resp = requests.get(url, timeout=8)
-        data = resp.json()
-        if resp.status_code != 200:
-            return None
-        # Сгруппируем по дням
-        days = {}
-        for item in data['list']:
-            dt = datetime.fromtimestamp(item['dt'])
-            date_key = dt.strftime('%Y-%m-%d')
-            temp = item['main']['temp']
-            desc = item['weather'][0]['description']
-            if date_key not in days:
-                days[date_key] = {'temps': [], 'descs': []}
-            days[date_key]['temps'].append(temp)
-            days[date_key]['descs'].append(desc)
-        # Усредним температуру за день и возьмём самое частое описание
-        result = []
-        for date_key, vals in sorted(days.items())[:5]:  # максимум 5 дней
-            avg_temp = sum(vals['temps']) / len(vals['temps'])
-            # самое частое описание
-            desc_counts = {}
-            for d in vals['descs']:
-                desc_counts[d] = desc_counts.get(d, 0) + 1
-            common_desc = max(desc_counts, key=desc_counts.get)
-            result.append((date_key, common_desc, avg_temp))
-        return result
-    except:
-        return None
-
 def get_forecast_for_day(city_name, day_delta, lang='ru'):
-    """Возвращает прогноз на день, отстоящий на day_delta от сегодня (0 - сегодня, 1 - завтра, 2 - послезавтра)"""
     if not WEATHER_API_KEY:
         return None
     url = f"http://api.openweathermap.org/data/2.5/forecast?q={city_name}&appid={WEATHER_API_KEY}&units=metric&lang={lang}"
@@ -262,7 +246,6 @@ def get_forecast_for_day(city_name, day_delta, lang='ru'):
                 descs.append(item['weather'][0]['description'])
         if temps:
             avg_temp = sum(temps) / len(temps)
-            # самое частое описание
             desc_counts = {}
             for d in descs:
                 desc_counts[d] = desc_counts.get(d, 0) + 1
@@ -276,22 +259,11 @@ def get_forecast_for_day(city_name, day_delta, lang='ru'):
 def generate_natural_weather_response(city, weather_data, lang='ru', is_forecast=False, day_name=''):
     if not weather_data:
         return f"Не удалось получить данные о погоде для {city}. Проверь название города 😊"
-    if is_forecast and isinstance(weather_data, list):
-        # Много дней
-        lines = []
-        for date_key, desc, temp in weather_data[:3]:
-            dt = datetime.strptime(date_key, '%Y-%m-%d')
-            date_str = dt.strftime('%d.%m')
-            lines.append(f"{date_str}: {desc}, {temp:.0f}°C")
-        forecast_text = "\n".join(lines)
-        prompt = f"Ты Алёна. Пользователь спросил прогноз погоды в {city} на несколько дней. Реальный прогноз:\n{forecast_text}\nОтветь тепло, коротко (2-4 предложения), можешь добавить шутку про погоду или сравнение с осенью. Не перечисляй все дни сухо, а передай общее ощущение. Обращайся на «ты»."
-    elif is_forecast and isinstance(weather_data, dict):
-        # Один день (завтра/послезавтра)
+    if is_forecast:
         temp = weather_data['temp']
         desc = weather_data['desc']
         prompt = f"Ты Алёна. Пользователь спросил погоду на {day_name} в {city}. Реальные данные: {desc}, температура {temp:.0f}°C. Ответь тепло, коротко (2-3 предложения), можешь пошутить или сравнить с осенью, если холодно. Обращайся на «ты»."
     else:
-        # Текущая погода
         desc = weather_data['desc']
         temp = weather_data['temp']
         feels = weather_data['feels']
@@ -307,17 +279,15 @@ def generate_natural_weather_response(city, weather_data, lang='ru', is_forecast
             timeout=5
         )
         reply = resp.choices[0].message.content.strip()
-        return reply if reply else "Погода сейчас вполне комфортная, одевайся по погоде! 😊"
+        return reply if reply else f"Сейчас в {city} около {temp:.0f} градусов, {desc}. Хорошего дня! 😊"
     except:
-        if is_forecast and isinstance(weather_data, dict):
+        if is_forecast:
             return f"На {day_name} в {city} ожидается {desc}, около {temp:.0f} градусов. Уютного дня! 😊"
-        elif is_forecast:
-            return f"В ближайшие дни погода будет переменчивая, лучше уточнить по команде /weather {city} неделя 😊"
         else:
             return f"Сейчас в {city} {desc}, температура около {temp:.0f} градусов. Хорошего дня! 😊"
 
 # --- Обработчик вопросов о погоде в диалоге ---
-def handle_weather_query(message, user_text, lang):
+def handle_weather_query(message, user_text, lang, user_id):
     # Определяем, на какой день нужен прогноз
     day_delta = 0
     day_name = ''
@@ -327,19 +297,18 @@ def handle_weather_query(message, user_text, lang):
     elif re.search(r'завтра', user_text, re.IGNORECASE):
         day_delta = 1
         day_name = 'завтра'
-    elif re.search(r'сегодня', user_text, re.IGNORECASE):
-        day_delta = 0
-        day_name = 'сегодня'
     else:
-        # может быть просто "какая погода" - подразумевается сегодня
         day_delta = 0
         day_name = 'сегодня'
 
     # Извлекаем город
-    city = extract_city(user_text)
+    city = extract_city(user_text, user_id)
     if not city:
         bot.send_message(message.chat.id, "В каком городе тебя интересует погода? Напиши название, например: Санкт-Петербург 😊")
         return True
+
+    # Запоминаем город для этого пользователя
+    user_last_city[user_id] = city
 
     if day_delta == 0:
         weather = get_current_weather(city, lang)
@@ -363,26 +332,14 @@ def weather_cmd(message):
     lang = user_lang.get(user_id, 'ru')
     parts = message.text.split(maxsplit=1)
     if len(parts) < 2:
-        bot.send_message(message.chat.id, "Напиши город: /weather Москва\nЧтобы узнать прогноз: /weather Москва неделя")
+        bot.send_message(message.chat.id, "Напиши город: /weather Москва")
         return
-    city_input = parts[1].strip()
-    if re.search(r'(неделя|прогноз|на неделю)', city_input, re.IGNORECASE):
-        city_clean = re.sub(r'(неделя|прогноз|на неделю)', '', city_input, flags=re.IGNORECASE).strip()
-        if city_clean:
-            forecasts = get_forecast(city_clean, lang)
-            if forecasts:
-                reply = generate_natural_weather_response(city_clean, forecasts, lang, is_forecast=True)
-            else:
-                reply = f"Не удалось получить прогноз для {city_clean}. Проверь название."
-        else:
-            reply = "Укажи город, например: /weather Москва неделя"
+    city = parts[1].strip()
+    weather = get_current_weather(city, lang)
+    if weather:
+        reply = generate_natural_weather_response(city, weather, lang, is_forecast=False)
     else:
-        city = city_input
-        weather = get_current_weather(city, lang)
-        if weather:
-            reply = generate_natural_weather_response(city, weather, lang, is_forecast=False)
-        else:
-            reply = f"Не удалось получить погоду для {city}. Попробуй другой город."
+        reply = f"Не удалось получить погоду для {city}. Проверь название."
     bot.send_message(message.chat.id, reply)
 
 @bot.message_handler(commands=['forecast'])
@@ -391,14 +348,28 @@ def forecast_cmd(message):
     lang = user_lang.get(user_id, 'ru')
     parts = message.text.split(maxsplit=1)
     if len(parts) < 2:
-        bot.send_message(message.chat.id, "Напиши город: /forecast Москва")
+        bot.send_message(message.chat.id, "Напиши город и день: /forecast Москва завтра")
         return
-    city = parts[1].strip()
-    forecasts = get_forecast(city, lang)
-    if forecasts:
-        reply = generate_natural_weather_response(city, forecasts, lang, is_forecast=True)
+    args = parts[1].strip().split()
+    if len(args) < 2:
+        bot.send_message(message.chat.id, "Укажи город и день (завтра/послезавтра). Пример: /forecast Москва завтра")
+        return
+    city = args[0]
+    day_word = args[1].lower()
+    if 'завтра' in day_word:
+        day_delta = 1
+        day_name = 'завтра'
+    elif 'послезавтра' in day_word:
+        day_delta = 2
+        day_name = 'послезавтра'
     else:
-        reply = f"Не удалось получить прогноз для {city}."
+        bot.send_message(message.chat.id, "Укажи день: завтра или послезавтра")
+        return
+    forecast = get_forecast_for_day(city, day_delta, lang)
+    if forecast:
+        reply = generate_natural_weather_response(city, forecast, lang, is_forecast=True, day_name=day_name)
+    else:
+        reply = f"Не удалось получить прогноз на {day_name} для {city}."
     bot.send_message(message.chat.id, reply)
 
 @bot.message_handler(commands=['date'])
@@ -524,7 +495,7 @@ def get_system_prompt(lang, current_date):
             '5. Если спрашивают гороскоп, скажи: "Напиши /horoscope [твой знак или дата рождения]".\n'
             '6. Отвечай коротко (2-4 предложения), будь живой и естественной.\n'
             '7. Обращайся по имени ласково, но не в начале ответа.\n'
-            '8. О погоде ты теперь знаешь реальные данные (они приходят из внешнего API), поэтому не выдумывай. Если пользователь спрашивает погоду, ты можешь ответить естественно, но полагайся на факты, которые тебе передаются. (В этом диалоге факты уже подставлены, просто отвечай по-человечески.)\n'
+            '8. О погоде ты теперь знаешь реальные данные (они приходят из внешнего API), поэтому не выдумывай.\n'
         )
     else:
         return (
@@ -537,7 +508,7 @@ def get_system_prompt(lang, current_date):
             '5. If asked for horoscope, say: "Type /horoscope [your sign or birth date]".\n'
             '6. Answer briefly (2-4 sentences), be lively and natural.\n'
             '7. Address the user by name kindly, but not at the beginning.\n'
-            '8. For weather, you now have real data (passed via API). Do not invent numbers.\n'
+            '8. For weather, you have real data (passed via API). Do not invent numbers.\n'
         )
 
 # --- Основной обработчик ---
@@ -574,10 +545,10 @@ def handle_message(message):
         bot.send_message(message.chat.id, reply)
         return
 
-    # Вопрос о погоде
-    if re.search(r'(погод|температур|дождь|солнце|ветер|градус|холодно|тепло|прохладно|послезавтра|завтра)', user_text, re.IGNORECASE):
-        if handle_weather_query(message, user_text, lang):
-            return  # ответ уже отправлен
+    # Вопрос о погоде (температура, градусы, погода, завтра, послезавтра)
+    if re.search(r'(погод|температур|дождь|солнце|ветер|градус|холодно|тепло|прохладно|послезавтра|завтра|сколько градусов)', user_text, re.IGNORECASE):
+        if handle_weather_query(message, user_text, lang, user_id):
+            return
 
     # Запрет шуток
     if re.search(r'(хватит шуток|не надо шуток|давай о другом)', user_text, re.IGNORECASE):
@@ -617,5 +588,5 @@ def handle_message(message):
         add_message(user_id, 'assistant', error)
 
 if __name__ == '__main__':
-    print('✅ Алёна суперфинальная — реальная погода на сегодня/завтра/послезавтра, гороскоп по дате')
+    print('✅ Алёна суперфинальная — с контекстом города, реальной погодой, гороскопом по дате')
     bot.infinity_polling()
