@@ -17,7 +17,7 @@ client = OpenAI(api_key=GROQ_API_KEY, base_url='https://api.groq.com/openai/v1')
 
 BOT_USERNAME = 'AlenaSoul_bot'
 
-# --- Память (увеличена до 12 сообщений) ---
+# --- Память (12 сообщений) ---
 user_history = {}
 user_no_jokes = {}
 user_preferences = {}
@@ -26,7 +26,7 @@ user_last_city = {}
 
 def get_history(user_id):
     if user_id not in user_history:
-        user_history[user_id] = deque(maxlen=12)  # было 6
+        user_history[user_id] = deque(maxlen=12)
     return user_history[user_id]
 
 def add_message(user_id, role, content):
@@ -44,7 +44,7 @@ def reset_user(user_id):
     user_no_jokes[user_id] = False
     user_last_city.pop(user_id, None)
 
-# --- Ласковые имена (без изменений) ---
+# --- Ласковые имена ---
 def default_pet_name(first_name):
     names = {
         'максим': 'Максик', 'макс': 'Максик', 'владимир': 'Вовочка',
@@ -61,7 +61,7 @@ def get_pet_name(user_id, first_name):
         return user_preferences[user_id]
     return default_pet_name(first_name)
 
-# --- Определение знака зодиака (без изменений) ---
+# --- Определение знака зодиака ---
 def zodiac_sign(day, month):
     if (month == 1 and day >= 20) or (month == 2 and day <= 18):
         return 'водолей'
@@ -108,7 +108,7 @@ def parse_date_string(date_str):
                 return day, num
     return None, None
 
-# --- Шутки (без изменений) ---
+# --- Шутки ---
 FALLBACK_JOKES_RU = [
     'Почему программисты не любят природу? Слишком много багов! 😄',
     'Что говорит один байт другому? — Ты такой битовый! 😂',
@@ -141,7 +141,7 @@ def get_random_joke(lang='ru'):
     except:
         return random.choice(FALLBACK_JOKES_RU)
 
-# --- Мотивация (без изменений) ---
+# --- Мотивация ---
 MOTIVATION_FALLBACK = [
     'Ты сможешь всё, что задумаешь! 💖',
     'Каждый день — новая возможность стать счастливее. 😊',
@@ -166,7 +166,7 @@ def get_motivation(lang='ru'):
     except:
         return random.choice(MOTIVATION_FALLBACK)
 
-# --- Чистка английских слов (усиленная) ---
+# --- Чистка английских слов ---
 def clean_english_words(text: str) -> str:
     if not text:
         return text
@@ -202,15 +202,14 @@ def clean_english_words(text: str) -> str:
     text = re.sub(r'\bof\b', '', text, flags=re.IGNORECASE)
     text = re.sub(r'\bthe\b', '', text, flags=re.IGNORECASE)
     text = re.sub(r'\ba\b', '', text, flags=re.IGNORECASE)
-    text = re.sub(r'\san\b', '', text, flags=re.IGNORECASE)
-    # Удаляем возможную фразу "not" и т.п.
+    text = re.sub(r'\ban\b', '', text, flags=re.IGNORECASE)
     text = re.sub(r'\bnot\b', 'не', text, flags=re.IGNORECASE)
     text = re.sub(r'\s+', ' ', text).strip()
     return text
 
-# --- Погода с улучшенным запоминанием города ---
+# --- Погода с реальным API ---
 def extract_city(text, user_id=None):
-    # Сначала ищем прямое указание города после предлога
+    # Ищем "в Город" или "во Город"
     match = re.search(r'\b(?:в|во|в городе)\s+([А-Яа-я\-]+(?:[-\s]?[А-Яа-я]+)?)', text, re.IGNORECASE)
     if match:
         city = match.group(1).strip()
@@ -234,33 +233,32 @@ def extract_city(text, user_id=None):
                 city = city[:-1]
             city = city[0].upper() + city[1:]
         return city
-    # Если есть фразы, указывающие на текущий город (без явного названия)
+    # Фразы, означающие текущий город
     if re.search(r'(у нас|в нашем городе|в моём городе|в своем городе|в нашем)', text, re.IGNORECASE):
         if user_id and user_id in user_last_city:
             return user_last_city[user_id]
-    # Если есть слова о погоде, но нет города, пробуем использовать сохранённый
+    # Если вопрос о погоде без явного города, но есть сохранённый
     if re.search(r'(сколько градусов|температура|погода|градусов|холодно|тепло|завтра|послезавтра)', text, re.IGNORECASE):
         if user_id and user_id in user_last_city:
             return user_last_city[user_id]
     return None
 
 def is_weather_query(text):
-    # Явные вопросы о погоде
+    # Явные запросы погоды
     if re.search(r'(какая погода|какой прогноз|что с погодой|сколько градусов|температура какая|будет завтра|будет послезавтра)', text, re.IGNORECASE):
         return True
     # Вопросы с будущим временем
     if re.search(r'(будет|ожидается|прогноз|скажи|покажи).*(погод|температур|дождь|солнце|ветер)', text, re.IGNORECASE):
         return True
-    # Если нет вопросительного знака, скорее всего не вопрос
-    if not re.search(r'[?]', text) and re.match(r'^[^?!]*[.?!]?$', text):
-        return False
     return False
 
 def get_current_weather(city_name, lang='ru'):
     if not WEATHER_API_KEY:
+        print("WEATHER_API_KEY не задан")
         return None
     url = f"http://api.openweathermap.org/data/2.5/weather?q={city_name}&appid={WEATHER_API_KEY}&units=metric&lang={lang}"
     try:
+        print(f"Запрос погоды для {city_name}...")
         resp = requests.get(url, timeout=8)
         data = resp.json()
         if resp.status_code == 200:
@@ -269,10 +267,13 @@ def get_current_weather(city_name, lang='ru'):
             feels = data['main']['feels_like']
             hum = data['main']['humidity']
             wind = data['wind']['speed']
+            print(f"Получены данные: {desc}, {temp}°C")
             return {'desc': desc, 'temp': temp, 'feels': feels, 'hum': hum, 'wind': wind}
         else:
+            print(f"Ошибка API: {resp.status_code} - {data.get('message')}")
             return None
-    except:
+    except Exception as e:
+        print(f"Исключение погоды: {e}")
         return None
 
 def get_forecast_for_day(city_name, day_delta, lang='ru'):
@@ -353,22 +354,19 @@ def handle_weather_query(message, user_text, lang, user_id):
     # Извлекаем город
     city = extract_city(user_text, user_id)
     if not city:
-        # Если не удалось извлечь, спрашиваем
         bot.send_message(message.chat.id, "В каком городе тебя интересует погода? Напиши название, например: Санкт-Петербург 😊")
-        # Добавляем сообщение пользователя в историю, чтобы не потерять контекст
         add_message(user_id, 'user', user_text)
         return True
     # Запоминаем город
     user_last_city[user_id] = city
-    # Добавляем запрос пользователя в историю (чтобы бот видел вопрос)
     add_message(user_id, 'user', user_text)
-    # Получаем погоду
+    # Получаем реальные данные
     if day_delta == 0:
         weather = get_current_weather(city, lang)
         if weather:
             reply = generate_natural_weather_response(city, weather, lang, is_forecast=False)
         else:
-            reply = f"Не удалось получить текущую погоду для {city}. Проверь название города 😊"
+            reply = f"Не удалось получить текущую погоду для {city}. Проверь название города или попробуй позже 😊"
     else:
         forecast = get_forecast_for_day(city, day_delta, lang)
         if forecast:
@@ -376,11 +374,10 @@ def handle_weather_query(message, user_text, lang, user_id):
         else:
             reply = f"Не удалось получить прогноз на {day_name} для {city}. Попробуй позже 😊"
     bot.send_message(message.chat.id, reply)
-    # Добавляем ответ бота в историю
     add_message(user_id, 'assistant', reply)
     return True
 
-# --- Команды (без изменений, кроме увеличения памяти, но они уже используют те же функции) ---
+# --- Команды (аналогично) ---
 @bot.message_handler(commands=['weather'])
 def weather_cmd(message):
     user_id = message.from_user.id
@@ -600,7 +597,7 @@ def handle_message(message):
         bot.send_message(message.chat.id, reply)
         return
 
-    # Погода (обработчик сам добавит сообщение в историю)
+    # Погода
     if handle_weather_query(message, user_text, lang, user_id):
         return
 
@@ -608,7 +605,6 @@ def handle_message(message):
     if re.search(r'(хватит шуток|не надо шуток|давай о другом)', user_text, re.IGNORECASE):
         user_no_jokes[user_id] = True
 
-    # Добавляем сообщение пользователя в историю
     add_message(user_id, 'user', user_text)
 
     no_jokes_note = ''
@@ -644,5 +640,5 @@ def handle_message(message):
         add_message(user_id, 'assistant', error)
 
 if __name__ == '__main__':
-    print('✅ Алёна финальная — память 12 сообщений, надёжное запоминание города')
+    print('✅ Алёна суперфинальная — реальная погода через API, память 12 сообщений')
     bot.infinity_polling()
