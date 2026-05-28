@@ -184,7 +184,7 @@ def clean_english_words(text: str) -> str:
     text = re.sub(r'\s+', ' ', text).strip()
     return text
 
-# --- Погода (без изменений) ---
+# --- Погода ---
 def extract_city(text: str, user_id: Optional[int] = None) -> Optional[str]:
     match = re.search(r'\b(?:в|во|в городе)\s+([А-Яа-я\-]+(?:[-\s]?[А-Яа-я]+)?)', text, re.IGNORECASE)
     if match:
@@ -449,14 +449,14 @@ def search_photo_by_keywords(query: str) -> Optional[str]:
     keyword_map = {
         'пляж': ['пляж', 'море', 'берег', 'песок', 'океан', 'купальник'],
         'набережная': ['набережная', 'набережную', 'набережной', 'причал', 'яхта', 'порт'],
-        'горы': ['горы', 'горах', 'гора', 'горный', 'вершина', 'скалы', 'альпы'],
-        'парк': ['парк', 'парке', 'сквер', 'аллея', 'фонтан', 'зелень', 'голубей', 'птиц', 'скамейка', 'лавочка'],
-        'город': ['город', 'городе', 'улица', 'проспект', 'площадь', 'ночной', 'небоскреб'],
-        'дома': ['дома', 'дом', 'квартира', 'комната', 'уют', 'свитер', 'плед', 'свечи', 'окно', 'чай'],
-        'природа': ['природа', 'лес', 'озеро', 'поле', 'луг', 'прогулка', 'семья', 'собака', 'деревья', 'зелень', 'цветы', 'парк'],  # парк уже есть, но добавим для широты
-        'кормит птиц': ['кормит птиц', 'птиц', 'голуби', 'корм']
+        'горы': ['горы', 'горах', 'гора', 'горный', 'вершина', 'скалы'],
+        'парк': ['парк', 'парке', 'сквер', 'аллея', 'фонтан', 'зелень', 'голубей', 'птиц'],
+        'город': ['город', 'городе', 'улица', 'проспект', 'площадь'],
+        'дома': ['дома', 'дом', 'квартира', 'комната', 'уют', 'свитер', 'плед', 'свечи'],
+        'кормит птиц': ['кормит птиц', 'птиц', 'голуби', 'корм'],
+        'природа': ['природа', 'поле', 'луг', 'лес', 'озеро'],
+        'париж': ['париж', 'франция', 'eiffel', 'лувр', 'парк', 'фонтан']
     }
-    # Определяем категорию
     category = None
     for cat, words in keyword_map.items():
         for w in words:
@@ -467,11 +467,17 @@ def search_photo_by_keywords(query: str) -> Optional[str]:
             break
     if not category:
         return None
-    # Собираем фото, у которых в имени есть хотя бы одно слово из списка для этой категории
     matching = []
     for photo in available:
         name = get_keywords_from_photo_name(photo)
-        for w in keyword_map[category]:
+        if category in name:
+            matching.append(photo)
+    if matching:
+        return random.choice(matching)
+    # пробуем по отдельным словам
+    for photo in available:
+        name = get_keywords_from_photo_name(photo)
+        for w in keyword_map.get(category, []):
             if w in name:
                 matching.append(photo)
                 break
@@ -651,7 +657,6 @@ def handle_message(message: telebot.types.Message) -> None:
     if user_text.startswith('/'):
         return
 
-    # --- Если пользователь говорит, что у него нет фото ---
     if re.search(r'(нет фото|нет своих фото|не снимаюсь|не люблю фоткаться|нет моих фото|не фотографируюсь)', user_text, re.IGNORECASE):
         user_no_photos[user_id] = True
         reply = (
@@ -664,7 +669,7 @@ def handle_message(message: telebot.types.Message) -> None:
         bot.send_message(message.chat.id, reply)
         return
 
-    # --- Вопросы о последнем фото (расширенный список) ---
+    # --- Вопросы о последнем фото ---
     lower_text = user_text.lower()
     is_photo_question = any(phrase in lower_text for phrase in [
         'где была сделана', 'какое место', 'что там за фон', 'где это', 'какой город',
@@ -674,8 +679,7 @@ def handle_message(message: telebot.types.Message) -> None:
         'за границей', 'в каком городе', 'на каком море', 'какой пляж', 'как называется',
         'поделись деталями', 'что ещё видно', 'расскажи подробнее', 'добавь деталей',
         'опиши фон', 'что позади', 'какие люди',
-        'это фото', 'эта фотография', 'на этом фото', 'на этой фотографии',
-        'в каком месте', 'какое это место', 'что за место', 'где это снято'
+        'это фото', 'эта фотография', 'на этом фото', 'на этой фотографии'
     ])
     if is_photo_question:
         if user_id in user_last_sent_photo and user_last_sent_photo[user_id]:
@@ -702,7 +706,6 @@ def handle_message(message: telebot.types.Message) -> None:
                 description = analyze_image_with_vision(photo_path, prompt, lang)
                 if description.startswith('Привет'):
                     description = re.sub(r'^Привет[,!\s]*', '', description)
-                # Удаляем случайные многоточия и лишние фразы
                 description = re.sub(r'\.\.\.', '.', description)
                 bot.send_message(message.chat.id, description)
             except Exception as e:
@@ -725,16 +728,12 @@ def handle_message(message: telebot.types.Message) -> None:
         if re.search(r'(красавица|красивая|умница|прекрасна|великолепна|шикарна|обалденная|потрясающая|чудесная|восхитительная|симпатичная|милашка|хорошенькая|обворожительная|божественно|как красиво|какая ты красивая|какая ты классная|какая ты хорошая)', user_text, re.IGNORECASE):
             compliment = True
 
-        # --- Принудительный поиск тематического фото ---
         thematic_photo = search_photo_by_keywords(user_text)
         if thematic_photo:
             chosen_photo = thematic_photo
         else:
-            # Если тематического нет – берём случайное, но НЕ ИЗ ИСТОРИИ (чтобы точно показать)
-            # Чтобы не повторять последние, используем get_random_photo_excluding, но если не нашло – берём любое.
             chosen_photo = get_random_photo_excluding(user_id)
             if not chosen_photo:
-                # Абсолютный запасной вариант: просто любое фото из папки
                 all_photos = get_photo_list()
                 if all_photos:
                     chosen_photo = random.choice(all_photos)
@@ -827,7 +826,7 @@ def handle_message(message: telebot.types.Message) -> None:
         bot.send_message(message.chat.id, error)
         add_message(user_id, 'assistant', error)
 
-    # --- Инициативный вопрос о фото пользователя (5% вероятность, не чаще раза в 10 минут) ---
+    # --- Инициативный вопрос о фото пользователя ---
     if not user_no_photos.get(user_id, False) and random.random() < 0.05:
         now = datetime.now()
         last = user_last_interest_photo.get(user_id)
@@ -840,5 +839,5 @@ def handle_message(message: telebot.types.Message) -> None:
             bot.send_message(message.chat.id, ask_photo)
 
 if __name__ == '__main__':
-    print('✅ Алёна суперфинальная — распознаёт вопросы о последнем фото, может сама спросить про фото пользователя')
+    print('✅ Алёна финальная — окончательная стабильная версия')
     bot.infinity_polling()
