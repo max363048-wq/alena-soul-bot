@@ -462,13 +462,21 @@ def search_category_by_query(query: str) -> Optional[str]:
     return None
 
 def get_photos_by_category(category: str) -> List[str]:
-    """Возвращает список путей фото, относящихся к заданной категории (по имени файла)."""
+    """Возвращает список путей фото, относящихся к заданной категории (по любым синонимам из KEYWORD_MAP)."""
     all_photos = get_photo_list()
+    if not all_photos:
+        return []
+    if category not in KEYWORD_MAP:
+        return []
+    synonyms = KEYWORD_MAP[category]
     matching = []
     for photo in all_photos:
         name = get_keywords_from_photo_name(photo)
-        if category in name:
-            matching.append(photo)
+        # Проверяем, содержит ли имя хотя бы один из синонимов
+        for syn in synonyms:
+            if syn in name:
+                matching.append(photo)
+                break
     return matching
 
 def select_thematic_photo(user_id: int, category: str) -> Optional[str]:
