@@ -31,8 +31,8 @@ user_no_jokes: Dict[int, bool] = {}
 user_preferences: Dict[int, str] = {}
 user_lang: Dict[int, str] = {}
 user_last_city: Dict[int, str] = {}
-user_last_photos: Dict[int, deque] = {}    # последние 3 показанных фото
-user_no_photos: Dict[int, bool] = {}       # пользователь сказал, что у него нет фото
+user_last_photos: Dict[int, deque] = {}
+user_no_photos: Dict[int, bool] = {}
 
 def get_history(user_id: int) -> Deque:
     if user_id not in user_history:
@@ -156,7 +156,7 @@ def get_motivation(lang: str = 'ru') -> str:
     except:
         return random.choice(MOTIVATION_FALLBACK)
 
-# --- Чистка английских слов ---
+# --- Чистка английских слов (усиленная) ---
 def clean_english_words(text: str) -> str:
     if not text:
         return text
@@ -169,14 +169,18 @@ def clean_english_words(text: str) -> str:
         r'\bwhat\b': 'что', r'\bwhy\b': 'почему', r'\byes\b': 'да', r'\bno\b': 'нет',
         r'\bI\b': 'я', r'\byou\b': 'ты', r'\bwe\b': 'мы', r'\bthey\b': 'они',
         r'\bfor\b': 'для', r'\bwith\b': 'с', r'\bfrom\b': 'из', r'\bto\b': 'в',
-        r'\bof\b': '', r'\bthe\b': '', r'\ba\b': '', r'\ban\b': '', r'\bnot\b': 'не'
+        r'\bof\b': '', r'\bthe\b': '', r'\ba\b': '', r'\ban\b': '', r'\bnot\b': 'не',
+        r'\blater\b': 'позже', r'\bmaybe\b': 'возможно', r'\bjust\b': 'просто',
+        r'\bnow\b': 'сейчас', r'\bwell\b': 'ну', r'\bthen\b': 'затем', r'\beven\b': 'даже',
+        r'\bsome\b': 'некоторые', r'\bany\b': 'любые', r'\bhere\b': 'здесь', r'\bthere\b': 'там',
+        r'\bmy\b': 'мой', r'\byour\b': 'твой', r'\bhis\b': 'его', r'\bher\b': 'её'
     }
     for eng, rus in reps.items():
         text = re.sub(eng, rus, text, flags=re.IGNORECASE)
     text = re.sub(r'\s+', ' ', text).strip()
     return text
 
-# --- Погода (полный блок без изменений) ---
+# --- Погода (без изменений) ---
 def extract_city(text: str, user_id: Optional[int] = None) -> Optional[str]:
     match = re.search(r'\b(?:в|во|в городе)\s+([А-Яа-я\-]+(?:[-\s]?[А-Яа-я]+)?)', text, re.IGNORECASE)
     if match:
@@ -421,7 +425,7 @@ def reset_cmd(message: telebot.types.Message) -> None:
     reset_user(user_id)
     bot.send_message(message.chat.id, "Память очищена 😊")
 
-# --- Функции для работы с фотографиями (с поиском по ключевым словам) ---
+# --- Функции для работы с фотографиями ---
 def get_photo_list() -> List[str]:
     if not os.path.exists(PHOTO_FOLDER):
         os.makedirs(PHOTO_FOLDER, exist_ok=True)
@@ -434,22 +438,20 @@ def get_keywords_from_photo_name(photo_path: str) -> str:
     return name
 
 def search_photo_by_keywords(query: str) -> Optional[str]:
-    """Ищет фото, в имени которого содержится хотя бы одно ключевое слово из запроса."""
     available = get_photo_list()
     if not available:
         return None
     query_lower = query.lower()
-    # Словарь синонимов (можно расширять)
     keyword_map = {
-        'пляж': ['пляж', 'море', 'берег', 'песок', 'океан', 'купальник', 'пляже'],
+        'пляж': ['пляж', 'море', 'берег', 'песок', 'океан', 'купальник'],
         'набережная': ['набережная', 'набережную', 'набережной', 'причал', 'яхта', 'порт'],
-        'горы': ['горы', 'горах', 'гора', 'горный', 'вершина', 'скалы', 'хребет'],
-        'парк': ['парк', 'парке', 'сквер', 'аллея', 'фонтан', 'зелень', 'деревья'],
-        'город': ['город', 'городе', 'улица', 'проспект', 'площадь', 'ночной'],
-        'кафе': ['кафе', 'ресторан', 'столик', 'чай', 'кофе'],
-        'книга': ['книга', 'книгой', 'чтение', 'библиотека', 'роман'],
+        'горы': ['горы', 'горах', 'гора', 'горный', 'вершина', 'скалы'],
+        'парк': ['парк', 'парке', 'сквер', 'аллея', 'фонтан', 'зелень'],
+        'город': ['город', 'городе', 'улица', 'проспект', 'площадь'],
+        'дома': ['дома', 'дом', 'квартира', 'комната', 'уют', 'свитер', 'плед', 'свечи'],
+        'кормит птиц': ['кормит птиц', 'птиц', 'голуби', 'корм'],
+        'природа': ['природа', 'поле', 'луг', 'лес', 'озеро']
     }
-    # Извлекаем, к какой категории относится запрос
     category = None
     for cat, words in keyword_map.items():
         for w in words:
@@ -459,9 +461,7 @@ def search_photo_by_keywords(query: str) -> Optional[str]:
         if category:
             break
     if not category:
-        # Если категория не определена, возвращаем None (будет использовано случайное фото)
         return None
-    # Ищем фото, в имени которого есть это ключевое слово
     matching = []
     for photo in available:
         name = get_keywords_from_photo_name(photo)
@@ -469,7 +469,7 @@ def search_photo_by_keywords(query: str) -> Optional[str]:
             matching.append(photo)
     if matching:
         return random.choice(matching)
-    # Если нет точного совпадения, пробуем по отдельным словам
+    # пробуем по отдельным словам
     for photo in available:
         name = get_keywords_from_photo_name(photo)
         for w in keyword_map.get(category, []):
@@ -666,53 +666,40 @@ def handle_message(message: telebot.types.Message) -> None:
         bot.send_message(message.chat.id, reply)
         return
 
-    # --- Проверка на просьбу показать свои фото (с поиском по ключевым словам) ---
+    # --- Проверка на просьбу показать свои фото ---
     if re.search(r'(покажи свои фото|покажи фото|фотоальбом|покажи себя|своё фото|свое фото|мои фото|свои фотографии|покажи альбом|покажи где ты была|покажи, где ты|покажи картинку|покажи изображение|есть фото|есть ли у тебя фото|посмотреть твои фото|покажи свои фотографии|любимое фото|есть еще фото|другие фото|покажи другое фото|ещё фото|какое твое любимое фото|покажи любимое фото|покажи другое)', user_text, re.IGNORECASE):
         available_photos = get_photo_list()
         if not available_photos:
             msg = "У меня ещё нет фотоальбома, но Максик обещал скоро добавить! 😊" if lang == 'ru' else "I don't have a photo album yet, but Max promised to add it soon! 😊"
             bot.send_message(message.chat.id, msg)
             return
-        # Пытаемся найти тематическое фото по ключевым словам из запроса
         thematic_photo = search_photo_by_keywords(user_text)
         if thematic_photo:
-            # Обновляем историю показанных, чтобы не повторять
-            if user_id not in user_last_photos:
-                user_last_photos[user_id] = deque(maxlen=3)
-            # Не будем добавлять фото в показанные, если оно уже есть? Просто покажем.
             chosen_photo = thematic_photo
         else:
-            # Если тематического нет, показываем случайное (но сначала душевная фраза)
             chosen_photo = get_random_photo_excluding(user_id)
-            # Если нет случайного, выходим
             if not chosen_photo:
                 bot.send_message(message.chat.id, "Не могу найти фото в моём альбоме... 😅" if lang=='ru' else "I can't find a photo in my album... 😅")
                 return
         try:
-            # Формируем душевную фразу в зависимости от наличия тематического фото
-            if thematic_photo:
-                # Если нашли по теме – показываем без извинений
-                # Подпись будет содержать описание, которое сгенерирует модель
-                pass
-            else:
-                # Если не нашли – добавляем извинение в подпись (но оно будет в начале описания)
-                pass
-            # Готовим промпт для описания. Если нужно добавить извинение, включим в начало промпта.
+            # Формируем промпт с требованием начать с душевной фразы
             if not thematic_photo:
                 apology = "Ой, у меня пока нет фото на эту тему, но вот одно из моих любимых – надеюсь, тебе понравится! "
             else:
                 apology = ""
             if lang == 'ru':
                 if re.search(r'любимое', user_text, re.IGNORECASE):
-                    analysis_prompt = apology + "Ты Алёна. Это одно из твоих любимых фото. Посмотри на него и опиши, что ты на нём делаешь, где ты, какое у тебя настроение. Расскажи, почему это фото тебе особенно дорого. Будь живой и тёплой, как в обычном разговоре. Расскажи короткую историю об этом моменте. Не начинай ответ с 'Привет'."
+                    analysis_prompt = apology + "Начни свой ответ с тёплой фразы, например: 'Как приятно, что ты спросил! Вот одно из моих любимых фото...' или 'Очень рада, что тебе интересно! Смотри...' Затем опиши фото: что ты на нём делаешь, где ты, какое у тебя настроение. Расскажи короткую историю. Не начинай ответ с 'Привет'."
                 else:
-                    analysis_prompt = apology + "Ты Алёна. Это одно из твоих фото. Посмотри на него и опиши, что ты на нём делаешь, где ты, какое у тебя настроение. Будь живой и тёплой, как в обычном разговоре. Расскажи короткую историю об этом моменте. Не начинай ответ с 'Привет'."
+                    analysis_prompt = apology + "Начни свой ответ с душевного восклицания, например: 'Конечно, у меня есть такие фото!' или 'С удовольствием покажу!' Затем опиши фото: что ты на нём делаешь, где ты, какое у тебя настроение. Расскажи короткую историю. Не начинай ответ с 'Привет'."
             else:
-                analysis_prompt = (apology if not thematic_photo else "") + "You are Alena. This is one of your photos. Look at it and describe what you are doing, where you are, what mood you are in. Be lively and warm, as in a normal conversation. Tell a short story about this moment. Do not start with 'Hello'."
+                analysis_prompt = (apology if not thematic_photo else "") + "Start your answer with a warm phrase, e.g., 'I'm so glad you asked! Here's one of my favorite photos...' Then describe the photo: what you are doing, where you are, what mood you are in. Tell a short story. Do not start with 'Hello'."
             description = analyze_image_with_vision(chosen_photo, analysis_prompt, lang)
-            # Убедимся, что в описании нет "Привет" в начале
+            # Дополнительная чистка от "Привет" в начале
             if description.startswith('Привет'):
                 description = re.sub(r'^Привет[,!\s]*', '', description)
+            # Удаляем возможные остатки "Привет"
+            description = re.sub(r'^[^\w]*Привет[,!\s]*', '', description)
             with open(chosen_photo, 'rb') as photo:
                 bot.send_photo(message.chat.id, photo, caption=description)
         except Exception as e:
@@ -778,5 +765,5 @@ def handle_message(message: telebot.types.Message) -> None:
         add_message(user_id, 'assistant', error)
 
 if __name__ == '__main__':
-    print('✅ Алёна финальная — поиск фото по теме, извинения, душевные описания')
+    print('✅ Алёна финальная — душевные вступления, полная чистка английского, поиск по темам')
     bot.infinity_polling()
