@@ -729,10 +729,12 @@ def handle_message(message: telebot.types.Message) -> None:
         if re.search(r'(красавица|красивая|умница|прекрасна|великолепна|шикарна|обалденная|потрясающая|чудесная|восхитительная|симпатичная|милашка|хорошенькая|обворожительная|божественно|как красиво|какая ты красивая|какая ты классная|какая ты хорошая)', user_text, re.IGNORECASE):
             compliment = True
 
+        # Сначала пробуем найти тематическое фото
         thematic_photo = search_photo_by_keywords(user_text)
         if thematic_photo:
             chosen_photo = thematic_photo
         else:
+            # Если тематического нет, берём случайное, стараясь не повторять последние 4
             chosen_photo = get_random_photo_excluding(user_id)
             if not chosen_photo:
                 bot.send_message(message.chat.id, "Не могу найти фото в моём альбоме... 😅" if lang=='ru' else "I can't find a photo in my album... 😅")
