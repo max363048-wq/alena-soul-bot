@@ -173,7 +173,7 @@ def clean_english_words(text: str) -> str:
     text = re.sub(r'\s+', ' ', text).strip()
     return text
 
-# --- Погода (функции без изменений, они длинные, но рабочие) ---
+# --- Погода (функции без изменений) ---
 def extract_city(text: str, user_id: Optional[int] = None) -> Optional[str]:
     match = re.search(r'\b(?:в|во|в городе)\s+([А-Яа-я\-]+(?:[-\s]?[А-Яа-я]+)?)', text, re.IGNORECASE)
     if match:
@@ -442,33 +442,21 @@ def search_photo_by_keywords(query: str, lang: str = 'ru') -> Optional[str]:
     if not available_photos:
         return None
     query_lower = query.lower()
-    keyword_map = {
-        'пляж': ['пляж', 'море', 'пляже', 'берег', 'песок', 'океан', 'купальник'],
-        'горы': ['горы', 'горах', 'гора', 'горная', 'природа', 'зелень', 'лес', 'поход', 'рюкзак'],
-        'город': ['город', 'городе', 'набережная', 'улица', 'парк', 'фонтан', 'сквер', 'архитектура'],
-        'книга': ['книга', 'книжкой', 'чтение', 'читает', 'литература', 'роман'],
-        'улыбка': ['улыбка', 'улыбается', 'радость', 'смех', 'счастлива', 'веселая'],
-        'кафе': ['кафе', 'ресторан', 'кофе', 'чай', 'столик', 'уют'],
-        'вечер': ['вечер', 'закат', 'солнце', 'закат', 'сумерки', 'вечерний', 'закатное'],
-        'любимое': ['любимое', 'любимая', 'избранное', 'душевное', 'особенное'],
-    }
-    found_keywords = []
-    for category, words in keyword_map.items():
-        for word in words:
-            if word in query_lower:
-                found_keywords.append(category)
-                break
-    if not found_keywords:
-        found_keywords = [query_lower]
+    # Извлекаем ключевые слова из запроса (например, "горы", "пляж", "лес")
+    keywords_in_query = re.findall(r'(горы|гор|пляж|море|берег|океан|город|набережная|парк|лес|природа|книга|кафе|улыбка|вечер|закат|любимое)', query_lower)
+    if not keywords_in_query:
+        # Если нет явных ключевых слов, пробуем искать по всему запросу
+        keywords_in_query = [query_lower]
     matching_photos = []
     for photo_path in available_photos:
         photo_keywords = get_keywords_from_photo_name(photo_path)
-        for keyword in found_keywords:
-            if keyword in photo_keywords or any(keyword in kw for kw in photo_keywords):
+        for kw in keywords_in_query:
+            if kw in photo_keywords or any(kw in pk for pk in photo_keywords):
                 matching_photos.append(photo_path)
                 break
     if matching_photos:
         return random.choice(matching_photos)
+    # Если ничего не найдено, возвращаем случайное фото
     return random.choice(available_photos)
 
 def analyze_image_with_vision(image_path: str, prompt: str, lang: str = 'ru') -> str:
@@ -674,8 +662,9 @@ def handle_message(message: telebot.types.Message) -> None:
         bot.send_message(message.chat.id, reply)
         return
 
-    # --- Проверка на просьбу показать свои фото ---
-    if re.search(r'(покажи свои фото|покажи фото|фотоальбом|покажи себя|своё фото|свое фото|мои фото|свои фотографии|покажи альбом|покажи где ты была|покажи, где ты|покажи картинку|покажи изображение)', user_text, re.IGNORECASE):
+    # --- Проверка на просьбу показать свои фото (расширенная) ---
+    # Ищем любые фразы, связанные с фото: "покажи фото", "есть фото", "покажи себя", "фото в горах", "фотоальбом" и т.п.
+    if re.search(r'(покажи свои фото|покажи фото|фотоальбом|покажи себя|своё фото|свое фото|мои фото|свои фотографии|покажи альбом|покажи где ты была|покажи, где ты|покажи картинку|покажи изображение|есть фото|есть ли у тебя фото|покажи где ты в|фото в|покажи себя в|посмотреть твои фото|покажи свои фотографии)', user_text, re.IGNORECASE):
         available_photos = get_photo_list()
         if not available_photos:
             msg = "У меня ещё нет фотоальбома, но Максик обещал скоро добавить! 😊" if lang == 'ru' else "I don't have a photo album yet, but Max promised to add it soon! 😊"
@@ -753,5 +742,5 @@ def handle_message(message: telebot.types.Message) -> None:
         add_message(user_id, 'assistant', error)
 
 if __name__ == '__main__':
-    print('✅ Алёна с полноценным видением и душевными ответами на отсутствие фото')
+    print('✅ Алёна с полноценным видением и расширенным поиском фото')
     bot.infinity_polling()
