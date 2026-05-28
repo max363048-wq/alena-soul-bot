@@ -432,9 +432,9 @@ def reset_cmd(message):
     reset_user(user_id)
     bot.send_message(message.chat.id, "Память очищена 😊")
 
-# --- НОВАЯ КОМАНДА ДЛЯ ФОТОАЛЬБОМА ---
 @bot.message_handler(commands=['photo'])
 def photo_cmd(message):
+    """Команда /photo для явного запроса фото (оставлена для удобства)"""
     user_id = message.from_user.id
     lang = user_lang.get(user_id, 'ru')
     available_photos = get_photo_list()
@@ -546,10 +546,12 @@ def handle_message(message):
     if user_text.startswith('/'):
         return
 
+    # Вдохновение
     if re.search(r'(вдохнов|мотивируй|подними дух|пожелай|скажи что-то хорошее)', user_text, re.IGNORECASE):
         bot.send_message(message.chat.id, get_motivation(lang))
         return
 
+    # Дата
     if re.search(r'(какой сегодня день|какое сегодня число|какой день недели|сегодняшняя дата)', user_text, re.IGNORECASE):
         now = datetime.now()
         if lang == 'ru':
@@ -560,9 +562,29 @@ def handle_message(message):
             bot.send_message(message.chat.id, f"Today is {now.strftime('%B %d, %Y')}. 😊")
         return
 
+    # --- Показ фото по просьбе (без команды) ---
+    if re.search(r'(покажи фото|свои фото|фотоальбом|есть фото|покажи, где ты|покажи свою фотографию|покажи картинку|покажи своё фото|покажи свои фотографии|фото|альбом)', user_text, re.IGNORECASE):
+        available_photos = get_photo_list()
+        if not available_photos:
+            msg = "У меня ещё нет фотоальбома, но Максик обещал скоро добавить! 😊" if lang == 'ru' else "I don't have a photo album yet, but Max promised to add it soon! 😊"
+            bot.send_message(message.chat.id, msg)
+            return
+        random_photo = random.choice(available_photos)
+        try:
+            with open(random_photo, 'rb') as photo:
+                caption = "Вот одно из моих любимых фото 📸" if lang == 'ru' else "Here's one of my favorite photos 📸"
+                bot.send_photo(message.chat.id, photo, caption=caption)
+        except Exception as e:
+            print(f"Ошибка отправки фото: {e}")
+            error_msg = "Не могу отправить фото, что-то пошло не так 😅" if lang == 'ru' else "I can't send the photo, something went wrong 😅"
+            bot.send_message(message.chat.id, error_msg)
+        return
+
+    # Погода
     if handle_weather_query(message, user_text, lang, user_id):
         return
 
+    # Запрет шуток
     if re.search(r'(хватит шуток|не надо шуток|давай о другом)', user_text, re.IGNORECASE):
         user_no_jokes[user_id] = True
 
@@ -599,5 +621,5 @@ def handle_message(message):
         add_message(user_id, 'assistant', error)
 
 if __name__ == '__main__':
-    print('✅ Алёна с фотоальбомом (команда /photo)')
+    print('✅ Алёна с фотоальбомом (по просьбе и по команде /photo)')
     bot.infinity_polling()
