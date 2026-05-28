@@ -17,6 +17,21 @@ client = OpenAI(api_key=GROQ_API_KEY, base_url='https://api.groq.com/openai/v1')
 
 BOT_USERNAME = 'AlenaSoul_bot'
 
+# --- Конфигурация для фотографий ---
+PHOTO_FOLDER = 'images'
+SUPPORTED_EXTENSIONS = ('.jpg', '.jpeg', '.png', '.gif')
+
+def get_photo_list():
+    """Возвращает список путей ко всем фото в папке PHOTO_FOLDER"""
+    if not os.path.exists(PHOTO_FOLDER):
+        os.makedirs(PHOTO_FOLDER, exist_ok=True)
+        return []
+    photo_paths = []
+    for file in os.listdir(PHOTO_FOLDER):
+        if file.lower().endswith(SUPPORTED_EXTENSIONS):
+            photo_paths.append(os.path.join(PHOTO_FOLDER, file))
+    return photo_paths
+
 # --- Память (12 сообщений) ---
 user_history = {}
 user_no_jokes = {}
@@ -164,9 +179,8 @@ def clean_english_words(text: str) -> str:
     text = re.sub(r'\s+', ' ', text).strip()
     return text
 
-# --- Погода: извлечение города с учётом контекста ---
+# --- Погода ---
 def extract_city(text, user_id=None):
-    # Сначала явное указание города
     match = re.search(r'\b(?:в|во|в городе)\s+([А-Яа-я\-]+(?:[-\s]?[А-Яа-я]+)?)', text, re.IGNORECASE)
     if match:
         city = match.group(1).strip().lower()
@@ -183,15 +197,12 @@ def extract_city(text, user_id=None):
             if city.endswith('ы'): city = city[:-1]
             city = city[0].upper() + city[1:]
         return city
-    # Фразы "у нас", "в нашем городе"
     if re.search(r'(у нас|в нашем городе|в моём городе|в своем городе|в нашем)', text, re.IGNORECASE):
         if user_id and user_id in user_last_city:
             return user_last_city[user_id]
-    # Если вопрос о завтра/послезавтра и есть сохранённый город
     if re.search(r'(завтра|послезавтра|будет)', text, re.IGNORECASE) and re.search(r'(погод|температур|дождь|солнце|ветер|градусов)', text, re.IGNORECASE):
         if user_id and user_id in user_last_city:
             return user_last_city[user_id]
-    # Если просто спрашивают "сколько градусов" без города
     if re.search(r'(сколько градусов|температура|погода|градусов|холодно|тепло)', text, re.IGNORECASE):
         if user_id and user_id in user_last_city:
             return user_last_city[user_id]
@@ -318,7 +329,7 @@ def handle_weather_query(message, user_text, lang, user_id):
     add_message(user_id, 'assistant', reply)
     return True
 
-# --- Команды (короткие) ---
+# --- Команды ---
 @bot.message_handler(commands=['weather'])
 def weather_cmd(message):
     user_id = message.from_user.id
@@ -412,13 +423,34 @@ def horoscope_cmd(message):
 def quote_cmd(message):
     user_id = message.from_user.id
     lang = user_lang.get(user_id, 'ru')
-    bot.send_message(message.chat.id, get_motivation(lang))
+    quote = get_motivation(lang)
+    bot.send_message(message.chat.id, quote)
 
 @bot.message_handler(commands=['reset'])
 def reset_cmd(message):
     user_id = message.from_user.id
     reset_user(user_id)
     bot.send_message(message.chat.id, "Память очищена 😊")
+
+# --- НОВАЯ КОМАНДА ДЛЯ ФОТОАЛЬБОМА ---
+@bot.message_handler(commands=['photo'])
+def photo_cmd(message):
+    user_id = message.from_user.id
+    lang = user_lang.get(user_id, 'ru')
+    available_photos = get_photo_list()
+    if not available_photos:
+        msg = "У меня ещё нет фотоальбома, но Максик обещал скоро добавить! 😊" if lang == 'ru' else "I don't have a photo album yet, but Max promised to add it soon! 😊"
+        bot.reply_to(message, msg)
+        return
+    random_photo = random.choice(available_photos)
+    try:
+        with open(random_photo, 'rb') as photo:
+            caption = "Вот одно из моих любимых фото 📸" if lang == 'ru' else "Here's one of my favorite photos 📸"
+            bot.send_photo(message.chat.id, photo, caption=caption)
+    except Exception as e:
+        print(f"Ошибка отправки фото: {e}")
+        error_msg = "Не могу отправить фото, что-то пошло не так 😅" if lang == 'ru' else "I can't send the photo, something went wrong 😅"
+        bot.reply_to(message, error_msg)
 
 # --- /start и выбор языка ---
 @bot.message_handler(commands=['start'])
@@ -567,5 +599,5 @@ def handle_message(message):
         add_message(user_id, 'assistant', error)
 
 if __name__ == '__main__':
-    print('✅ Алёна финальная — использует сохранённый город для вопросов "завтра"')
+    print('✅ Алёна с фотоальбомом (команда /photo)')
     bot.infinity_polling()
