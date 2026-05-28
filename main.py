@@ -685,9 +685,26 @@ def handle_message(message: telebot.types.Message) -> None:
             photo_path = user_last_sent_photo[user_id]
             try:
                 if lang == 'ru':
-                    prompt = "Ты Алёна. Пользователь спрашивает подробности о фотографии, которую ты только что показала. Посмотри на это фото ещё раз и ответь на его вопрос: где это снято, что за место, какие детали, что ещё видно. Будь живой, тёплой, отвечай кратко (2-4 предложения) и по существу. Не начинай ответ с 'Привет'."
+                    # Новый промпт: требует назвать конкретное место, город, страну
+                    prompt = (
+                        "Ты Алёна. Пользователь спрашивает о месте, где была сделана эта фотография. "
+                        "Внимательно посмотри на фото: постарайся определить, в каком городе или стране оно сделано, "
+                        "если видны характерные ориентиры (архитектура, вывески, природа). "
+                        "Ответь коротко, уверенно, без слов 'кажется', 'возможно', 'наверное'. "
+                        "Например: 'Это фото сделано в Центральном парке Нью-Йорка' или 'Этот снимок сделан на набережной Барселоны'. "
+                        "Если точно определить нельзя, просто скажи, что это похоже на уютный парк или пляж, но не повторяй подробности описания. "
+                        "Не начинай ответ с 'Привет'."
+                    )
                 else:
-                    prompt = "You are Alena. The user is asking for details about the photo you just showed. Look at it again and answer his question: where was it taken, what place, what details, what else is visible. Be lively, warm, answer briefly (2-4 sentences) and to the point. Do not start with 'Hello'."
+                    prompt = (
+                        "You are Alena. The user is asking about the location where this photo was taken. "
+                        "Look carefully at the photo: try to determine which city or country it is, "
+                        "if characteristic landmarks are visible (architecture, signs, nature). "
+                        "Answer briefly, confidently, without words like 'maybe', 'probably', 'seems'. "
+                        "For example: 'This photo was taken in Central Park, New York' or 'This shot was taken on the waterfront of Barcelona'. "
+                        "If you can't tell exactly, just say it looks like a cozy park or beach, but do not repeat the detailed description. "
+                        "Do not start with 'Hello'."
+                    )
                 description = analyze_image_with_vision(photo_path, prompt, lang)
                 if description.startswith('Привет'):
                     description = re.sub(r'^Привет[,!\s]*', '', description)
