@@ -31,8 +31,7 @@ user_no_jokes: Dict[int, bool] = {}
 user_preferences: Dict[int, str] = {}
 user_lang: Dict[int, str] = {}
 user_last_city: Dict[int, str] = {}
-user_last_photos: Dict[int, deque] = {}
-user_last_sent_photo: Dict[int, str] = {}
+user_last_sent_photo: Dict[int, str] = {}   # для вопросов о последнем фото
 user_no_photos: Dict[int, bool] = {}
 user_last_interest_photo: Dict[int, datetime] = {}
 
@@ -55,7 +54,6 @@ def reset_user(user_id: int) -> None:
     user_history[user_id] = deque(maxlen=12)
     user_no_jokes[user_id] = False
     user_last_city.pop(user_id, None)
-    user_last_photos.pop(user_id, None)
     user_last_sent_photo.pop(user_id, None)
     user_no_photos.pop(user_id, None)
     user_last_interest_photo.pop(user_id, None)
@@ -485,19 +483,13 @@ def search_photo_by_keywords(query: str) -> Optional[str]:
         return random.choice(matching)
     return None
 
-def get_random_photo_excluding(user_id: int) -> Optional[str]:
+def get_random_photo_always(user_id: int) -> str:
+    """Возвращает всегда какое-нибудь фото из папки. Если папка пуста – возвращает None."""
     available = get_photo_list()
     if not available:
         return None
-    last_photos = user_last_photos.get(user_id, deque(maxlen=4))
-    candidates = [p for p in available if p not in last_photos]
-    if not candidates:
-        candidates = available
-    chosen = random.choice(candidates)
-    if user_id not in user_last_photos:
-        user_last_photos[user_id] = deque(maxlen=4)
-    user_last_photos[user_id].append(chosen)
-    return chosen
+    # Просто случайное фото, без истории
+    return random.choice(available)
 
 def analyze_image_with_vision(image_path: str, prompt: str, lang: str = 'ru') -> str:
     try:
@@ -716,10 +708,10 @@ def handle_message(message: telebot.types.Message) -> None:
             bot.send_message(message.chat.id, "Ты о каком фото? Покажи, если хочешь обсудить 😊" if lang=='ru' else "Which photo are you talking about? Show me if you want to discuss 😊")
             return
 
-    # --- Просьба показать свои фото (расширенная) ---
+    # --- Просьба показать свои фото ---
     if re.search(r'(а у тебя есть фотографии|есть фотографии|у тебя есть фото|покажи свои фото|покажи фото|фотоальбом|покажи себя|своё фото|свое фото|мои фото|свои фотографии|покажи альбом|покажи где ты была|покажи, где ты|покажи картинку|покажи изображение|есть фото|есть ли у тебя фото|посмотреть твои фото|покажи свои фотографии|любимое фото|есть еще фото|другие фото|покажи другое фото|ещё фото|какое твое любимое фото|покажи любимое фото|покажи другое)', user_text, re.IGNORECASE):
-        available_photos = get_photo_list()
-        if not available_photos:
+        all_photos = get_photo_list()
+        if not all_photos:
             msg = "У меня ещё нет фотоальбома, но Максик обещал скоро добавить! 😊" if lang == 'ru' else "I don't have a photo album yet, but Max promised to add it soon! 😊"
             bot.send_message(message.chat.id, msg)
             return
@@ -728,18 +720,16 @@ def handle_message(message: telebot.types.Message) -> None:
         if re.search(r'(красавица|красивая|умница|прекрасна|великолепна|шикарна|обалденная|потрясающая|чудесная|восхитительная|симпатичная|милашка|хорошенькая|обворожительная|божественно|как красиво|какая ты красивая|какая ты классная|какая ты хорошая)', user_text, re.IGNORECASE):
             compliment = True
 
+        # Попытаемся найти тематическое фото
         thematic_photo = search_photo_by_keywords(user_text)
         if thematic_photo:
             chosen_photo = thematic_photo
         else:
-            chosen_photo = get_random_photo_excluding(user_id)
+            # Если тематического нет, берём случайное (без истории)
+            chosen_photo = get_random_photo_always(user_id)
             if not chosen_photo:
-                all_photos = get_photo_list()
-                if all_photos:
-                    chosen_photo = random.choice(all_photos)
-                else:
-                    bot.send_message(message.chat.id, "У меня ещё нет фотоальбома, но Максик обещал скоро добавить! 😊" if lang=='ru' else "I don't have a photo album yet, but Max promised to add it soon! 😊")
-                    return
+                bot.send_message(message.chat.id, "Не могу найти фото в моём альбоме... 😅" if lang=='ru' else "I can't find a photo in my album... 😅")
+                return
 
         user_last_sent_photo[user_id] = chosen_photo
 
@@ -839,5 +829,5 @@ def handle_message(message: telebot.types.Message) -> None:
             bot.send_message(message.chat.id, ask_photo)
 
 if __name__ == '__main__':
-    print('✅ Алёна финальная — окончательная стабильная версия')
+    print('✅ Алёна суперфинальная — больше никогда не отказывается показывать фото')
     bot.infinity_polling()
