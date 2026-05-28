@@ -22,7 +22,7 @@ BOT_USERNAME = 'AlenaSoul_bot'
 # --- Конфигурация для фотографий ---
 PHOTO_FOLDER = 'images'
 SUPPORTED_EXTENSIONS = ('.jpg', '.jpeg', '.png', '.gif')
-VISION_MODEL = "llava-v1.5-7b-4096-preview"
+VISION_MODEL = "llama-3.2-11b-vision-preview"
 MAX_BASE64_SIZE = 4 * 1024 * 1024
 
 # --- Глобальные ключевые слова для поиска фото (синонимы) ---
