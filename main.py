@@ -687,27 +687,27 @@ def handle_message(message: telebot.types.Message) -> None:
             try:
                 if lang == 'ru':
                     prompt = (
-                        "Ты Алёна. Пользователь спрашивает о месте, где была сделана эта фотография.\n"
-                        "Посмотри на фото и определи конкретное место: город, страну, достопримечательность, парк, пляж, набережную.\n"
-                        "Если видны вывески, архитектура, флаги, характерные детали – используй их для точного ответа.\n"
-                        "Ответь одним предложением, без общих фраз про настроение и одежду. Не повторяй описание.\n"
-                        "Примеры: 'Это фото сделано в Центральном парке Нью-Йорка', 'Снимок сделан на пляже Коста-Брава в Испании', 'Эта фотография снята в парке Амстердама, рядом с каналом'.\n"
-                        "Если точно определить нельзя, скажи: 'Трудно сказать точно, но похоже на уютный парк (или пляж)'.\n"
+                        "Ты Алёна. Пользователь спрашивает: «Где было сделано это фото?»\n"
+                        "Проанализируй фотографию и дай КОНКРЕТНЫЙ ОТВЕТ: город, страну, название парка, пляжа, достопримечательности.\n"
+                        "Если видишь узнаваемые объекты (например, Эйфелева башня, Колизей, Биг-Бен, каналы Амстердама, пальмы, горы, океан) – обязательно укажи их.\n"
+                        "НЕ используй общие фразы вроде «это фото сделано в городском парке». Например: «Это фото сделано в Центральном парке Нью-Йорка» или «Снимок сделан на пляже Коста-Брава в Испании».\n"
+                        "Если определить точно нельзя, скажи честно: «Похоже на уютный парк в Европе, но точно не знаю» или «Возможно, это пляж в Таиланде, но не уверена».\n"
                         "Не начинай ответ с 'Привет'."
                     )
                 else:
                     prompt = (
-                        "You are Alena. The user asks about the location where this photo was taken.\n"
-                        "Look at the photo and determine the specific place: city, country, landmark, park, beach, promenade.\n"
-                        "If you see signs, architecture, flags, characteristic details – use them for an accurate answer.\n"
-                        "Answer in one sentence, without general phrases about mood or clothing. Do not repeat the description.\n"
-                        "Examples: 'This photo was taken in Central Park, New York', 'The shot was taken on Costa Brava beach in Spain', 'This photo was taken in Amsterdam park, near a canal'.\n"
-                        "If you can't tell exactly, say: 'It's hard to tell exactly, but it looks like a cozy park (or beach)'.\n"
+                        "You are Alena. The user asks: 'Where was this photo taken?'\n"
+                        "Analyze the photo and give a SPECIFIC answer: city, country, park name, beach, landmark.\n"
+                        "If you see recognizable objects (e.g., Eiffel Tower, Colosseum, Big Ben, Amsterdam canals, palm trees, mountains, ocean) – be sure to indicate them.\n"
+                        "DO NOT use generic phrases like 'this photo was taken in a city park'. Examples: 'This photo was taken in Central Park, New York' or 'The shot was taken on Costa Brava beach in Spain'.\n"
+                        "If you can't tell for sure, say honestly: 'It looks like a cozy park in Europe, but I'm not sure' or 'Maybe it's a beach in Thailand, but I'm not sure'.\n"
                         "Do not start with 'Hello'."
                     )
                 description = analyze_image_with_vision(photo_path, prompt, lang)
                 if description.startswith('Привет'):
                     description = re.sub(r'^Привет[,!\s]*', '', description)
+                # Удаляем случайные многоточия и лишние фразы
+                description = re.sub(r'\.\.\.', '.', description)
                 bot.send_message(message.chat.id, description)
             except Exception as e:
                 print(f"Ошибка при ответе о последнем фото: {e}")
@@ -729,23 +729,29 @@ def handle_message(message: telebot.types.Message) -> None:
         if re.search(r'(красавица|красивая|умница|прекрасна|великолепна|шикарна|обалденная|потрясающая|чудесная|восхитительная|симпатичная|милашка|хорошенькая|обворожительная|божественно|как красиво|какая ты красивая|какая ты классная|какая ты хорошая)', user_text, re.IGNORECASE):
             compliment = True
 
-        # Сначала пробуем найти тематическое фото
+        # --- Принудительный поиск тематического фото ---
         thematic_photo = search_photo_by_keywords(user_text)
         if thematic_photo:
             chosen_photo = thematic_photo
         else:
-            # Если тематического нет, берём случайное, стараясь не повторять последние 4
+            # Если тематического нет – берём случайное, но НЕ ИЗ ИСТОРИИ (чтобы точно показать)
+            # Чтобы не повторять последние, используем get_random_photo_excluding, но если не нашло – берём любое.
             chosen_photo = get_random_photo_excluding(user_id)
             if not chosen_photo:
-                bot.send_message(message.chat.id, "Не могу найти фото в моём альбоме... 😅" if lang=='ru' else "I can't find a photo in my album... 😅")
-                return
+                # Абсолютный запасной вариант: просто любое фото из папки
+                all_photos = get_photo_list()
+                if all_photos:
+                    chosen_photo = random.choice(all_photos)
+                else:
+                    bot.send_message(message.chat.id, "У меня ещё нет фотоальбома, но Максик обещал скоро добавить! 😊" if lang=='ru' else "I don't have a photo album yet, but Max promised to add it soon! 😊")
+                    return
 
         user_last_sent_photo[user_id] = chosen_photo
 
         try:
             compliment_prefix = ""
             if compliment:
-                compliment_prefix = "Сначала тепло поблагодари за комплимент (например, 'Спасибо, мне очень приятно! 😊' или 'Ты так добр, спасибо!'), затем продолжи."
+                compliment_prefix = "Сначала тепло поблагодари за комплимент (например, 'Спасибо, мне очень приятно! 😊'), затем продолжи."
             if not thematic_photo:
                 apology = "Ой, у меня пока нет фото на эту тему, но вот одно из моих любимых – надеюсь, тебе понравится! "
             else:
@@ -753,7 +759,7 @@ def handle_message(message: telebot.types.Message) -> None:
 
             if lang == 'ru':
                 if re.search(r'любимое', user_text, re.IGNORECASE):
-                    analysis_prompt = compliment_prefix + " " + apology + "Начни свой ответ с тёплой фразы, например: 'Вот моё любимое фото, оно очень дорого мне...' Затем опиши фото: что ты на нём делаешь, где ты, какое у тебя настроение. Расскажи короткую историю. Не начинай ответ с 'Привет'."
+                    analysis_prompt = compliment_prefix + " " + apology + "Начни свой ответ с тёплой фразы, например: 'Вот моё любимое фото...' Затем опиши фото: что ты на нём делаешь, где ты, какое у тебя настроение. Расскажи короткую историю. Не начинай ответ с 'Привет'."
                 else:
                     analysis_prompt = compliment_prefix + " " + apology + "Начни свой ответ с душевного восклицания, например: 'Конечно, у меня есть такие фото!' или 'С удовольствием покажу!' Затем опиши фото: что ты на нём делаешь, где ты, какое у тебя настроение. Расскажи короткую историю. Не начинай ответ с 'Привет'."
             else:
@@ -765,7 +771,7 @@ def handle_message(message: telebot.types.Message) -> None:
                 bot.send_photo(message.chat.id, photo, caption=description)
         except Exception as e:
             print(f"Ошибка отправки фото: {e}")
-            error_msg = "Не могу отправить фото, что-то пошло не так 😅" if lang == 'ru' else "I can't send the photo, something went wrong 😅"
+            error_msg = "Не могу отправить фото, что-то пошло не так 😅" if lang=='ru' else "I can't send the photo, something went wrong 😅"
             bot.send_message(message.chat.id, error_msg)
         return
 
