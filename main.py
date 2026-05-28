@@ -678,31 +678,31 @@ def handle_message(message: telebot.types.Message) -> None:
         'за границей', 'в каком городе', 'на каком море', 'какой пляж', 'как называется',
         'поделись деталями', 'что ещё видно', 'расскажи подробнее', 'добавь деталей',
         'опиши фон', 'что позади', 'какие люди',
-        'это фото', 'эта фотография', 'на этом фото', 'на этой фотографии'
+        'это фото', 'эта фотография', 'на этом фото', 'на этой фотографии',
+        'в каком месте', 'какое это место', 'что за место', 'где это снято'
     ])
     if is_photo_question:
         if user_id in user_last_sent_photo and user_last_sent_photo[user_id]:
             photo_path = user_last_sent_photo[user_id]
             try:
                 if lang == 'ru':
-                    # Новый промпт: требует назвать конкретное место, город, страну
                     prompt = (
-                        "Ты Алёна. Пользователь спрашивает о месте, где была сделана эта фотография. "
-                        "Внимательно посмотри на фото: постарайся определить, в каком городе или стране оно сделано, "
-                        "если видны характерные ориентиры (архитектура, вывески, природа). "
-                        "Ответь коротко, уверенно, без слов 'кажется', 'возможно', 'наверное'. "
-                        "Например: 'Это фото сделано в Центральном парке Нью-Йорка' или 'Этот снимок сделан на набережной Барселоны'. "
-                        "Если точно определить нельзя, просто скажи, что это похоже на уютный парк или пляж, но не повторяй подробности описания. "
+                        "Ты Алёна. Пользователь спрашивает о месте, где была сделана эта фотография.\n"
+                        "Посмотри на фото и определи конкретное место: город, страну, достопримечательность, парк, пляж, набережную.\n"
+                        "Если видны вывески, архитектура, флаги, характерные детали – используй их для точного ответа.\n"
+                        "Ответь одним предложением, без общих фраз про настроение и одежду. Не повторяй описание.\n"
+                        "Примеры: 'Это фото сделано в Центральном парке Нью-Йорка', 'Снимок сделан на пляже Коста-Брава в Испании', 'Эта фотография снята в парке Амстердама, рядом с каналом'.\n"
+                        "Если точно определить нельзя, скажи: 'Трудно сказать точно, но похоже на уютный парк (или пляж)'.\n"
                         "Не начинай ответ с 'Привет'."
                     )
                 else:
                     prompt = (
-                        "You are Alena. The user is asking about the location where this photo was taken. "
-                        "Look carefully at the photo: try to determine which city or country it is, "
-                        "if characteristic landmarks are visible (architecture, signs, nature). "
-                        "Answer briefly, confidently, without words like 'maybe', 'probably', 'seems'. "
-                        "For example: 'This photo was taken in Central Park, New York' or 'This shot was taken on the waterfront of Barcelona'. "
-                        "If you can't tell exactly, just say it looks like a cozy park or beach, but do not repeat the detailed description. "
+                        "You are Alena. The user asks about the location where this photo was taken.\n"
+                        "Look at the photo and determine the specific place: city, country, landmark, park, beach, promenade.\n"
+                        "If you see signs, architecture, flags, characteristic details – use them for an accurate answer.\n"
+                        "Answer in one sentence, without general phrases about mood or clothing. Do not repeat the description.\n"
+                        "Examples: 'This photo was taken in Central Park, New York', 'The shot was taken on Costa Brava beach in Spain', 'This photo was taken in Amsterdam park, near a canal'.\n"
+                        "If you can't tell exactly, say: 'It's hard to tell exactly, but it looks like a cozy park (or beach)'.\n"
                         "Do not start with 'Hello'."
                     )
                 description = analyze_image_with_vision(photo_path, prompt, lang)
