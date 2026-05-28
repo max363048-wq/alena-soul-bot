@@ -46,7 +46,7 @@ user_lang: Dict[int, str] = {}
 user_last_city: Dict[int, str] = {}
 user_last_sent_photo: Dict[int, str] = {}
 user_no_photos: Dict[int, bool] = {}
-user_thematic_history: Dict[int, Dict[str, set]] = {}  # {user_id: {category: set(photo_paths)}}
+user_thematic_history: Dict[int, Dict[str, deque]] = {}  # {user_id: {category: deque(photo_paths)}}
 
 def get_history(user_id: int) -> Deque:
     if user_id not in user_history:
@@ -195,7 +195,7 @@ def clean_english_words(text: str) -> str:
     text = re.sub(r'\s+', ' ', text).strip()
     return text
 
-# --- Погода (функции) ---
+# --- Погода ---
 def extract_city(text: str, user_id: Optional[int] = None) -> Optional[str]:
     match = re.search(r'\b(?:в|во|в городе)\s+([А-Яа-я\-]+(?:[-\s]?[А-Яа-я]+)?)', text, re.IGNORECASE)
     if match:
@@ -337,7 +337,7 @@ def handle_weather_query(message: telebot.types.Message, user_text: str, lang: s
     add_message(user_id, 'assistant', reply)
     return True
 
-# --- Команды (простые) ---
+# --- Команды ---
 @bot.message_handler(commands=['weather'])
 def weather_cmd(message: telebot.types.Message) -> None:
     user_id = message.from_user.id
@@ -472,7 +472,6 @@ def get_photos_by_category(category: str) -> List[str]:
     matching = []
     for photo in all_photos:
         name = get_keywords_from_photo_name(photo)
-        # Проверяем, содержит ли имя хотя бы один из синонимов
         for syn in synonyms:
             if syn in name:
                 matching.append(photo)
@@ -480,29 +479,24 @@ def get_photos_by_category(category: str) -> List[str]:
     return matching
 
 def select_thematic_photo(user_id: int, category: str) -> Optional[str]:
-    """Выбирает фото для заданной категории, избегая повторов в текущей сессии."""
+    """Выбирает фото для заданной категории, циклически перебирая все подходящие."""
     all_thematic = get_photos_by_category(category)
     if not all_thematic:
         return None
-    # Инициализируем историю для этого пользователя и категории
     if user_id not in user_thematic_history:
         user_thematic_history[user_id] = {}
     if category not in user_thematic_history[user_id]:
-        user_thematic_history[user_id][category] = set()
-    shown = user_thematic_history[user_id][category]
-    # Находим непоказанные
-    available = [p for p in all_thematic if p not in shown]
-    if available:
-        chosen = random.choice(available)
-    else:
-        # Если всё показано, можно начать заново (сбросить историю или показать любое)
-        chosen = random.choice(all_thematic)
-        # Чтобы не зацикливаться, сбрасываем историю для этой категории
-        user_thematic_history[user_id][category] = set()
-        user_thematic_history[user_id][category].add(chosen)
-        return chosen
-    shown.add(chosen)
-    return chosen
+        user_thematic_history[user_id][category] = deque()
+    history = user_thematic_history[user_id][category]
+    # Если все фото уже были показаны – сбрасываем историю и начинаем сначала
+    if len(history) >= len(all_thematic):
+        history.clear()
+    # Ищем фото, которое не в истории
+    for photo in all_thematic:
+        if photo not in history:
+            history.append(photo)
+            return photo
+    return None  # не должно случиться
 
 def analyze_image_with_vision(image_path: str, prompt: str, lang: str = 'ru') -> str:
     try:
@@ -640,7 +634,7 @@ def get_system_prompt(lang: str, current_date: str) -> str:
             '7. Address the user by name kindly, but not at the beginning.\n'
         )
 
-# --- Основной обработчик (самый важный) ---
+# --- Основной обработчик ---
 @bot.message_handler(func=lambda message: True, content_types=['text', 'photo'])
 def handle_message(message: telebot.types.Message) -> None:
     user_id = message.from_user.id
@@ -653,7 +647,6 @@ def handle_message(message: telebot.types.Message) -> None:
     lang = user_lang[user_id]
     pet_name = get_pet_name(user_id, message.from_user.first_name)
 
-    # --- Обработка фото от пользователя ---
     if message.content_type == 'photo':
         if user_no_photos.get(user_id):
             user_no_photos[user_id] = False
@@ -663,7 +656,6 @@ def handle_message(message: telebot.types.Message) -> None:
     if user_text.startswith('/'):
         return
 
-    # --- Если пользователь говорит, что у него нет фото ---
     if re.search(r'(нет фото|нет своих фото|не снимаюсь|не люблю фоткаться|нет моих фото|не фотографируюсь)', user_text, re.IGNORECASE):
         user_no_photos[user_id] = True
         reply = (
@@ -676,7 +668,7 @@ def handle_message(message: telebot.types.Message) -> None:
         bot.send_message(message.chat.id, reply)
         return
 
-    # --- Вопросы о последнем показанном фото (место, детали) ---
+    # --- Вопросы о последнем фото ---
     lower_text = user_text.lower()
     is_photo_question = any(phrase in lower_text for phrase in [
         'где была сделана', 'какое место', 'что там за фон', 'где это', 'какой город',
@@ -723,7 +715,7 @@ def handle_message(message: telebot.types.Message) -> None:
             bot.send_message(message.chat.id, "Ты о каком фото? Покажи, если хочешь обсудить 😊" if lang=='ru' else "Which photo are you talking about? Show me if you want to discuss 😊")
             return
 
-    # --- Просьба показать свои фото (с учётом тематики и избегания повторов) ---
+    # --- Просьба показать свои фото ---
     if re.search(r'(какие нибудь фото|а у тебя есть фотографии|есть фотографии|у тебя есть фото|покажи свои фото|покажи фото|фотоальбом|покажи себя|своё фото|свое фото|мои фото|свои фотографии|покажи альбом|покажи где ты была|покажи, где ты|покажи картинку|покажи изображение|есть фото|есть ли у тебя фото|посмотреть твои фото|покажи свои фотографии|любимое фото|есть еще фото|другие фото|покажи другое фото|ещё фото|какое твое любимое фото|покажи любимое фото|покажи другое)', user_text, re.IGNORECASE):
         all_photos = get_photo_list()
         if not all_photos:
@@ -735,19 +727,17 @@ def handle_message(message: telebot.types.Message) -> None:
         if re.search(r'(красавица|красивая|умница|прекрасна|великолепна|шикарна|обалденная|потрясающая|чудесная|восхитительная|симпатичная|милашка|хорошенькая|обворожительная|божественно|как красиво|какая ты красивая|какая ты классная|какая ты хорошая)', user_text, re.IGNORECASE):
             compliment = True
 
-        # Определяем категорию из запроса
         category = search_category_by_query(user_text)
         if category:
-            # Пытаемся выбрать тематическое фото без повтора
             chosen_photo = select_thematic_photo(user_id, category)
             if chosen_photo is None:
-                # Если тематических фото нет, берём случайное
+                # Не найдено тематических фото – берём случайное
                 chosen_photo = random.choice(all_photos)
                 apology = "Ой, у меня пока нет фото на эту тему, но вот одно из моих любимых – надеюсь, тебе понравится! "
             else:
                 apology = ""
         else:
-            # Нет тематики – просто случайное фото (можно с историей, но для простоты случайное)
+            # Нет категории – просто случайное фото (без истории)
             chosen_photo = random.choice(all_photos)
             apology = ""
 
@@ -835,5 +825,5 @@ def handle_message(message: telebot.types.Message) -> None:
         add_message(user_id, 'assistant', error)
 
 if __name__ == '__main__':
-    print('✅ Алёна финальная версия — фото без повторов, правильные ответы на "где снято", никогда не отказывает')
+    print('✅ Алёна абсолютно финальная — циклический перебор тематических фото')
     bot.infinity_polling()
