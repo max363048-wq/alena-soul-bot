@@ -31,7 +31,7 @@ user_no_jokes: Dict[int, bool] = {}
 user_preferences: Dict[int, str] = {}
 user_lang: Dict[int, str] = {}
 user_last_city: Dict[int, str] = {}
-user_last_photos: Dict[int, deque] = {}
+user_last_photos: Dict[int, deque] = {}   # для случайных фото
 user_no_photos: Dict[int, bool] = {}
 
 def get_history(user_id: int) -> Deque:
@@ -438,6 +438,7 @@ def get_keywords_from_photo_name(photo_path: str) -> str:
     return name
 
 def search_photo_by_keywords(query: str) -> Optional[str]:
+    """Ищет фото, в имени которого содержится ключевое слово из запроса. Возвращает случайное подходящее фото (без учёта истории)."""
     available = get_photo_list()
     if not available:
         return None
@@ -524,6 +525,9 @@ def analyze_image_with_vision(image_path: str, prompt: str, lang: str = 'ru') ->
         analysis = response.choices[0].message.content.strip()
         if lang == 'ru':
             analysis = clean_english_words(analysis)
+        # Удаляем возможное "Привет" в начале
+        if analysis.startswith('Привет'):
+            analysis = re.sub(r'^Привет[,!\s]*', '', analysis)
         return analysis
     except Exception as e:
         print(f"Ошибка анализа: {e}")
@@ -673,6 +677,13 @@ def handle_message(message: telebot.types.Message) -> None:
             msg = "У меня ещё нет фотоальбома, но Максик обещал скоро добавить! 😊" if lang == 'ru' else "I don't have a photo album yet, but Max promised to add it soon! 😊"
             bot.send_message(message.chat.id, msg)
             return
+
+        # Проверяем, есть ли комплимент в сообщении
+        compliment = False
+        if re.search(r'(красавица|красивая|умница|прекрасна|великолепна|шикарна|обалденная|потрясающая|чудесная|восхитительная|симпатичная|милашка|хорошенькая|обворожительная|божественно|как красиво|какая ты красивая|какая ты классная|какая ты хорошая)', user_text, re.IGNORECASE):
+            compliment = True
+
+        # Ищем тематическое фото
         thematic_photo = search_photo_by_keywords(user_text)
         if thematic_photo:
             chosen_photo = thematic_photo
@@ -681,25 +692,29 @@ def handle_message(message: telebot.types.Message) -> None:
             if not chosen_photo:
                 bot.send_message(message.chat.id, "Не могу найти фото в моём альбоме... 😅" if lang=='ru' else "I can't find a photo in my album... 😅")
                 return
+
         try:
-            # Формируем промпт с требованием начать с душевной фразы
+            # Формируем промпт с учётом комплимента и душевного вступления
+            compliment_prefix = ""
+            if compliment:
+                compliment_prefix = "Сначала тепло поблагодари за комплимент (например, 'Спасибо, мне очень приятно! 😊' или 'Ты так добр, спасибо!'), затем продолжи."
             if not thematic_photo:
                 apology = "Ой, у меня пока нет фото на эту тему, но вот одно из моих любимых – надеюсь, тебе понравится! "
             else:
                 apology = ""
+
             if lang == 'ru':
                 if re.search(r'любимое', user_text, re.IGNORECASE):
-                    analysis_prompt = apology + "Начни свой ответ с тёплой фразы, например: 'Как приятно, что ты спросил! Вот одно из моих любимых фото...' или 'Очень рада, что тебе интересно! Смотри...' Затем опиши фото: что ты на нём делаешь, где ты, какое у тебя настроение. Расскажи короткую историю. Не начинай ответ с 'Привет'."
+                    analysis_prompt = compliment_prefix + " " + apology + "Начни свой ответ с тёплой фразы, например: 'Вот моё любимое фото, оно очень дорого мне...' Затем опиши фото: что ты на нём делаешь, где ты, какое у тебя настроение. Расскажи короткую историю. Не начинай ответ с 'Привет'."
                 else:
-                    analysis_prompt = apology + "Начни свой ответ с душевного восклицания, например: 'Конечно, у меня есть такие фото!' или 'С удовольствием покажу!' Затем опиши фото: что ты на нём делаешь, где ты, какое у тебя настроение. Расскажи короткую историю. Не начинай ответ с 'Привет'."
+                    analysis_prompt = compliment_prefix + " " + apology + "Начни свой ответ с душевного восклицания, например: 'Конечно, у меня есть такие фото!' или 'С удовольствием покажу!' Затем опиши фото: что ты на нём делаешь, где ты, какое у тебя настроение. Расскажи короткую историю. Не начинай ответ с 'Привет'."
             else:
-                analysis_prompt = (apology if not thematic_photo else "") + "Start your answer with a warm phrase, e.g., 'I'm so glad you asked! Here's one of my favorite photos...' Then describe the photo: what you are doing, where you are, what mood you are in. Tell a short story. Do not start with 'Hello'."
+                analysis_prompt = (compliment_prefix + " " + (apology if not thematic_photo else "") + "Start your answer with a warm phrase, e.g., 'I'm so glad you asked! Here's one of my photos...' Then describe the photo: what you are doing, where you are, what mood you are in. Tell a short story. Do not start with 'Hello'.")
+
             description = analyze_image_with_vision(chosen_photo, analysis_prompt, lang)
-            # Дополнительная чистка от "Привет" в начале
+            # Дополнительная чистка от "Привет"
             if description.startswith('Привет'):
                 description = re.sub(r'^Привет[,!\s]*', '', description)
-            # Удаляем возможные остатки "Привет"
-            description = re.sub(r'^[^\w]*Привет[,!\s]*', '', description)
             with open(chosen_photo, 'rb') as photo:
                 bot.send_photo(message.chat.id, photo, caption=description)
         except Exception as e:
@@ -765,5 +780,5 @@ def handle_message(message: telebot.types.Message) -> None:
         add_message(user_id, 'assistant', error)
 
 if __name__ == '__main__':
-    print('✅ Алёна финальная — душевные вступления, полная чистка английского, поиск по темам')
+    print('✅ Алёна финальная — с реакцией на комплименты и без ограничений для тематических фото')
     bot.infinity_polling()
