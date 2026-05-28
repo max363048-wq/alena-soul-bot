@@ -25,7 +25,7 @@ SUPPORTED_EXTENSIONS = ('.jpg', '.jpeg', '.png', '.gif')
 VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
 MAX_BASE64_SIZE = 4 * 1024 * 1024
 
-# --- Глобальные ключевые слова для поиска фото ---
+# --- Глобальные ключевые слова для поиска фото (синонимы) ---
 KEYWORD_MAP = {
     'пляж': ['пляж', 'море', 'берег', 'песок', 'океан', 'купальник'],
     'набережная': ['набережная', 'набережную', 'набережной', 'причал', 'яхта', 'порт'],
@@ -462,7 +462,7 @@ def search_category_by_query(query: str) -> Optional[str]:
     return None
 
 def get_photos_by_category(category: str) -> List[str]:
-    """Возвращает список путей фото, относящихся к заданной категории (по любым синонимам из KEYWORD_MAP)."""
+    """Возвращает список путей фото, относящихся к заданной категории (по любым синонимам)."""
     all_photos = get_photo_list()
     if not all_photos:
         return []
@@ -715,8 +715,8 @@ def handle_message(message: telebot.types.Message) -> None:
             bot.send_message(message.chat.id, "Ты о каком фото? Покажи, если хочешь обсудить 😊" if lang=='ru' else "Which photo are you talking about? Show me if you want to discuss 😊")
             return
 
-    # --- Просьба показать свои фото ---
-    if re.search(r'(какие нибудь фото|а у тебя есть фотографии|есть фотографии|у тебя есть фото|покажи свои фото|покажи фото|фотоальбом|покажи себя|своё фото|свое фото|мои фото|свои фотографии|покажи альбом|покажи где ты была|покажи, где ты|покажи картинку|покажи изображение|есть фото|есть ли у тебя фото|посмотреть твои фото|покажи свои фотографии|любимое фото|есть еще фото|другие фото|покажи другое фото|ещё фото|какое твое любимое фото|покажи любимое фото|покажи другое)', user_text, re.IGNORECASE):
+    # --- Просьба показать свои фото (циклический перебор тематических) ---
+    if re.search(r'(какие нибудь фото|а у тебя есть фотографии|есть фотографии|у тебя есть фото|покажи свои фото|покажи фото|покажи мне свои фотки|фотки|фотоальбом|покажи себя|своё фото|свое фото|мои фото|свои фотографии|покажи альбом|покажи где ты была|покажи, где ты|покажи картинку|покажи изображение|есть фото|есть ли у тебя фото|посмотреть твои фото|покажи свои фотографии|любимое фото|есть еще фото|другие фото|покажи другое фото|ещё фото|какое твое любимое фото|покажи любимое фото|покажи другое)', user_text, re.IGNORECASE):
         all_photos = get_photo_list()
         if not all_photos:
             msg = "У меня ещё нет фотоальбома, но Максик обещал скоро добавить! 😊" if lang == 'ru' else "I don't have a photo album yet, but Max promised to add it soon! 😊"
@@ -737,7 +737,7 @@ def handle_message(message: telebot.types.Message) -> None:
             else:
                 apology = ""
         else:
-            # Нет категории – просто случайное фото (без истории)
+            # Нет категории – просто случайное фото
             chosen_photo = random.choice(all_photos)
             apology = ""
 
@@ -747,8 +747,6 @@ def handle_message(message: telebot.types.Message) -> None:
             compliment_prefix = ""
             if compliment:
                 compliment_prefix = "Сначала тепло поблагодари за комплимент (например, 'Спасибо, мне очень приятно! 😊'), затем продолжи."
-            if not category and not apology:
-                apology = ""
 
             if lang == 'ru':
                 if re.search(r'любимое', user_text, re.IGNORECASE):
@@ -756,7 +754,7 @@ def handle_message(message: telebot.types.Message) -> None:
                 else:
                     analysis_prompt = compliment_prefix + " " + apology + "Начни свой ответ с душевного восклицания, например: 'Конечно, у меня есть такие фото!' или 'С удовольствием покажу!' Затем опиши фото: что ты на нём делаешь, где ты, какое у тебя настроение. Расскажи короткую историю. Не начинай ответ с 'Привет'."
             else:
-                analysis_prompt = (compliment_prefix + " " + (apology if not category else "") + "Start your answer with a warm phrase, e.g., 'I'm so glad you asked! Here's one of my photos...' Then describe the photo: what you are doing, where you are, what mood you are in. Tell a short story. Do not start with 'Hello'.")
+                analysis_prompt = (compliment_prefix + " " + apology + "Start your answer with a warm phrase, e.g., 'I'm so glad you asked! Here's one of my photos...' Then describe the photo: what you are doing, where you are, what mood you are in. Tell a short story. Do not start with 'Hello'.")
             description = analyze_image_with_vision(chosen_photo, analysis_prompt, lang)
             if description.startswith('Привет'):
                 description = re.sub(r'^Привет[,!\s]*', '', description)
@@ -825,5 +823,5 @@ def handle_message(message: telebot.types.Message) -> None:
         add_message(user_id, 'assistant', error)
 
 if __name__ == '__main__':
-    print('✅ Алёна абсолютно финальная — циклический перебор тематических фото')
+    print('✅ Алёна абсолютно финальная — циклический перебор тематических фото, правильные ответы на "где снято", без отказов')
     bot.infinity_polling()
