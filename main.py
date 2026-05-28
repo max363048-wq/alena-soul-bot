@@ -34,6 +34,7 @@ user_last_city: Dict[int, str] = {}
 user_last_photos: Dict[int, deque] = {}
 user_last_sent_photo: Dict[int, str] = {}
 user_no_photos: Dict[int, bool] = {}
+user_last_interest_photo: Dict[int, datetime] = {}
 
 def get_history(user_id: int) -> Deque:
     if user_id not in user_history:
@@ -57,6 +58,7 @@ def reset_user(user_id: int) -> None:
     user_last_photos.pop(user_id, None)
     user_last_sent_photo.pop(user_id, None)
     user_no_photos.pop(user_id, None)
+    user_last_interest_photo.pop(user_id, None)
 
 # --- Ласковые имена ---
 def default_pet_name(first_name: str) -> str:
@@ -631,7 +633,7 @@ def get_system_prompt(lang: str, current_date: str) -> str:
             '7. Address the user by name kindly, but not at the beginning.\n'
         )
 
-# --- Основной обработчик (исправленное регулярное выражение) ---
+# --- Основной обработчик ---
 @bot.message_handler(func=lambda message: True, content_types=['text', 'photo'])
 def handle_message(message: telebot.types.Message) -> None:
     user_id = message.from_user.id
@@ -653,6 +655,7 @@ def handle_message(message: telebot.types.Message) -> None:
     if user_text.startswith('/'):
         return
 
+    # --- Если пользователь говорит, что у него нет фото ---
     if re.search(r'(нет фото|нет своих фото|не снимаюсь|не люблю фоткаться|нет моих фото|не фотографируюсь)', user_text, re.IGNORECASE):
         user_no_photos[user_id] = True
         reply = (
@@ -665,7 +668,7 @@ def handle_message(message: telebot.types.Message) -> None:
         bot.send_message(message.chat.id, reply)
         return
 
-    # --- Вопросы о последнем фото (разбиты на несколько проверок) ---
+    # --- Вопросы о последнем фото (расширенный список) ---
     lower_text = user_text.lower()
     is_photo_question = any(phrase in lower_text for phrase in [
         'где была сделана', 'какое место', 'что там за фон', 'где это', 'какой город',
@@ -674,7 +677,8 @@ def handle_message(message: telebot.types.Message) -> None:
         'где снято', 'а на каком пляже', 'в каком парке', 'в какой стране', 'это в россии',
         'за границей', 'в каком городе', 'на каком море', 'какой пляж', 'как называется',
         'поделись деталями', 'что ещё видно', 'расскажи подробнее', 'добавь деталей',
-        'опиши фон', 'что позади', 'какие люди'
+        'опиши фон', 'что позади', 'какие люди',
+        'это фото', 'эта фотография', 'на этом фото', 'на этой фотографии'
     ])
     if is_photo_question:
         if user_id in user_last_sent_photo and user_last_sent_photo[user_id]:
@@ -802,6 +806,18 @@ def handle_message(message: telebot.types.Message) -> None:
         bot.send_message(message.chat.id, error)
         add_message(user_id, 'assistant', error)
 
+    # --- Инициативный вопрос о фото пользователя (5% вероятность, не чаще раза в 10 минут) ---
+    if not user_no_photos.get(user_id, False) and random.random() < 0.05:
+        now = datetime.now()
+        last = user_last_interest_photo.get(user_id)
+        if last is None or (now - last).seconds > 600:
+            user_last_interest_photo[user_id] = now
+            if lang == 'ru':
+                ask_photo = "А у тебя есть красивые фотографии? Если хочешь, поделись, я с удовольствием посмотрю и расскажу, что думаю 😊"
+            else:
+                ask_photo = "Do you have any beautiful photos? If you want, share them, I'll be happy to take a look and tell you what I think 😊"
+            bot.send_message(message.chat.id, ask_photo)
+
 if __name__ == '__main__':
-    print('✅ Алёна финальная — исправленное регулярное выражение')
+    print('✅ Алёна суперфинальная — распознаёт вопросы о последнем фото, может сама спросить про фото пользователя')
     bot.infinity_polling()
