@@ -716,7 +716,7 @@ def handle_message(message: telebot.types.Message) -> None:
                     apology = ""
             else:
                 # Если категория не указана, но есть "еще такие" – используем последнюю
-                if user_id in user_last_category and user_last_category[user_id] is not None and re.search(r'(еще такие фото|еще фото|другие фото|ещё фото|такие фото)', user_text, re.IGNORECASE):
+                if user_id in user_last_category and user_last_category[user_id] is not None and re.search(r'(еще такие фото|еще такие фотки|еще фото|еще фотки|другие фото|другие фотки|ещё фото|ещё фотки|такие фото|такие фотки)', user_text, re.IGNORECASE):
                     last_cat = user_last_category[user_id]
                     photos_in_cat = get_photos_by_category(last_cat)
                     if len(photos_in_cat) == 1 and user_id in user_thematic_history and last_cat in user_thematic_history[user_id]:
