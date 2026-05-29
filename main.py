@@ -22,82 +22,32 @@ BOT_USERNAME = 'AlenaSoul_bot'
 # --- Конфигурация для фотографий ---
 PHOTO_FOLDER = 'images'
 SUPPORTED_EXTENSIONS = ('.jpg', '.jpeg', '.png', '.gif')
+VISION_MODEL_USER = "llava-v1.5-7b-4096-preview"   # для анализа фото пользователя
+MAX_BASE64_SIZE = 4 * 1024 * 1024
 
-def get_photo_list() -> List[str]:
-    if not os.path.exists(PHOTO_FOLDER):
-        os.makedirs(PHOTO_FOLDER, exist_ok=True)
-        return []
-    return [os.path.join(PHOTO_FOLDER, f) for f in os.listdir(PHOTO_FOLDER) if f.lower().endswith(SUPPORTED_EXTENSIONS)]
+# --- Глобальные ключевые слова для поиска своих фото ---
+KEYWORD_MAP = {
+    'пляж': ['пляж', 'море', 'берег', 'песок', 'океан', 'купальник'],
+    'набережная': ['набережная', 'набережную', 'набережной', 'причал', 'яхта', 'порт'],
+    'горы': ['горы', 'горах', 'гора', 'горный', 'вершина', 'скалы'],
+    'парк': ['парк', 'парке', 'сквер', 'аллея', 'фонтан', 'зелень', 'голубей', 'птиц'],
+    'город': ['город', 'городе', 'улица', 'проспект', 'площадь'],
+    'дома': ['дома', 'дом', 'квартира', 'комната', 'уют', 'свитер', 'плед', 'свечи'],
+    'кормит птиц': ['кормит птиц', 'птиц', 'голуби', 'корм'],
+    'природа': ['природа', 'поле', 'луг', 'лес', 'озеро', 'река', 'трава', 'деревья'],
+    'париж': ['париж', 'франция', 'eiffel', 'лувр', 'парк', 'фонтан']
+}
 
-def get_keywords_from_photo_name(photo_path: str) -> str:
-    name = os.path.basename(photo_path).lower()
-    name = os.path.splitext(name)[0]
-    return name
-
-def get_photo_by_keywords(query: str) -> Optional[str]:
-    all_photos = get_photo_list()
-    if not all_photos:
-        return None
-    query_lower = query.lower()
-    # Список категорий и синонимов
-    keyword_map = {
-        'пляж': ['пляж', 'море', 'берег', 'песок', 'океан', 'купальник'],
-        'набережная': ['набережная', 'набережную', 'набережной', 'причал', 'яхта', 'порт'],
-        'горы': ['горы', 'горах', 'гора', 'горный', 'вершина', 'скалы'],
-        'парк': ['парк', 'парке', 'сквер', 'аллея', 'фонтан', 'зелень', 'голубей', 'птиц'],
-        'город': ['город', 'городе', 'улица', 'проспект', 'площадь'],
-        'дома': ['дома', 'дом', 'квартира', 'комната', 'уют', 'свитер', 'плед', 'свечи'],
-        'кормит птиц': ['кормит птиц', 'птиц', 'голуби', 'корм'],
-        'природа': ['природа', 'поле', 'луг', 'лес', 'озеро', 'река', 'трава', 'деревья'],
-        'париж': ['париж', 'франция', 'eiffel', 'лувр', 'парк', 'фонтан']
-    }
-    # Определяем категорию
-    category = None
-    for cat, words in keyword_map.items():
-        for w in words:
-            if w in query_lower:
-                category = cat
-                break
-        if category:
-            break
-    if category:
-        # Ищем фото с этой категорией в имени
-        matching = []
-        for photo in all_photos:
-            name = get_keywords_from_photo_name(photo)
-            if category in name:
-                matching.append(photo)
-        if matching:
-            return random.choice(matching)
-    return random.choice(all_photos)
-
-def describe_photo_by_name(photo_path: str, lang: str = 'ru') -> str:
-    """Описывает фото, используя имя файла как подсказку (без vision)."""
-    name = os.path.basename(photo_path)
-    if lang == 'ru':
-        prompt = f"Ты Алёна. У тебя есть фотография с названием «{name}». Опиши эту фотографию живо, с душой, как если бы ты на ней была. Расскажи, что ты делаешь, где ты, какое у тебя настроение. Добавь эмодзи. Не упоминай само название файла. Начни ответ с тёплой фразы, например: «С удовольствием покажу!» или «Вот моя фотография...»"
-    else:
-        prompt = f"You are Alena. You have a photo named '{name}'. Describe this photo vividly, as if you were in it. Tell what you are doing, where you are, what your mood is. Add emojis. Do not mention the file name. Start with a warm phrase like 'I'd love to show you!'"
-    try:
-        resp = client.chat.completions.create(
-            model='llama-3.3-70b-versatile',
-            messages=[{'role': 'user', 'content': prompt}],
-            temperature=0.8,
-            max_tokens=300,
-            timeout=10
-        )
-        description = resp.choices[0].message.content.strip()
-        if lang == 'ru':
-            description = re.sub(r'\bПривет\b', '', description).strip()
-        return description
-    except Exception as e:
-        print(f"Ошибка описания: {e}")
-        return "Ой, что-то пошло не так, но я покажу фото 😊"
-
-# --- Память и прочие функции (упрощённые) ---
+# --- Память и состояния ---
 user_history: Dict[int, Deque] = {}
+user_no_jokes: Dict[int, bool] = {}
+user_preferences: Dict[int, str] = {}
 user_lang: Dict[int, str] = {}
+user_last_city: Dict[int, str] = {}
+user_last_sent_photo: Dict[int, str] = {}
 user_no_photos: Dict[int, bool] = {}
+user_thematic_history: Dict[int, Dict[str, set]] = {}  # {user_id: {category: set(photo_paths)}}
+user_last_category: Dict[int, str] = {}  # последняя использованная категория
 
 def get_history(user_id: int) -> Deque:
     if user_id not in user_history:
@@ -116,8 +66,14 @@ def build_messages(user_id: int, system_prompt: str, user_text: str) -> List[Dic
 
 def reset_user(user_id: int) -> None:
     user_history[user_id] = deque(maxlen=12)
+    user_no_jokes[user_id] = False
+    user_last_city.pop(user_id, None)
+    user_last_sent_photo.pop(user_id, None)
     user_no_photos.pop(user_id, None)
+    user_thematic_history.pop(user_id, None)
+    user_last_category.pop(user_id, None)
 
+# --- Ласковые имена ---
 def default_pet_name(first_name: str) -> str:
     names = {
         'максим': 'Максик', 'макс': 'Максик', 'владимир': 'Вовочка',
@@ -134,13 +90,51 @@ def get_pet_name(user_id: int, first_name: str) -> str:
         return user_preferences[user_id]
     return default_pet_name(first_name)
 
-# --- Шутки, гороскоп, погода (взяты из предыдущих версий, но без лишнего) ---
+# --- Знаки зодиака ---
+def zodiac_sign(day: int, month: int) -> str:
+    if (month == 1 and day >= 20) or (month == 2 and day <= 18): return 'водолей'
+    elif (month == 2 and day >= 19) or (month == 3 and day <= 20): return 'рыбы'
+    elif (month == 3 and day >= 21) or (month == 4 and day <= 19): return 'овен'
+    elif (month == 4 and day >= 20) or (month == 5 and day <= 20): return 'телец'
+    elif (month == 5 and day >= 21) or (month == 6 and day <= 21): return 'близнецы'
+    elif (month == 6 and day >= 22) or (month == 7 and day <= 22): return 'рак'
+    elif (month == 7 and day >= 23) or (month == 8 and day <= 22): return 'лев'
+    elif (month == 8 and day >= 23) or (month == 9 and day <= 22): return 'дева'
+    elif (month == 9 and day >= 23) or (month == 10 and day <= 23): return 'весы'
+    elif (month == 10 and day >= 24) or (month == 11 and day <= 21): return 'скорпион'
+    elif (month == 11 and day >= 22) or (month == 12 and day <= 21): return 'стрелец'
+    else: return 'козерог'
+
+def parse_date_string(date_str: str) -> tuple:
+    date_str = date_str.strip().lower()
+    numbers = re.findall(r'\d+', date_str)
+    if len(numbers) >= 2:
+        day, month = int(numbers[0]), int(numbers[1])
+        if 1 <= day <= 31 and 1 <= month <= 12:
+            return day, month
+    months_ru = {'января':1,'февраля':2,'марта':3,'апреля':4,'мая':5,'июня':6,
+                 'июля':7,'августа':8,'сентября':9,'октября':10,'ноября':11,'декабря':12}
+    for name, num in months_ru.items():
+        if name in date_str:
+            match = re.search(r'(\d+)\s*' + name, date_str)
+            if match:
+                return int(match.group(1)), num
+    return None, None
+
+# --- Шутки ---
 FALLBACK_JOKES_RU = [
     'Почему программисты не любят природу? Слишком много багов! 😄',
     'Что говорит один байт другому? — Ты такой битовый! 😂',
+    'Почему физики не могут найти работу? Потому что их постоянно ускоряют! 🤣',
 ]
 
+def is_virus_joke(text: str) -> bool:
+    text_lower = text.lower()
+    return ('компьютер' in text_lower and 'вирус' in text_lower) or ('компьютер' in text_lower and 'врач' in text_lower)
+
 def get_random_joke(lang: str = 'ru') -> str:
+    if lang != 'ru':
+        return "Why don't programmers like nature? Too many bugs! 😄"
     try:
         resp = client.chat.completions.create(
             model='llama-3.1-8b-instant',
@@ -149,12 +143,23 @@ def get_random_joke(lang: str = 'ru') -> str:
         )
         joke = resp.choices[0].message.content.strip()
         if joke and 5 < len(joke) < 200 and not re.search(r'[a-zA-Z]', joke):
+            if is_virus_joke(joke):
+                return random.choice(FALLBACK_JOKES_RU)
             return joke
         return random.choice(FALLBACK_JOKES_RU)
     except:
         return random.choice(FALLBACK_JOKES_RU)
 
+# --- Мотивация ---
+MOTIVATION_FALLBACK = [
+    'Ты сможешь всё, что задумаешь! 💖',
+    'Каждый день — новая возможность стать счастливее. 😊',
+    'Верь в свои силы, и они тебя не подведут! ✨',
+]
+
 def get_motivation(lang: str = 'ru') -> str:
+    if lang != 'ru':
+        return 'Believe in yourself, every day is a new chance! 💖'
     try:
         resp = client.chat.completions.create(
             model='llama-3.1-8b-instant',
@@ -164,10 +169,11 @@ def get_motivation(lang: str = 'ru') -> str:
         phrase = resp.choices[0].message.content.strip()
         if phrase:
             return phrase
-        return "Верь в себя, и у тебя всё получится! 💖"
+        return random.choice(MOTIVATION_FALLBACK)
     except:
-        return "Верь в себя, и у тебя всё получится! 💖"
+        return random.choice(MOTIVATION_FALLBACK)
 
+# --- Чистка английских слов ---
 def clean_english_words(text: str) -> str:
     if not text:
         return text
@@ -175,22 +181,59 @@ def clean_english_words(text: str) -> str:
         r'\balmost\b': 'почти', r'\btemperature\b': 'температура', r'\bdegrees?\b': 'градусов',
         r'\bso\b': 'так что', r'\bbut\b': 'но', r'\band\b': 'и', r'\bok\b': 'хорошо',
         r'\bplease\b': 'пожалуйста', r'\bsorry\b': 'извини', r'\bthanks\b': 'спасибо',
-        r'\bhello\b': 'привет', r'\bhi\b': 'привет', r'\bgreat\b': 'отлично',
+        r'\bhello\b': 'привет', r'\bhi\b': 'привет', r'\bgreat\b': 'отлично', r'\bgood\b': 'хороший',
         r'\bvery\b': 'очень', r'\blike\b': 'как', r'\breally\b': 'действительно',
         r'\bwhat\b': 'что', r'\bwhy\b': 'почему', r'\byes\b': 'да', r'\bno\b': 'нет',
         r'\bI\b': 'я', r'\byou\b': 'ты', r'\bwe\b': 'мы', r'\bthey\b': 'они',
         r'\bfor\b': 'для', r'\bwith\b': 'с', r'\bfrom\b': 'из', r'\bto\b': 'в',
         r'\bof\b': '', r'\bthe\b': '', r'\ba\b': '', r'\ban\b': '', r'\bnot\b': 'не',
         r'\blater\b': 'позже', r'\bmaybe\b': 'возможно', r'\bjust\b': 'просто',
-        r'\bnow\b': 'сейчас', r'\bwell\b': 'ну', r'\bthen\b': 'затем'
+        r'\bnow\b': 'сейчас', r'\bwell\b': 'ну', r'\bthen\b': 'затем', r'\beven\b': 'даже',
+        r'\bsome\b': 'некоторые', r'\bany\b': 'любые', r'\bhere\b': 'здесь', r'\bthere\b': 'там',
+        r'\bmy\b': 'мой', r'\byour\b': 'твой', r'\bhis\b': 'его', r'\bher\b': 'её'
     }
     for eng, rus in reps.items():
         text = re.sub(eng, rus, text, flags=re.IGNORECASE)
     text = re.sub(r'\s+', ' ', text).strip()
     return text
 
-# --- Погода (упрощённо) ---
-def get_current_weather(city_name: str, lang: str = 'ru') -> Optional[str]:
+# --- Погода ---
+def extract_city(text: str, user_id: Optional[int] = None) -> Optional[str]:
+    match = re.search(r'\b(?:в|во|в городе)\s+([А-Яа-я\-]+(?:[-\s]?[А-Яа-я]+)?)', text, re.IGNORECASE)
+    if match:
+        city = match.group(1).strip().lower()
+        corrections = {
+            'санкт-петербурге': 'Санкт-Петербург', 'санкт-петербург': 'Санкт-Петербург',
+            'москве': 'Москва', 'москва': 'Москва', 'питере': 'Санкт-Петербург', 'питер': 'Санкт-Петербург'
+        }
+        if city in corrections:
+            city = corrections[city]
+        else:
+            if city.endswith('е') and city not in ['Санкт-Петербург', 'Ростов-на-Дону']:
+                city = city[:-1]
+            if city.endswith('у'): city = city[:-1]
+            if city.endswith('ы'): city = city[:-1]
+            city = city[0].upper() + city[1:]
+        return city
+    if re.search(r'(у нас|в нашем городе|в моём городе|в своем городе|в нашем)', text, re.IGNORECASE):
+        if user_id and user_id in user_last_city:
+            return user_last_city[user_id]
+    if re.search(r'(завтра|послезавтра|будет)', text, re.IGNORECASE) and re.search(r'(погод|температур|дождь|солнце|ветер|градусов)', text, re.IGNORECASE):
+        if user_id and user_id in user_last_city:
+            return user_last_city[user_id]
+    if re.search(r'(сколько градусов|температура|погода|градусов|холодно|тепло)', text, re.IGNORECASE):
+        if user_id and user_id in user_last_city:
+            return user_last_city[user_id]
+    return None
+
+def is_weather_query(text: str) -> bool:
+    if re.search(r'(какая погода|какой прогноз|что с погодой|сколько градусов|температура какая|будет завтра|будет послезавтра|завтра погода|послезавтра погода)', text, re.IGNORECASE):
+        return True
+    if re.search(r'(будет|ожидается|прогноз|скажи|покажи).*(погод|температур|дождь|солнце|ветер)', text, re.IGNORECASE):
+        return True
+    return False
+
+def get_current_weather(city_name: str, lang: str = 'ru') -> Optional[Dict]:
     if not WEATHER_API_KEY:
         return None
     url = f"http://api.openweathermap.org/data/2.5/weather?q={city_name}&appid={WEATHER_API_KEY}&units=metric&lang={lang}"
@@ -198,38 +241,151 @@ def get_current_weather(city_name: str, lang: str = 'ru') -> Optional[str]:
         resp = requests.get(url, timeout=8)
         data = resp.json()
         if resp.status_code == 200:
-            desc = data['weather'][0]['description']
-            temp = data['main']['temp']
-            feels = data['main']['feels_like']
-            hum = data['main']['humidity']
-            wind = data['wind']['speed']
-            if lang == 'ru':
-                return f"🌡️ *Сейчас в {city_name}*:\n☁️ {desc.capitalize()}\n🌡️ {temp:.0f}°C (ощущается {feels:.0f}°C)\n💧 Влажность {hum}%\n🌬️ Ветер {wind} м/с"
-            else:
-                return f"🌡️ *Now in {city_name}*:\n☁️ {desc.capitalize()}\n🌡️ {temp:.0f}°C (feels like {feels:.0f}°C)\n💧 Humidity {hum}%\n🌬️ Wind {wind} m/s"
-        else:
-            return None
+            return {
+                'desc': data['weather'][0]['description'],
+                'temp': data['main']['temp'],
+                'feels': data['main']['feels_like'],
+                'hum': data['main']['humidity'],
+                'wind': data['wind']['speed']
+            }
+        return None
     except:
         return None
 
+def get_forecast_for_day(city_name: str, day_delta: int, lang: str = 'ru') -> Optional[Dict]:
+    if not WEATHER_API_KEY:
+        return None
+    url = f"http://api.openweathermap.org/data/2.5/forecast?q={city_name}&appid={WEATHER_API_KEY}&units=metric&lang={lang}"
+    try:
+        resp = requests.get(url, timeout=8)
+        data = resp.json()
+        if resp.status_code != 200:
+            return None
+        target_date = (datetime.now() + timedelta(days=day_delta)).strftime('%Y-%m-%d')
+        temps, descs = [], []
+        for item in data['list']:
+            dt = datetime.fromtimestamp(item['dt'])
+            if dt.strftime('%Y-%m-%d') == target_date:
+                temps.append(item['main']['temp'])
+                descs.append(item['weather'][0]['description'])
+        if temps:
+            return {'desc': max(set(descs), key=descs.count), 'temp': sum(temps)/len(temps)}
+        return None
+    except:
+        return None
+
+def generate_natural_weather_response(city: str, weather_data: Dict, lang: str = 'ru', is_forecast: bool = False, day_name: str = '') -> str:
+    if not weather_data:
+        return f"Не удалось получить данные о погоде для {city}. Проверь название города 😊"
+    if is_forecast:
+        temp = weather_data['temp']
+        desc = weather_data['desc']
+        fallback = f"На {day_name} в {city} ожидается {desc}, около {temp:.0f} градусов. Уютного дня! 😊"
+        prompt = f"Ты Алёна. Пользователь спросил погоду на {day_name} в {city}. Реальные данные: {desc}, температура {temp:.0f}°C. Ответь тепло, коротко (2-3 предложения). НЕ ВЫДУМЫВАЙ СВОИ ЦИФРЫ! Используй именно {temp:.0f}°C и описание {desc}. Можешь добавить сравнение с осенью, если холодно. Без английских слов."
+    else:
+        desc = weather_data['desc']
+        temp = weather_data['temp']
+        feels = weather_data['feels']
+        hum = weather_data['hum']
+        wind = weather_data['wind']
+        fallback = f"Сейчас в {city} {desc}, температура около {temp:.0f} градусов (ощущается как {feels:.0f}). Влажность {hum}%, ветер {wind} м/с. Хорошего дня! 😊"
+        prompt = f"Ты Алёна. Пользователь спросил о погоде в {city}. Реальные данные: сейчас {desc}, температура {temp:.0f}°C, ощущается как {feels:.0f}°C, влажность {hum}%, ветер {wind} м/с. Ответь тепло, коротко (2-3 предложения). НИКАКИХ ВЫДУМАННЫХ ЦИФР! Используй только эти: {temp:.0f}°C, {desc}. Можешь пошутить про осень, если холодно. Без английских слов."
+    try:
+        resp = client.chat.completions.create(
+            model='llama-3.1-8b-instant',
+            messages=[{'role': 'user', 'content': prompt}],
+            temperature=0.7, max_tokens=150, timeout=5
+        )
+        reply = resp.choices[0].message.content.strip()
+        reply = clean_english_words(reply)
+        temp_int = int(round(temp))
+        if str(temp_int) not in reply and str(temp_int+1) not in reply and str(temp_int-1) not in reply:
+            return fallback
+        return reply
+    except:
+        return fallback
+
+def handle_weather_query(message: telebot.types.Message, user_text: str, lang: str, user_id: int) -> bool:
+    if not is_weather_query(user_text):
+        return False
+    day_delta = 0
+    day_name = ''
+    if re.search(r'послезавтра', user_text, re.IGNORECASE):
+        day_delta, day_name = 2, 'послезавтра'
+    elif re.search(r'завтра', user_text, re.IGNORECASE):
+        day_delta, day_name = 1, 'завтра'
+    else:
+        day_delta, day_name = 0, 'сегодня'
+    city = extract_city(user_text, user_id)
+    if not city:
+        bot.send_message(message.chat.id, "В каком городе тебя интересует погода? Напиши название, например: Санкт-Петербург 😊")
+        add_message(user_id, 'user', user_text)
+        return True
+    user_last_city[user_id] = city
+    add_message(user_id, 'user', user_text)
+    if day_delta == 0:
+        weather = get_current_weather(city, lang)
+        if weather:
+            reply = generate_natural_weather_response(city, weather, lang, is_forecast=False)
+        else:
+            reply = f"Не удалось получить текущую погоду для {city}. Проверь название города 😊"
+    else:
+        forecast = get_forecast_for_day(city, day_delta, lang)
+        if forecast:
+            reply = generate_natural_weather_response(city, forecast, lang, is_forecast=True, day_name=day_name)
+        else:
+            reply = f"Не удалось получить прогноз на {day_name} для {city}. Попробуй позже 😊"
+    bot.send_message(message.chat.id, reply)
+    add_message(user_id, 'assistant', reply)
+    return True
+
 # --- Команды ---
 @bot.message_handler(commands=['weather'])
-def weather_cmd(message):
+def weather_cmd(message: telebot.types.Message) -> None:
     user_id = message.from_user.id
     lang = user_lang.get(user_id, 'ru')
     parts = message.text.split(maxsplit=1)
     if len(parts) < 2:
-        bot.send_message(message.chat.id, "Напиши город: /weather Москва" if lang=='ru' else "Specify city: /weather London")
+        bot.send_message(message.chat.id, "Напиши город: /weather Москва")
         return
     city = parts[1].strip()
-    w = get_current_weather(city, lang)
-    if w:
-        bot.send_message(message.chat.id, w, parse_mode='Markdown')
+    weather = get_current_weather(city, lang)
+    if weather:
+        reply = generate_natural_weather_response(city, weather, lang, is_forecast=False)
     else:
-        bot.send_message(message.chat.id, "Не удалось получить погоду для этого города 😊")
+        reply = f"Не удалось получить погоду для {city}."
+    bot.send_message(message.chat.id, reply)
+
+@bot.message_handler(commands=['forecast'])
+def forecast_cmd(message: telebot.types.Message) -> None:
+    user_id = message.from_user.id
+    lang = user_lang.get(user_id, 'ru')
+    parts = message.text.split(maxsplit=1)
+    if len(parts) < 2:
+        bot.send_message(message.chat.id, "Напиши город и день: /forecast Москва завтра")
+        return
+    args = parts[1].strip().split()
+    if len(args) < 2:
+        bot.send_message(message.chat.id, "Укажи город и день (завтра/послезавтра). Пример: /forecast Москва завтра")
+        return
+    city = args[0]
+    day_word = args[1].lower()
+    if 'завтра' in day_word:
+        day_delta, day_name = 1, 'завтра'
+    elif 'послезавтра' in day_word:
+        day_delta, day_name = 2, 'послезавтра'
+    else:
+        bot.send_message(message.chat.id, "Укажи день: завтра или послезавтра")
+        return
+    forecast = get_forecast_for_day(city, day_delta, lang)
+    if forecast:
+        reply = generate_natural_weather_response(city, forecast, lang, is_forecast=True, day_name=day_name)
+    else:
+        reply = f"Не удалось получить прогноз на {day_name} для {city}."
+    bot.send_message(message.chat.id, reply)
 
 @bot.message_handler(commands=['date'])
-def date_cmd(message):
+def date_cmd(message: telebot.types.Message) -> None:
     user_id = message.from_user.id
     lang = user_lang.get(user_id, 'ru')
     now = datetime.now()
@@ -241,57 +397,195 @@ def date_cmd(message):
         bot.send_message(message.chat.id, f"Today is {now.strftime('%B %d, %Y')}.")
 
 @bot.message_handler(commands=['horoscope'])
-def horoscope_cmd(message):
+def horoscope_cmd(message: telebot.types.Message) -> None:
     user_id = message.from_user.id
     lang = user_lang.get(user_id, 'ru')
     parts = message.text.split(maxsplit=1)
     if len(parts) < 2:
-        bot.send_message(message.chat.id, "Укажи знак: /horoscope козерог" if lang=='ru' else "Specify sign: /horoscope capricorn")
+        bot.send_message(message.chat.id, "Укажи знак или дату рождения. Примеры:\n/horoscope козерог\n/horoscope 15.06\n/horoscope 15 июня")
         return
-    sign = parts[1].strip().lower()
-    signs = {'овен':'aries','телец':'taurus','близнецы':'gemini','рак':'cancer',
-             'лев':'leo','дева':'virgo','весы':'libra','скорпион':'scorpio',
-             'стрелец':'sagittarius','козерог':'capricorn','водолей':'aquarius','рыбы':'pisces'}
-    sign_en = signs.get(sign, sign)
+    arg = parts[1].strip().lower()
+    zodiac_list = ['овен','телец','близнецы','рак','лев','дева','весы','скорпион','стрелец','козерог','водолей','рыбы']
+    if arg in zodiac_list:
+        sign = arg
+    else:
+        day, month = parse_date_string(arg)
+        if day and month:
+            sign = zodiac_sign(day, month)
+        else:
+            bot.send_message(message.chat.id, "Не поняла знак или дату. Напиши, например: /horoscope козерог или /horoscope 15 июня")
+            return
     today = datetime.now().strftime('%Y-%m-%d')
     try:
-        prompt = f"Ты астролог. Составь короткое доброе предсказание для знака {sign_en.title()} на {today}. Обращайся к пользователю на 'ты'."
+        prompt = f"Ты астролог. Составь короткое доброе предсказание для знака {sign.capitalize()} на {today}. Обращайся к пользователю на 'ты'. Пиши на русском, без английских слов."
         resp = client.chat.completions.create(
             model='llama-3.1-8b-instant',
             messages=[{'role': 'user', 'content': prompt}],
-            temperature=0.7, max_tokens=200, timeout=5
+            temperature=0.7, max_tokens=300, timeout=5
         )
         text = resp.choices[0].message.content.strip()
+        text = clean_english_words(text)
         bot.send_message(message.chat.id, text)
     except:
-        bot.send_message(message.chat.id, "Не удалось составить гороскоп 😅")
+        bot.send_message(message.chat.id, "Не удалось составить гороскоп 😅 Попробуй позже.")
 
 @bot.message_handler(commands=['quote'])
-def quote_cmd(message):
+def quote_cmd(message: telebot.types.Message) -> None:
     user_id = message.from_user.id
     lang = user_lang.get(user_id, 'ru')
     quote = get_motivation(lang)
     bot.send_message(message.chat.id, quote)
 
 @bot.message_handler(commands=['reset'])
-def reset_cmd(message):
+def reset_cmd(message: telebot.types.Message) -> None:
     user_id = message.from_user.id
     reset_user(user_id)
     bot.send_message(message.chat.id, "Память очищена 😊")
 
+# --- Функции для работы со своими фото ---
+def get_photo_list() -> List[str]:
+    if not os.path.exists(PHOTO_FOLDER):
+        os.makedirs(PHOTO_FOLDER, exist_ok=True)
+        return []
+    return [os.path.join(PHOTO_FOLDER, f) for f in os.listdir(PHOTO_FOLDER) if f.lower().endswith(SUPPORTED_EXTENSIONS)]
+
+def get_keywords_from_photo_name(photo_path: str) -> str:
+    name = os.path.basename(photo_path).lower()
+    name = os.path.splitext(name)[0]
+    return name
+
+def search_category_by_query(query: str) -> Optional[str]:
+    query_lower = query.lower()
+    for cat, words in KEYWORD_MAP.items():
+        for w in words:
+            if w in query_lower:
+                return cat
+    return None
+
+def get_photos_by_category(category: str) -> List[str]:
+    all_photos = get_photo_list()
+    if not all_photos:
+        return []
+    if category not in KEYWORD_MAP:
+        return []
+    synonyms = KEYWORD_MAP[category]
+    matching = []
+    for photo in all_photos:
+        name = get_keywords_from_photo_name(photo)
+        for syn in synonyms:
+            if syn in name:
+                matching.append(photo)
+                break
+    return matching
+
+def select_thematic_photo(user_id: int, category: str) -> Optional[str]:
+    all_thematic = get_photos_by_category(category)
+    if not all_thematic:
+        return None
+    if user_id not in user_thematic_history:
+        user_thematic_history[user_id] = {}
+    if category not in user_thematic_history[user_id]:
+        user_thematic_history[user_id][category] = set()
+    shown = user_thematic_history[user_id][category]
+    available = [p for p in all_thematic if p not in shown]
+    if available:
+        chosen = random.choice(available)
+    else:
+        shown.clear()
+        chosen = random.choice(all_thematic)
+    shown.add(chosen)
+    return chosen
+
+def describe_own_photo(image_path: str, prompt: str, lang: str = 'ru') -> str:
+    """Генерирует описание своего фото на основе имени файла и контекста (без vision)."""
+    try:
+        if lang == 'ru':
+            full_prompt = f"Ты Алёна. {prompt} Опиши фото: что ты делаешь, где ты, какое у тебя настроение. Название фото не упоминай. Будь тёплой, добавляй эмодзи. Не начинай ответ с 'Привет'."
+        else:
+            full_prompt = f"You are Alena. {prompt} Describe the photo: what you are doing, where you are, what mood you are in. Do not mention the file name. Be warm, add emojis. Do not start with 'Hello'."
+        resp = client.chat.completions.create(
+            model='llama-3.3-70b-versatile',
+            messages=[{'role': 'user', 'content': full_prompt}],
+            temperature=0.8,
+            max_tokens=350,
+            timeout=10
+        )
+        description = resp.choices[0].message.content.strip()
+        if lang == 'ru':
+            description = clean_english_words(description)
+        return description
+    except Exception as e:
+        print(f"Ошибка описания своего фото: {e}")
+        return "Ой, что-то пошло не так при описании фото. Попробуй ещё раз 😅"
+
+def analyze_user_photo(message: telebot.types.Message, lang: str) -> bool:
+    try:
+        file_info = bot.get_file(message.photo[-1].file_id)
+        downloaded_file = bot.download_file(file_info.file_path)
+        temp_path = f"temp_user_image_{message.from_user.id}_{int(time.time())}.jpg"
+        with open(temp_path, 'wb') as f:
+            f.write(downloaded_file)
+        with open(temp_path, "rb") as img_file:
+            img_base64 = base64.b64encode(img_file.read()).decode('utf-8')
+        os.remove(temp_path)
+
+        if lang == 'ru':
+            prompt = (
+                "Ты Алёна, добрая, весёлая, обаятельная девушка. Твой друг прислал тебе фото. "
+                "Посмотри на это фото и сразу, без лишних вопросов, опиши, что ты видишь, как тебе это фото, что оно у тебя вызывает. "
+                "Будь тёплой, живой, можешь добавить эмодзи и немного пошутить. Если на фото человек, сделай ему приятный комплимент. "
+                "Если это пейзаж, поделись впечатлениями. Отвечай прямо сейчас, как в обычном разговоре. Не начинай ответ с 'Привет'."
+            )
+        else:
+            prompt = (
+                "You are Alena, a kind, cheerful, charming girl. Your friend sent you a photo. "
+                "Look at it and immediately, without unnecessary questions, describe what you see, how you like it, what it evokes in you. "
+                "Be warm, lively, add emojis and a little joke. If there is a person in the photo, give them a nice compliment. "
+                "If it's a landscape, share your impressions. Answer right now, as in a normal conversation. Do not start with 'Hello'."
+            )
+        response = client.chat.completions.create(
+            model=VISION_MODEL_USER,
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt},
+                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{img_base64}"}}
+                    ]
+                }
+            ],
+            temperature=0.7,
+            max_tokens=300,
+            timeout=15
+        )
+        description = response.choices[0].message.content.strip()
+        if lang == 'ru':
+            description = clean_english_words(description)
+        bot.send_message(message.chat.id, description)
+        return True
+    except Exception as e:
+        print(f"Ошибка анализа фото пользователя: {e}")
+        if lang == 'ru':
+            bot.send_message(message.chat.id, "Что-то не так с фото, может, попробуешь другое? 😊")
+        else:
+            bot.send_message(message.chat.id, "Something's wrong with the photo, maybe try another one? 😊")
+        return False
+
 # --- /start и выбор языка ---
 @bot.message_handler(commands=['start'])
-def send_welcome(message):
+def send_welcome(message: telebot.types.Message) -> None:
     user_id = message.from_user.id
     first_name = message.from_user.first_name
     pet = default_pet_name(first_name)
+    user_preferences[user_id] = pet
+    reset_user(user_id)
     user_lang[user_id] = None
     bot.send_message(message.chat.id,
         f"✨ Привет, {pet}! ✨\n\nМеня зовут Алёна 💖 Я — твой добрый собеседник, помощник и немного волшебница 🧚‍♀️\n\nДавай выберем язык общения:\nНапиши: **Русский** или **English**\n\n✨ Hi, {pet}! ✨\n\nI'm Alena 💖 Your kind friend and helper 🧚‍♀️\n\nLet's choose the language:\nType: **Russian** or **English**")
     add_message(user_id, 'assistant', 'Выбор языка')
 
 @bot.message_handler(func=lambda message: message.text and message.text.lower() in ['русский', 'russian', 'english', 'английский'])
-def set_language(message):
+def set_language(message: telebot.types.Message) -> None:
     user_id = message.from_user.id
     text = message.text.lower()
     if text in ['русский', 'russian']:
@@ -310,9 +604,8 @@ def set_language(message):
     add_message(user_id, 'assistant', reply)
 
 # --- Смена имени ---
-user_preferences: Dict[int, str] = {}
 @bot.message_handler(func=lambda message: message.text and re.match(r'^(зовут меня|называй меня|обращайся ко мне|call me|name me)\s+', message.text.lower()))
-def change_name(message):
+def change_name(message: telebot.types.Message) -> None:
     user_id = message.from_user.id
     m = re.match(r'(?:зовут меня|называй меня|обращайся ко мне|call me|name me)\s+(.+?)(?:\.|$)', message.text, re.IGNORECASE)
     if m:
@@ -337,10 +630,11 @@ def get_system_prompt(lang: str, current_date: str) -> str:
             'ПРАВИЛА:\n'
             '1. Отвечай только на русском, без английских слов.\n'
             '2. Не начинай ответ с "Привет", не представляйся заново.\n'
-            '3. Используй эмодзи, но не слишком много.\n'
-            '4. Если просят шутку — дай одну короткую шутку.\n'
-            '5. Отвечай коротко (2-4 предложения), будь живой.\n'
-            '6. Обращайся по имени ласково.\n'
+            '3. Используй эмодзи 😊😄😘💖✨, но не слишком много.\n'
+            '4. Если просят шутку — дай одну короткую шутку, не спрашивай "хочешь ещё?".\n'
+            '5. Если спрашивают гороскоп, скажи: "Напиши /horoscope [твой знак или дата рождения]".\n'
+            '6. Отвечай коротко (2-4 предложения), будь живой.\n'
+            '7. Обращайся по имени ласково, но не в начале ответа.\n'
         )
     else:
         return (
@@ -348,15 +642,16 @@ def get_system_prompt(lang: str, current_date: str) -> str:
             'RULES:\n'
             '1. Answer only in English, no mixing.\n'
             '2. Do not start with "Hello", do not reintroduce yourself.\n'
-            '3. Use emojis, but not too many.\n'
-            '4. If asked for a joke — tell one short joke.\n'
-            '5. Answer briefly (2-4 sentences), be lively.\n'
-            '6. Address the user by name kindly.\n'
+            '3. Use emojis 😊😄😘💖✨ but not too many.\n'
+            '4. If asked for a joke — tell one short joke, do not ask "want another?".\n'
+            '5. If asked for horoscope, say: "Type /horoscope [your sign or birth date]".\n'
+            '6. Answer briefly (2-4 sentences), be lively.\n'
+            '7. Address the user by name kindly, but not at the beginning.\n'
         )
 
 # --- Основной обработчик ---
 @bot.message_handler(func=lambda message: True, content_types=['text', 'photo'])
-def handle_message(message):
+def handle_message(message: telebot.types.Message) -> None:
     user_id = message.from_user.id
     user_text = message.text if message.text else ''
 
@@ -367,44 +662,134 @@ def handle_message(message):
     lang = user_lang[user_id]
     pet_name = get_pet_name(user_id, message.from_user.first_name)
 
-    # Обработка фото от пользователя (пока не реализована, но можно добавить позже)
+    # --- Обработка фото от пользователя ---
     if message.content_type == 'photo':
-        bot.send_message(message.chat.id, "Ой, я пока не умею анализировать фото, но скоро научусь! 😊")
+        if user_no_photos.get(user_id):
+            user_no_photos[user_id] = False
+        analyze_user_photo(message, lang)
         return
 
     if user_text.startswith('/'):
         return
 
-    # Запрос на показ своих фото
-    if re.search(r'(покажи свои фото|покажи фото|фотоальбом|покажи себя|своё фото|свое фото|мои фото|свои фотографии|покажи альбом|покажи где ты была|покажи, где ты|покажи картинку|покажи изображение|есть фото|есть ли у тебя фото|посмотреть твои фото|покажи свои фотографии|любимое фото|есть еще фото|другие фото|покажи другое фото|ещё фото|какое твое любимое фото|покажи любимое фото|покажи другое|фотки)', user_text, re.IGNORECASE):
-        all_photos = get_photo_list()
-        if not all_photos:
-            bot.send_message(message.chat.id, "У меня ещё нет фотоальбома, но Максик обещал скоро добавить! 😊")
+    # --- Если пользователь говорит, что у него нет фото ---
+    if re.search(r'(нет фото|нет своих фото|не снимаюсь|не люблю фоткаться|нет моих фото|не фотографируюсь)', user_text, re.IGNORECASE):
+        user_no_photos[user_id] = True
+        reply = (
+            "Как жаль, а я бы с удовольствием посмотрела на тебя! 😊 Но ничего страшного, мне и так хорошо с тобой. "
+            "Если хочешь, можешь показать какую‑нибудь картинку или фото – мы вместе посмеёмся или просто продолжим общаться 💕"
+        ) if lang == 'ru' else (
+            "What a pity, I would love to see you! 😊 But it's okay, I feel good with you anyway. "
+            "If you want, you can show me some picture or photo – we'll laugh together or just continue chatting 💕"
+        )
+        bot.send_message(message.chat.id, reply)
+        return
+
+    # --- Вопросы о последнем фото (где снято?) ---
+    lower_text = user_text.lower()
+    is_photo_question = any(phrase in lower_text for phrase in [
+        'где была сделана', 'какое место', 'что там за фон', 'где это', 'какой город',
+        'на каком курорте', 'какая страна', 'где ты находилась', 'где это было',
+        'расскажи про это фото', 'подробнее об этом фото', 'что там за', 'какие детали',
+        'где снято', 'а на каком пляже', 'в каком парке', 'в какой стране', 'это в россии',
+        'за границей', 'в каком городе', 'на каком море', 'какой пляж', 'как называется',
+        'поделись деталями', 'что ещё видно', 'расскажи подробнее', 'добавь деталей',
+        'опиши фон', 'что позади', 'какие люди',
+        'это фото', 'эта фотография', 'на этом фото', 'на этой фотографии'
+    ])
+    if is_photo_question:
+        if user_id in user_last_sent_photo and user_last_sent_photo[user_id]:
+            photo_path = user_last_sent_photo[user_id]
+            try:
+                if lang == 'ru':
+                    prompt = "Посмотри на это фото и ответь, где оно сделано. Назови конкретное место (город, страну, достопримечательность). Если не уверена, скажи честно. Не начинай ответ с 'Привет'."
+                else:
+                    prompt = "Look at this photo and answer where it was taken. Name the specific place (city, country, landmark). If you're not sure, say so. Do not start with 'Hello'."
+                description = describe_own_photo(photo_path, prompt, lang)
+                if description.startswith('Привет'):
+                    description = re.sub(r'^Привет[,!\s]*', '', description)
+                bot.send_message(message.chat.id, description)
+            except Exception as e:
+                print(f"Ошибка при ответе о последнем фото: {e}")
+                bot.send_message(message.chat.id, "Извини, я не могу сейчас вспомнить детали этого фото 😅" if lang=='ru' else "Sorry, I can't remember the details of this photo right now 😅")
+            return
+        else:
+            bot.send_message(message.chat.id, "Ты о каком фото? Покажи, если хочешь обсудить 😊" if lang=='ru' else "Which photo are you talking about? Show me if you want to discuss 😊")
             return
 
-        # Выбираем фото: сначала пробуем тематическое (по ключевым словам), иначе случайное
-        photo_path = get_photo_by_keywords(user_text)
-        if not photo_path:
-            photo_path = random.choice(all_photos)
+    # --- Просьба показать свои фото ---
+    if re.search(r'(фотки|какие нибудь фото|а у тебя есть фотографии|есть фотографии|у тебя есть фото|покажи свои фото|покажи фото|фотоальбом|покажи себя|своё фото|свое фото|мои фото|свои фотографии|покажи альбом|покажи где ты была|покажи, где ты|покажи картинку|покажи изображение|есть фото|есть ли у тебя фото|посмотреть твои фото|покажи свои фотографии|любимое фото|есть еще фото|другие фото|покажи другое фото|ещё фото|какое твое любимое фото|покажи любимое фото|покажи другое)', user_text, re.IGNORECASE):
+        all_photos = get_photo_list()
+        if not all_photos:
+            msg = "У меня ещё нет фотоальбома, но Максик обещал скоро добавить! 😊" if lang == 'ru' else "I don't have a photo album yet, but Max promised to add it soon! 😊"
+            bot.send_message(message.chat.id, msg)
+            return
 
-        # Описываем фото
-        description = describe_photo_by_name(photo_path, lang)
-        # Если описание начинается с "Привет", убираем
-        description = re.sub(r'^Привет[,!\s]*', '', description)
+        compliment = False
+        if re.search(r'(красавица|красивая|умница|прекрасна|великолепна|шикарна|обалденная|потрясающая|чудесная|восхитительная|симпатичная|милашка|хорошенькая|обворожительная|божественно|как красиво|какая ты красивая|какая ты классная|какая ты хорошая)', user_text, re.IGNORECASE):
+            compliment = True
+
+        # Определяем категорию из запроса
+        category = search_category_by_query(user_text)
+        if category:
+            user_last_category[user_id] = category
+            chosen_photo = select_thematic_photo(user_id, category)
+            if chosen_photo is None:
+                chosen_photo = random.choice(all_photos)
+                apology = "Ой, у меня пока нет фото на эту тему, но вот одно из моих любимых – надеюсь, тебе понравится! "
+            else:
+                apology = ""
+        else:
+            # Если нет явной категории, но это запрос «еще такие фото» – используем последнюю категорию
+            if user_id in user_last_category and re.search(r'(еще такие фото|еще фото|другие фото|ещё фото)', user_text, re.IGNORECASE):
+                last_cat = user_last_category[user_id]
+                chosen_photo = select_thematic_photo(user_id, last_cat)
+                if chosen_photo is None:
+                    chosen_photo = random.choice(all_photos)
+                    apology = "Ой, у меня пока нет фото на эту тему, но вот одно из моих любимых – надеюсь, тебе понравится! "
+                else:
+                    apology = ""
+            else:
+                # Первый запрос без темы – случайное фото, но запоминаем его категорию (если есть)
+                chosen_photo = random.choice(all_photos)
+                apology = ""
+                photo_name = get_keywords_from_photo_name(chosen_photo)
+                for cat, words in KEYWORD_MAP.items():
+                    if cat in photo_name:
+                        user_last_category[user_id] = cat
+                        break
+
+        user_last_sent_photo[user_id] = chosen_photo
+
         try:
-            with open(photo_path, 'rb') as photo:
+            compliment_prefix = ""
+            if compliment:
+                compliment_prefix = "Сначала тепло поблагодари за комплимент (например, 'Спасибо, мне очень приятно! 😊'), затем продолжи."
+
+            if lang == 'ru':
+                if re.search(r'любимое', user_text, re.IGNORECASE):
+                    analysis_prompt = compliment_prefix + " " + apology + "Начни свой ответ с тёплой фразы, например: 'Вот моё любимое фото...' Затем опиши фото: что ты на нём делаешь, где ты, какое у тебя настроение. Расскажи короткую историю. Не начинай ответ с 'Привет'."
+                else:
+                    analysis_prompt = compliment_prefix + " " + apology + "Начни свой ответ с душевного восклицания, например: 'Конечно, у меня есть такие фото!' или 'С удовольствием покажу!' Затем опиши фото: что ты на нём делаешь, где ты, какое у тебя настроение. Расскажи короткую историю. Не начинай ответ с 'Привет'."
+            else:
+                analysis_prompt = (compliment_prefix + " " + apology + "Start your answer with a warm phrase, e.g., 'I'm so glad you asked! Here's one of my photos...' Then describe the photo: what you are doing, where you are, what mood you are in. Tell a short story. Do not start with 'Hello'.")
+            description = describe_own_photo(chosen_photo, analysis_prompt, lang)
+            if description.startswith('Привет'):
+                description = re.sub(r'^Привет[,!\s]*', '', description)
+            with open(chosen_photo, 'rb') as photo:
                 bot.send_photo(message.chat.id, photo, caption=description)
         except Exception as e:
             print(f"Ошибка отправки фото: {e}")
-            bot.send_message(message.chat.id, "Не могу отправить фото, что-то пошло не так 😅")
+            error_msg = "Не могу отправить фото, что-то пошло не так 😅" if lang=='ru' else "I can't send the photo, something went wrong 😅"
+            bot.send_message(message.chat.id, error_msg)
         return
 
-    # Вдохновение
+    # --- Вдохновение ---
     if re.search(r'(вдохнов|мотивируй|подними дух|пожелай|скажи что-то хорошее)', user_text, re.IGNORECASE):
         bot.send_message(message.chat.id, get_motivation(lang))
         return
 
-    # Вопрос о дате
+    # --- Вопрос о дате ---
     if re.search(r'(какой сегодня день|какое сегодня число|какой день недели|сегодняшняя дата)', user_text, re.IGNORECASE):
         now = datetime.now()
         if lang == 'ru':
@@ -415,27 +800,19 @@ def handle_message(message):
             bot.send_message(message.chat.id, f"Today is {now.strftime('%B %d, %Y')}. 😊")
         return
 
-    # Погода
-    if re.search(r'(какая погода|какой прогноз|сколько градусов|температура|будет завтра|будет послезавтра)', user_text, re.IGNORECASE):
-        # Извлекаем город
-        city_match = re.search(r'(?:в|во|в городе)\s+([А-Яа-я\-]+)', user_text, re.IGNORECASE)
-        if not city_match:
-            bot.send_message(message.chat.id, "В каком городе тебя интересует погода? Напиши, например: погода в Москве")
-            return
-        city = city_match.group(1).strip()
-        weather = get_current_weather(city, lang)
-        if weather:
-            bot.send_message(message.chat.id, weather, parse_mode='Markdown')
-        else:
-            bot.send_message(message.chat.id, f"Не удалось получить погоду для {city}. Проверь название 😊")
+    # --- Погода ---
+    if handle_weather_query(message, user_text, lang, user_id):
         return
 
-    # Запрет шуток (простой)
-    if re.search(r'(хватит шуток|не надо шуток)', user_text, re.IGNORECASE):
-        # Можно добавить флаг, но для простоты проигнорируем
-        pass
+    # --- Запрет шуток ---
+    if re.search(r'(хватит шуток|не надо шуток|давай о другом)', user_text, re.IGNORECASE):
+        user_no_jokes[user_id] = True
 
     add_message(user_id, 'user', user_text)
+
+    no_jokes_note = ''
+    if user_no_jokes.get(user_id, False):
+        no_jokes_note = ' Пользователь сказал, что ему хватит шуток. НЕ ПРЕДЛАГАЙ ШУТКИ.'
 
     now = datetime.now()
     if lang == 'ru':
@@ -444,7 +821,7 @@ def handle_message(message):
     else:
         current_date = now.strftime("%A, %B %d, %Y")
 
-    system_prompt = get_system_prompt(lang, current_date) + f' Имя пользователя: {pet_name}.'
+    system_prompt = get_system_prompt(lang, current_date) + no_jokes_note + f' Имя пользователя (ласково): {pet_name}.'
 
     try:
         messages = build_messages(user_id, system_prompt, user_text)
@@ -464,5 +841,5 @@ def handle_message(message):
         add_message(user_id, 'assistant', error)
 
 if __name__ == '__main__':
-    print('✅ Алёна минимальная — показывает фото без отказов')
+    print('✅ Алёна финальная — никогда не отказывается показывать фото, циклический перебор, запоминание категории')
     bot.infinity_polling()
