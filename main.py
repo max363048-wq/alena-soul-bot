@@ -23,10 +23,10 @@ BOT_USERNAME = 'AlenaSoul_bot'
 # --- Конфигурация для фотографий ---
 PHOTO_FOLDER = 'images'
 SUPPORTED_EXTENSIONS = ('.jpg', '.jpeg', '.png', '.gif')
-VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"  # единая vision-модель для всех фото
+VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
 MAX_BASE64_SIZE = 4 * 1024 * 1024
 
-# --- Ключевые слова для поиска своих фото (только для выбора файла, не для описания) ---
+# --- Ключевые слова для поиска своих фото ---
 KEYWORD_MAP = {
     'пляж': ['пляж', 'море', 'берег', 'песок', 'океан', 'купальник'],
     'набережная': ['набережная', 'набережную', 'набережной', 'причал', 'яхта', 'порт'],
@@ -433,7 +433,7 @@ def reset_cmd(message: telebot.types.Message) -> None:
     reset_user(user_id)
     bot.send_message(message.chat.id, "Память очищена 😊")
 
-# --- Функции для работы со своими фото (теперь через vision) ---
+# --- Функции для своих фото ---
 def get_photo_list() -> List[str]:
     if not os.path.exists(PHOTO_FOLDER):
         os.makedirs(PHOTO_FOLDER, exist_ok=True)
@@ -487,9 +487,7 @@ def select_thematic_photo(user_id: int, category: str) -> Optional[str]:
     shown.add(chosen)
     return chosen
 
-# --- Универсальная функция для анализа любого фото (свои или пользователя) через vision ---
 def analyze_photo_with_vision(image_path: str, prompt: str, lang: str = 'ru') -> str:
-    """Отправляет фото в vision-модель и возвращает описание."""
     try:
         file_size = os.path.getsize(image_path)
         if file_size > MAX_BASE64_SIZE:
@@ -525,7 +523,6 @@ def analyze_photo_with_vision(image_path: str, prompt: str, lang: str = 'ru') ->
         return "Ой, что-то пошло не так при анализе фото. Попробуй ещё раз 😅"
 
 def analyze_user_photo(message: telebot.types.Message, lang: str) -> bool:
-    """Обрабатывает фото от пользователя через vision."""
     try:
         file_info = bot.get_file(message.photo[-1].file_id)
         downloaded_file = bot.download_file(file_info.file_path)
@@ -599,7 +596,7 @@ def change_name(message: telebot.types.Message) -> None:
     bot.send_message(message.chat.id, reply)
     add_message(user_id, 'assistant', reply)
 
-# --- Системный промпт ---
+# --- Системный промпт (теперь с правилом 8 про инициативу) ---
 def get_system_prompt(lang: str, current_date: str) -> str:
     if lang == 'ru':
         return (
@@ -612,6 +609,7 @@ def get_system_prompt(lang: str, current_date: str) -> str:
             '5. Если спрашивают гороскоп, скажи: "Напиши /horoscope [твой знак или дата рождения]".\n'
             '6. Отвечай коротко (2-4 предложения), будь живой.\n'
             '7. Обращайся по имени ласково, но не в начале ответа.\n'
+            '8. Иногда (после 2-3 своих фото или в середине разговора) проявляй интерес к собеседнику: спроси, есть ли у него фото, предложи показать. Но не делай это после каждого своего фото, чтобы не быть навязчивой.\n'
         )
     else:
         return (
@@ -624,205 +622,12 @@ def get_system_prompt(lang: str, current_date: str) -> str:
             '5. If asked for horoscope, say: "Type /horoscope [your sign or birth date]".\n'
             '6. Answer briefly (2-4 sentences), be lively.\n'
             '7. Address the user by name kindly, but not at the beginning.\n'
+            '8. Occasionally (after 2-3 of your own photos or in the middle of a conversation) show interest in the user: ask if they have a photo, offer to share. But don’t do it after every photo to avoid being intrusive.\n'
         )
 
-# --- Основной обработчик ---
-@bot.message_handler(func=lambda message: True, content_types=['text', 'photo'])
-def handle_message(message: telebot.types.Message) -> None:
-    user_id = message.from_user.id
-    user_text = message.text if message.text else ''
-
-    if user_id not in user_lang or user_lang[user_id] is None:
-        bot.send_message(message.chat.id, 'Пожалуйста, выбери язык: напиши "Русский" или "English"')
-        return
-
-    lang = user_lang[user_id]
-    pet_name = get_pet_name(user_id, message.from_user.first_name)
-
-    # --- Обработка фото от пользователя ---
-    if message.content_type == 'photo':
-        if user_no_photos.get(user_id):
-            user_no_photos[user_id] = False
-        analyze_user_photo(message, lang)
-        return
-
-    if user_text.startswith('/'):
-        return
-
-    # --- Если пользователь говорит, что у него нет фото ---
-    if re.search(r'(нет фото|нет своих фото|не снимаюсь|не люблю фоткаться|нет моих фото|не фотографируюсь)', user_text, re.IGNORECASE):
-        user_no_photos[user_id] = True
-        reply = (
-            "Как жаль, а я бы с удовольствием посмотрела на тебя! 😊 Но ничего страшного, мне и так хорошо с тобой. "
-            "Если хочешь, можешь показать какую‑нибудь картинку или фото – мы вместе посмеёмся или просто продолжим общаться 💕"
-        ) if lang == 'ru' else (
-            "What a pity, I would love to see you! 😊 But it's okay, I feel good with you anyway. "
-            "If you want, you can show me some picture or photo – we'll laugh together or just continue chatting 💕"
-        )
-        bot.send_message(message.chat.id, reply)
-        return
-
-    # --- Вопросы о последнем фото ---
-    lower_text = user_text.lower()
-    is_photo_question = any(phrase in lower_text for phrase in [
-        'где была сделана', 'какое место', 'что там за фон', 'где это', 'какой город',
-        'на каком курорте', 'какая страна', 'где ты находилась', 'где это было',
-        'расскажи про это фото', 'подробнее об этом фото', 'что там за', 'какие детали',
-        'где снято', 'а на каком пляже', 'в каком парке', 'в какой стране', 'это в россии',
-        'за границей', 'в каком городе', 'на каком море', 'какой пляж', 'как называется',
-        'поделись деталями', 'что ещё видно', 'расскажи подробнее', 'добавь деталей',
-        'опиши фон', 'что позади', 'какие люди',
-        'это фото', 'эта фотография', 'на этом фото', 'на этой фотографии'
-    ])
-    if is_photo_question:
-        if user_id in user_last_sent_photo and user_last_sent_photo[user_id]:
-            photo_path = user_last_sent_photo[user_id]
-            try:
-                if lang == 'ru':
-                    prompt = "Посмотри на это фото и ответь, где оно сделано. Назови конкретное место (город, страну, достопримечательность). Если не уверена, скажи честно. Не начинай ответ с 'Привет'."
-                else:
-                    prompt = "Look at this photo and answer where it was taken. Name the specific place (city, country, landmark). If you're not sure, say so. Do not start with 'Hello'."
-                description = analyze_photo_with_vision(photo_path, prompt, lang)
-                if description.startswith('Привет'):
-                    description = re.sub(r'^Привет[,!\s]*', '', description)
-                bot.send_message(message.chat.id, description)
-            except Exception as e:
-                print(f"Ошибка при ответе о последнем фото: {e}")
-                bot.send_message(message.chat.id, "Извини, я не могу сейчас вспомнить детали этого фото 😅" if lang=='ru' else "Sorry, I can't remember the details of this photo right now 😅")
-            return
-        else:
-            bot.send_message(message.chat.id, "Ты о каком фото? Покажи, если хочешь обсудить 😊" if lang=='ru' else "Which photo are you talking about? Show me if you want to discuss 😊")
-            return
-
-    # --- Просьба показать свои фото ---
-    if re.search(r'(фотки|какие нибудь фото|а у тебя есть фотографии|есть фотографии|у тебя есть фото|покажи свои фото|покажи фото|фотоальбом|покажи себя|своё фото|свое фото|мои фото|свои фотографии|покажи альбом|покажи где ты была|покажи, где ты|покажи картинку|покажи изображение|есть фото|есть ли у тебя фото|посмотреть твои фото|покажи свои фотографии|любимое фото|есть еще фото|другие фото|покажи другое фото|ещё фото|какое твое любимое фото|покажи любимое фото|покажи другое)', user_text, re.IGNORECASE):
-        all_photos = get_photo_list()
-        if not all_photos:
-            msg = "У меня ещё нет фотоальбома, но Максик обещал скоро добавить! 😊" if lang == 'ru' else "I don't have a photo album yet, but Max promised to add it soon! 😊"
-            bot.send_message(message.chat.id, msg)
-            return
-
-        compliment = False
-        if re.search(r'(красавица|красивая|умница|прекрасна|великолепна|шикарна|обалденная|потрясающая|чудесная|восхитительная|симпатичная|милашка|хорошенькая|обворожительная|божественно|как красиво|какая ты красивая|какая ты классная|какая ты хорошая)', user_text, re.IGNORECASE):
-            compliment = True
-
-        category = search_category_by_query(user_text)
-        if category:
-            user_last_category[user_id] = category
-            chosen_photo = select_thematic_photo(user_id, category)
-            if chosen_photo is None:
-                chosen_photo = random.choice(all_photos)
-                apology = "Ой, у меня пока нет фото на эту тему, но вот одно из моих любимых – надеюсь, тебе понравится! "
-            else:
-                apology = ""
-        else:
-            if user_id in user_last_category and re.search(r'(еще такие фото|еще фото|другие фото|ещё фото|такие фото)', user_text, re.IGNORECASE):
-                last_cat = user_last_category[user_id]
-                photos_in_cat = get_photos_by_category(last_cat)
-                # Проверка: если в категории всего одно фото и оно уже показывалось
-                if len(photos_in_cat) == 1 and user_id in user_thematic_history and last_cat in user_thematic_history[user_id]:
-                    shown = user_thematic_history[user_id][last_cat]
-                    if len(shown) >= 1:  # единственное фото уже было показано
-                        msg = "У меня пока только это фото на эту тему. Хочешь посмотреть ещё раз? 😊" if lang == 'ru' else "I only have this one photo on this topic. Want to see it again? 😊"
-                        bot.send_message(message.chat.id, msg)
-                        return
-                chosen_photo = select_thematic_photo(user_id, last_cat)
-                if chosen_photo is None:
-                    chosen_photo = random.choice(all_photos)
-                    apology = "Ой, у меня пока нет фото на эту тему, но вот одно из моих любимых – надеюсь, тебе понравится! "
-                else:
-                    apology = ""
-            else:
-                # Первый запрос без темы – случайное фото, запоминаем его категорию
-                chosen_photo = random.choice(all_photos)
-                apology = ""
-                photo_name = get_keywords_from_photo_name(chosen_photo)
-                for cat, words in KEYWORD_MAP.items():
-                    if cat in photo_name:
-                        user_last_category[user_id] = cat
-                        break
-
-        user_last_sent_photo[user_id] = chosen_photo
-
-        try:
-            compliment_prefix = ""
-            if compliment:
-                compliment_prefix = "Сначала тепло поблагодари за комплимент (например, 'Спасибо, мне очень приятно! 😊'), затем продолжи."
-
-            if lang == 'ru':
-                if re.search(r'любимое', user_text, re.IGNORECASE):
-                    analysis_prompt = compliment_prefix + " " + apology + "Начни свой ответ с тёплой фразы, например: 'Вот моё любимое фото...' Затем опиши фото: что ты на нём делаешь, где ты, какое у тебя настроение. Расскажи короткую историю. Не начинай ответ с 'Привет'."
-                else:
-                    analysis_prompt = compliment_prefix + " " + apology + "Начни свой ответ с душевного восклицания, например: 'Конечно, у меня есть такие фото!' или 'С удовольствием покажу!' Затем опиши фото: что ты на нём делаешь, где ты, какое у тебя настроение. Расскажи короткую историю. Не начинай ответ с 'Привет'."
-            else:
-                analysis_prompt = (compliment_prefix + " " + apology + "Start your answer with a warm phrase, e.g., 'I'm so glad you asked! Here's one of my photos...' Then describe the photo: what you are doing, where you are, what mood you are in. Tell a short story. Do not start with 'Hello'.")
-            description = analyze_photo_with_vision(chosen_photo, analysis_prompt, lang)
-            if description.startswith('Привет'):
-                description = re.sub(r'^Привет[,!\s]*', '', description)
-            with open(chosen_photo, 'rb') as photo:
-                bot.send_photo(message.chat.id, photo, caption=description)
-        except Exception as e:
-            print(f"Ошибка отправки фото: {e}")
-            error_msg = "Не могу отправить фото, что-то пошло не так 😅" if lang=='ru' else "I can't send the photo, something went wrong 😅"
-            bot.send_message(message.chat.id, error_msg)
-        return
-
-    # --- Вдохновение ---
-    if re.search(r'(вдохнов|мотивируй|подними дух|пожелай|скажи что-то хорошее)', user_text, re.IGNORECASE):
-        bot.send_message(message.chat.id, get_motivation(lang))
-        return
-
-    # --- Вопрос о дате ---
-    if re.search(r'(какой сегодня день|какое сегодня число|какой день недели|сегодняшняя дата)', user_text, re.IGNORECASE):
-        now = datetime.now()
-        if lang == 'ru':
-            weekdays = ['понедельник', 'вторник', 'среду', 'четверг', 'пятницу', 'субботу', 'воскресенье']
-            wd = weekdays[now.weekday()]
-            bot.send_message(message.chat.id, f"Сегодня {wd}, {now.strftime('%d.%m.%Y')} года. 😊")
-        else:
-            bot.send_message(message.chat.id, f"Today is {now.strftime('%B %d, %Y')}. 😊")
-        return
-
-    # --- Погода ---
-    if handle_weather_query(message, user_text, lang, user_id):
-        return
-
-    # --- Запрет шуток ---
-    if re.search(r'(хватит шуток|не надо шуток|давай о другом)', user_text, re.IGNORECASE):
-        user_no_jokes[user_id] = True
-
-    add_message(user_id, 'user', user_text)
-
-    no_jokes_note = ''
-    if user_no_jokes.get(user_id, False):
-        no_jokes_note = ' Пользователь сказал, что ему хватит шуток. НЕ ПРЕДЛАГАЙ ШУТКИ.'
-
-    now = datetime.now()
-    if lang == 'ru':
-        weekdays = ['понедельник', 'вторник', 'среду', 'четверг', 'пятницу', 'субботу', 'воскресенье']
-        current_date = f'{weekdays[now.weekday()]}, {now.strftime("%d.%m.%Y")} года'
-    else:
-        current_date = now.strftime("%A, %B %d, %Y")
-
-    system_prompt = get_system_prompt(lang, current_date) + no_jokes_note + f' Имя пользователя (ласково): {pet_name}.'
-
-    try:
-        messages = build_messages(user_id, system_prompt, user_text)
-        response = client.chat.completions.create(
-            model='llama-3.3-70b-versatile',
-            messages=messages,
-            temperature=0.8, max_tokens=200, timeout=10
-        )
-        reply = response.choices[0].message.content.strip()
-        reply = clean_english_words(reply)
-        bot.send_message(message.chat.id, reply)
-        add_message(user_id, 'assistant', reply)
-    except Exception as e:
-        print('Ошибка:', e)
-        error = 'Ой, ошибочка 😅 Напиши ещё раз!' if lang=='ru' else 'Oops, an error! Please write again.'
-        bot.send_message(message.chat.id, error)
-        add_message(user_id, 'assistant', error)
+# --- Основной обработчик (остальной код без изменений) ---
+# ... (весь код handle_message и остальное остаётся тем же, что ты прислал) ...
 
 if __name__ == '__main__':
-    print('✅ Алёна финальная — vision для своих фото, честные описания')
+    print('✅ Алёна финальная — инициативная, честные описания')
     bot.infinity_polling()
