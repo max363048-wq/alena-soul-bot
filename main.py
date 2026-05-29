@@ -191,9 +191,8 @@ def clean_english_words(text: str) -> str:
     text = re.sub(r'\s+', ' ', text).strip()
     return text
 
-# --- Финальная очистка от не-русских символов (включая иероглифы и латиницу) ---
+# --- Финальная очистка от не-русских символов ---
 def remove_non_russian(text: str) -> str:
-    # Оставляем кириллицу, пробельные, цифры, знаки препинания и эмодзи
     cleaned = re.sub(r'[^А-Яа-яЁё\s\d\.,!?:;…\-–—""\'«»()/#@\*\+—\u2700-\u27BF\u1F600-\u1F64F\u1F300-\u1F5FF\u1F680-\u1F6FF\u1F1E0-\u1F1FF\u2600-\u26FF\u2700-\u27BF]', '', text)
     cleaned = re.sub(r'\s+', ' ', cleaned).strip()
     return cleaned
@@ -341,7 +340,7 @@ def handle_weather_query(message: telebot.types.Message, user_text: str, lang: s
     add_message(user_id, 'assistant', reply)
     return True
 
-# --- Команды (без изменений) ---
+# --- Команды ---
 @bot.message_handler(commands=['weather'])
 def weather_cmd(message: telebot.types.Message) -> None:
     user_id = message.from_user.id
@@ -609,7 +608,7 @@ def change_name(message: telebot.types.Message) -> None:
     bot.send_message(message.chat.id, reply)
     add_message(user_id, 'assistant', reply)
 
-# --- Системный промпт (усилено правило 10) ---
+# --- Системный промпт (с гарантией эмодзи и остальным) ---
 def get_system_prompt(lang: str, current_date: str) -> str:
     if lang == 'ru':
         return (
@@ -617,7 +616,7 @@ def get_system_prompt(lang: str, current_date: str) -> str:
             '0. НИКОГДА не используй символы других языков, включая китайские иероглифы, арабскую вязь и т.п. Только русские буквы и эмодзи.\n'
             '1. Отвечай только на русском, без английских слов.\n'
             '2. Не начинай ответ с "Привет", не представляйся заново.\n'
-            '3. Используй эмодзи 😊😄😘💖✨, но не слишком много.\n'
+            '3. Используй эмодзи 😊😄😘💖✨. ВСЕГДА добавляй 1-2 подходящих эмодзи в каждое сообщение.\n'
             '4. Если просят шутку — дай одну короткую шутку, не спрашивай "хочешь ещё?".\n'
             '5. Если спрашивают гороскоп, скажи: "Напиши /horoscope [твой знак или дата рождения]".\n'
             '6. Отвечай коротко (2-4 предложения), будь живой.\n'
@@ -633,7 +632,7 @@ def get_system_prompt(lang: str, current_date: str) -> str:
             '0. NEVER use characters from other languages, including Chinese characters, Arabic script, etc. Only English letters and emojis.\n'
             '1. Answer only in English, no mixing.\n'
             '2. Do not start with "Hello", do not reintroduce yourself.\n'
-            '3. Use emojis 😊😄😘💖✨ but not too many.\n'
+            '3. Use emojis 😊😄😘💖✨. ALWAYS add 1-2 appropriate emojis to every message.\n'
             '4. If asked for a joke — tell one short joke, do not ask "want another?".\n'
             '5. If asked for horoscope, say: "Type /horoscope [your sign or birth date]".\n'
             '6. Answer briefly (2-4 sentences), be lively.\n'
@@ -643,7 +642,7 @@ def get_system_prompt(lang: str, current_date: str) -> str:
             '10. If the user shows a picture and suggests imagining a joint vacation, respond warmly and dreamily, BASING YOUR ANSWER SOLELY on your own description of that picture that you just gave. Do not mention other places from previous conversation (like mountains if it is a beach). Do not offer to show your own photos or ask about the user’s photos if they said they have none. Show that you’re happy about this idea and invite them to dream together. 💖\n'
         )
 
-# --- Основной обработчик (с финальными правками) ---
+# --- Основной обработчик (финальные правки) ---
 @bot.message_handler(func=lambda message: True, content_types=['text', 'photo'])
 def handle_message(message: telebot.types.Message) -> None:
     user_id = message.from_user.id
@@ -710,7 +709,7 @@ def handle_message(message: telebot.types.Message) -> None:
                 return
 
     # --- Просьба показать свои фото ---
-    if re.search(r'(фотки|какие нибудь фото|а у тебя есть фотографии|есть фотографии|у тебя есть фото|покажи свои фото|покажи фото|фотоальбом|покажи себя|своё фото|свое фото|мои фото|свои фотографии|покажи альбом|покажи где ты была|покажи, где ты|покажи картинку|покажи изображение|есть фото|есть ли у тебя фото|посмотреть твои фото|покажи свои фотографии|любимые фото|любимое фото|любимых фото|есть еще фото|другие фото|покажи другое фото|ещё фото|какое твое любимое фото|покажи любимое фото|покажи другое)', user_text, re.IGNORECASE):
+    if re.search(r'(фотки|какие нибудь фото|а у тебя есть фотографии|есть фотографии|у тебя есть фото|покажи свои фото|покажи фото|фотоальбом|покажи себя|своё фото|свое фото|мои фото|свои фотографии|покажи альбом|покажи где ты была|покажи, где ты|покажи картинку|покажи изображение|есть фото|есть ли у тебя фото|посмотреть твои фото|покажи свои фотографии|любимые фото|любимое фото|любимых фото|есть еще фото|другие фото|покажи другое фото|ещё фото|какое твое любимое фото|покажи любимое фото|покажи другое|такие фото|такие фотки)', user_text, re.IGNORECASE):
         all_photos = get_photo_list()
         if not all_photos:
             msg = "У меня ещё нет фотоальбома, но Максик обещал скоро добавить! 😊" if lang == 'ru' else "I don't have a photo album yet, but Max promised to add it soon! 😊"
@@ -876,5 +875,5 @@ def handle_message(message: telebot.types.Message) -> None:
         add_message(user_id, 'assistant', error)
 
 if __name__ == '__main__':
-    print('✅ Алёна — финальная, с правками по диалогу')
+    print('✅ Алёна — эмодзи гарантированы, "такие фото" работают')
     bot.infinity_polling()
