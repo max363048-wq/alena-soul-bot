@@ -812,43 +812,70 @@ def handle_message(message: telebot.types.Message) -> None:
 
         user_last_sent_photo[user_id] = chosen_photo
 
-        try:
-            compliment_prefix = ""
-            if compliment:
-                compliment_prefix = "Сначала тепло поблагодари за комплимент (например, 'Спасибо, мне очень приятно! 😊'), затем продолжи."
+        # Попытки отправки с повтором при ошибке
+        max_attempts = 3
+        attempt = 0
+        sent = False
+        while attempt < max_attempts and not sent:
+            attempt += 1
+            try:
+                compliment_prefix = ""
+                if compliment:
+                    compliment_prefix = "Сначала тепло поблагодари за комплимент (например, 'Спасибо, мне очень приятно! 😊'), затем продолжи."
 
-            if lang == 'ru':
-                if re.search(r'любимые|любимое|любимых', user_text, re.IGNORECASE):
-                    analysis_prompt = compliment_prefix + " " + apology + "Начни свой ответ с тёплой фразы, например: 'Вот моё любимое фото...' Затем опиши фото: что ты на нём делаешь, где ты, какое у тебя настроение. Расскажи короткую историю. Обязательно добавь 2-3 эмодзи, чтобы описание было живым. Не начинай ответ с 'Привет'."
-                else:
-                    analysis_prompt = compliment_prefix + " " + apology + "Начни свой ответ с душевного восклицания, например: 'Конечно, у меня есть такие фото!' или 'С удовольствием покажу!' Затем опиши фото: что ты на нём делаешь, где ты, какое у тебя настроение. Расскажи короткую историю. Обязательно добавь 2-3 эмодзи, чтобы описание было живым. Не начинай ответ с 'Привет'."
-            else:
-                analysis_prompt = (compliment_prefix + " " + apology + "Start your answer with a warm phrase, e.g., 'I'm so glad you asked! Here's one of my photos...' Then describe the photo: what you are doing, where you are, what mood you are in. Tell a short story. Be sure to add 2-3 emojis to make the description lively. Do not start with 'Hello'.")
-            description = analyze_photo_with_vision(chosen_photo, analysis_prompt, lang)
-            if description.startswith('Привет'):
-                description = re.sub(r'^Привет[,!\s]*', '', description)
-
-            # Для расплывчатого запроса ВСЕГДА добавляем подсказку
-            if not category and not re.search(r'(такие|таких|похожие|аналогичные)', user_text, re.IGNORECASE):
                 if lang == 'ru':
-                    description += "\n\nКстати, у меня много разных фотографий! Есть где я на пляже, в горах или на природе... Какие именно тебя интересуют? 😊"
+                    if re.search(r'любимые|любимое|любимых', user_text, re.IGNORECASE):
+                        analysis_prompt = compliment_prefix + " " + apology + "Начни свой ответ с тёплой фразы, например: 'Вот моё любимое фото...' Затем опиши фото: что ты на нём делаешь, где ты, какое у тебя настроение. Расскажи короткую историю. Обязательно добавь 2-3 эмодзи, чтобы описание было живым. Не начинай ответ с 'Привет'."
+                    else:
+                        analysis_prompt = compliment_prefix + " " + apology + "Начни свой ответ с душевного восклицания, например: 'Конечно, у меня есть такие фото!' или 'С удовольствием покажу!' Затем опиши фото: что ты на нём делаешь, где ты, какое у тебя настроение. Расскажи короткую историю. Обязательно добавь 2-3 эмодзи, чтобы описание было живым. Не начинай ответ с 'Привет'."
                 else:
-                    description += "\n\nBy the way, I have a lot of different photos! I have some at the beach, in the mountains, or in nature... Which ones are you interested in? 😊"
+                    analysis_prompt = (compliment_prefix + " " + apology + "Start your answer with a warm phrase, e.g., 'I'm so glad you asked! Here's one of my photos...' Then describe the photo: what you are doing, where you are, what mood you are in. Tell a short story. Be sure to add 2-3 emojis to make the description lively. Do not start with 'Hello'.")
+                description = analyze_photo_with_vision(chosen_photo, analysis_prompt, lang)
+                if description.startswith('Привет'):
+                    description = re.sub(r'^Привет[,!\s]*', '', description)
 
-            if user_has_no_photos:
-                if lang == 'ru':
-                    description += "\n\nКак жаль, а я бы с удовольствием посмотрела на тебя! 😊 Но ничего страшного, мне и так хорошо с тобой."
+                # Для расплывчатого запроса ВСЕГДА добавляем подсказку
+                if not category and not re.search(r'(такие|таких|похожие|аналогичные)', user_text, re.IGNORECASE):
+                    if lang == 'ru':
+                        description += "\n\nКстати, у меня много разных фотографий! Есть где я на пляже, в горах или на природе... Какие именно тебя интересуют? 😊"
+                    else:
+                        description += "\n\nBy the way, I have a lot of different photos! I have some at the beach, in the mountains, or in nature... Which ones are you interested in? 😊"
+
+                if user_has_no_photos:
+                    if lang == 'ru':
+                        description += "\n\nКак жаль, а я бы с удовольствием посмотрела на тебя! 😊 Но ничего страшного, мне и так хорошо с тобой."
+                    else:
+                        description += "\n\nWhat a pity, I would love to see you! 😊 But it's okay, I feel good with you anyway."
+
+                description = distribute_emojis(description)
+                with open(chosen_photo, 'rb') as photo:
+                    bot.send_photo(message.chat.id, photo, caption=description)
+                sent = True
+            except Exception as e:
+                print(f"Ошибка отправки фото (попытка {attempt}): {e}")
+                if attempt < max_attempts:
+                    chosen_photo = random.choice(all_photos)
+                    user_last_sent_photo[user_id] = chosen_photo
+                    # переопределим категорию для нового фото
+                    photo_name = get_keywords_from_photo_name(chosen_photo)
+                    cat_found = False
+                    for cat, words in KEYWORD_MAP.items():
+                        if any(syn in photo_name for syn in words):
+                            user_last_category[user_id] = cat
+                            if user_id not in user_thematic_history:
+                                user_thematic_history[user_id] = {}
+                            if cat not in user_thematic_history[user_id]:
+                                user_thematic_history[user_id][cat] = set()
+                            user_thematic_history[user_id][cat].add(chosen_photo)
+                            cat_found = True
+                            break
+                    if not cat_found:
+                        user_last_category[user_id] = None
                 else:
-                    description += "\n\nWhat a pity, I would love to see you! 😊 But it's okay, I feel good with you anyway."
-
-            description = distribute_emojis(description)
-            with open(chosen_photo, 'rb') as photo:
-                bot.send_photo(message.chat.id, photo, caption=description)
-        except Exception as e:
-            print(f"Ошибка отправки фото: {e}")
-            error_msg = "Не могу отправить фото, что-то не так 😅" if lang=='ru' else "I can't send the photo, something went wrong 😅"
-            bot.send_message(message.chat.id, distribute_emojis(error_msg))
-        return
+                    error_msg = "Не могу отправить фото, что-то не так 😅" if lang=='ru' else "I can't send the photo, something went wrong 😅"
+                    bot.send_message(message.chat.id, distribute_emojis(error_msg))
+        if sent:
+            return
 
     if user_has_no_photos:
         reply = (
@@ -923,5 +950,5 @@ def handle_message(message: telebot.types.Message) -> None:
         add_message(user_id, 'assistant', error)
 
 if __name__ == '__main__':
-    print('✅ Алёна — общий запрос с подсказкой и сменой темы')
+    print('✅ Алёна — повторные попытки для фото')
     bot.infinity_polling()
