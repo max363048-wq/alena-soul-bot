@@ -177,6 +177,7 @@ def clean_english_words(text: str) -> str:
         r'\babsolutely\b': 'конечно', r'\blounge\b': 'шезлонг', r'\bromantic\b': 'романтично',
         r'\binteres\w*\b': 'интересн',
         r'\brefreshed\b': 'посвежевшей',
+        r'\bfeeling\b': 'чувствуя',
     }
     for eng, rus in reps.items():
         text = re.sub(eng, rus, text, flags=re.IGNORECASE)
@@ -188,39 +189,47 @@ def remove_non_russian(text: str) -> str:
     cleaned = re.sub(r'\s+', ' ', cleaned).strip()
     return cleaned
 
+# Универсальные эмодзи, которые безопасно добавлять в любом контексте
+SAFE_EMOJIS = ['😊', '💖', '✨', '😄', '😘', '🥰', '💕', '🤗']
+
 def distribute_emojis(text: str) -> str:
-    """Распределяет эмодзи по предложениям, гарантируя разнообразие."""
+    """Распределяет эмодзи по предложениям, гарантируя уместность."""
+    # Находим все эмодзи, уже присутствующие в тексте
+    all_emojis = re.findall(r'[\U0001F600-\U0001F64F\U0001F300-\U0001F5FF\U0001F680-\U0001F6FF\U0001F1E0-\U0001F1FF\u2600-\u26FF\u2700-\u27BF]', text)
     sentences = re.split(r'(?<=[.!?…]) +', text)
-    # Более разнообразный пул, из которого будем брать, избегая повторов
-    emoji_pool = ['😊', '💖', '✨', '😄', '🌸', '🌟', '🤗', '🌞', '🌊', '🌴', '💕', '😘', '🎉', '💫']
-    used_emojis = []
     new_sentences = []
+    used_safe_emojis = []
     total_emojis = 0
+
     for s in sentences:
-        if not re.search(r'[\U0001F600-\U0001F64F\U0001F300-\U0001F5FF\U0001F680-\U0001F6FF\U0001F1E0-\U0001F1FF\u2600-\u26FF\u2700-\u27BF]', s):
-            # Выбираем эмодзи, который ещё не использовали в этом сообщении
-            available = [e for e in emoji_pool if e not in used_emojis]
+        # Проверяем, есть ли в предложении хоть один эмодзи
+        emojis_in_s = re.findall(r'[\U0001F600-\U0001F64F\U0001F300-\U0001F5FF\U0001F680-\U0001F6FF\U0001F1E0-\U0001F1FF\u2600-\u26FF\u2700-\u27BF]', s)
+        if not emojis_in_s:
+            # Добавляем ОДИН безопасный эмодзи в предложение
+            available = [e for e in SAFE_EMOJIS if e not in used_safe_emojis]
             if not available:
-                available = emoji_pool
-                used_emojis = []
+                available = SAFE_EMOJIS
+                used_safe_emojis = []
             chosen = random.choice(available)
             s += ' ' + chosen
-            used_emojis.append(chosen)
+            used_safe_emojis.append(chosen)
             total_emojis += 1
         else:
-            found = re.findall(r'[\U0001F600-\U0001F64F\U0001F300-\U0001F5FF\U0001F680-\U0001F6FF\U0001F1E0-\U0001F1FF\u2600-\u26FF\u2700-\u27BF]', s)
-            total_emojis += len(found)
+            total_emojis += len(emojis_in_s)
         new_sentences.append(s)
+
     result = ' '.join(new_sentences)
-    # Если эмодзи всё ещё меньше 2, добавляем разные
+
+    # Если эмодзи всё ещё меньше 2, добавляем недостающие в конец
     if total_emojis < 2:
-        available = [e for e in emoji_pool if e not in used_emojis]
+        available = [e for e in SAFE_EMOJIS if e not in used_safe_emojis]
         if not available:
-            available = emoji_pool
+            available = SAFE_EMOJIS
         for _ in range(2 - total_emojis):
             chosen = random.choice(available)
             result += ' ' + chosen
-            used_emojis.append(chosen)
+            used_safe_emojis.append(chosen)
+
     return result
 
 def extract_city(text: str, user_id: Optional[int] = None) -> Optional[str]:
@@ -877,7 +886,7 @@ def handle_message(message: telebot.types.Message) -> None:
     system_prompt = get_system_prompt(lang, current_date) + no_jokes_note + no_photos_note + f' Имя пользователя (ласково): {pet_name}.'
 
     if user_id in user_last_user_image_desc and re.search(r'(мы бы с тобой|смотрелись вместе|отдохнуть вместе|побыть вдвоём|представь|помечта)', user_text, re.IGNORECASE):
-        system_prompt += f'\n\nПользователь показал картинку, которую ты описала так: "{user_last_user_image_desc[user_id]}". ОТВЕЧАЙ ТОЛЬКО НА ОСНОВЕ ЭТОГО ОПИСАНИЯ, ИГНОРИРУЙ ВСЕ ПРЕДЫДУЩИЕ ТЕМЫ. Представь, что вы вдвоём находитесь в этом месте, опиши ощущения.'
+        system_prompt += f'\n\nПользователь показал картинку, которую ты описала так: "{user_last_user_image_desc[user_id]}". ОТВЕЧАЙ ТОЛЬКО НА ОСНОВЕ ЭТОГО ОПИСАНИЯ, ИГНОРИРУЙ ВСЕ ПРЕДЫДУЩИЕ ТЕМЫ. Представь, что вы вдвоём находятся в этом месте, опиши ощущения.'
 
     try:
         messages = build_messages(user_id, system_prompt, user_text)
@@ -899,5 +908,5 @@ def handle_message(message: telebot.types.Message) -> None:
         add_message(user_id, 'assistant', error)
 
 if __name__ == '__main__':
-    print('✅ Алёна — финальная, эмодзи разнообразные')
+    print('✅ Алёна — финальная, эмодзи уместны, язык чист')
     bot.infinity_polling()
