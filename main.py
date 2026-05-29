@@ -47,6 +47,7 @@ user_last_city: Dict[int, str] = {}
 user_last_sent_photo: Dict[int, str] = {}
 user_no_photos: Dict[int, bool] = {}
 user_thematic_history: Dict[int, Dict[str, set]] = {}  # {user_id: {category: set(photo_paths)}}
+user_last_category: Dict[int, str] = {}  # запоминаем последнюю использованную категорию
 
 def get_history(user_id: int) -> Deque:
     if user_id not in user_history:
@@ -70,6 +71,7 @@ def reset_user(user_id: int) -> None:
     user_last_sent_photo.pop(user_id, None)
     user_no_photos.pop(user_id, None)
     user_thematic_history.pop(user_id, None)
+    user_last_category.pop(user_id, None)
 
 # --- Ласковые имена ---
 def default_pet_name(first_name: str) -> str:
@@ -485,12 +487,10 @@ def select_thematic_photo(user_id: int, category: str) -> Optional[str]:
     if category not in user_thematic_history[user_id]:
         user_thematic_history[user_id][category] = set()
     shown = user_thematic_history[user_id][category]
-    # Находим непоказанные
     available = [p for p in all_thematic if p not in shown]
     if available:
         chosen = random.choice(available)
     else:
-        # Все показаны – начинаем заново (сбрасываем историю)
         shown.clear()
         chosen = random.choice(all_thematic)
     shown.add(chosen)
@@ -498,22 +498,18 @@ def select_thematic_photo(user_id: int, category: str) -> Optional[str]:
 
 def describe_own_photo(image_path: str, prompt: str, lang: str = 'ru') -> str:
     """Генерирует описание своего фото на основе имени файла и контекста (без vision)."""
-    # Просто возвращаем текст, сгенерированный LLM на основе имени файла и запроса.
-    # Используем обычную текстовую модель (llama-3.3-70b-versatile).
-    # Для этого получаем имя файла без расширения и используем его как подсказку.
-    name = os.path.basename(image_path).lower()
-    name = os.path.splitext(name)[0]
+    # Получаем имя файла, но НЕ используем его в тексте описания – только для внутренней логики
     try:
-        # Короткий промпт, чтобы модель описала фото на основе имени
         if lang == 'ru':
-            prompt_full = f"Ты Алёна. Твоё фото называется «{name}». {prompt} Опиши это фото живо, с душой, добавь эмодзи. Не начинай ответ с 'Привет'."
+            # Промпт: создать описание фото на основе имени, но не упоминать само имя
+            full_prompt = f"Ты Алёна. {prompt} Придумай естественное, живое описание фотографии, которое соответствует её названию («{os.path.basename(image_path)}»), но не упоминай само название файла. Опиши своё настроение, что ты делаешь, где находишься. Будь тёплой, добавляй эмодзи. Не начинай ответ с 'Привет'."
         else:
-            prompt_full = f"You are Alena. Your photo is called '{name}'. {prompt} Describe this photo vividly, with soul, add emojis. Do not start with 'Hello'."
+            full_prompt = f"You are Alena. {prompt} Create a natural, lively description of a photo that matches its name ('{os.path.basename(image_path)}'), but do not mention the file name itself. Describe your mood, what you are doing, where you are. Be warm, add emojis. Do not start with 'Hello'."
         resp = client.chat.completions.create(
             model='llama-3.3-70b-versatile',
-            messages=[{'role': 'user', 'content': prompt_full}],
+            messages=[{'role': 'user', 'content': full_prompt}],
             temperature=0.8,
-            max_tokens=300,
+            max_tokens=350,
             timeout=10
         )
         description = resp.choices[0].message.content.strip()
@@ -524,7 +520,6 @@ def describe_own_photo(image_path: str, prompt: str, lang: str = 'ru') -> str:
         print(f"Ошибка описания своего фото: {e}")
         return "Ой, что-то пошло не так при описании фото. Попробуй ещё раз 😅"
 
-# --- Анализ фото от пользователя (с vision) ---
 def analyze_user_photo(message: telebot.types.Message, lang: str) -> bool:
     try:
         file_info = bot.get_file(message.photo[-1].file_id)
@@ -707,7 +702,6 @@ def handle_message(message: telebot.types.Message) -> None:
     if is_photo_question:
         if user_id in user_last_sent_photo and user_last_sent_photo[user_id]:
             photo_path = user_last_sent_photo[user_id]
-            # Используем ту же функцию описания, но с уточняющим промптом
             try:
                 if lang == 'ru':
                     prompt = "Посмотри на это фото и ответь, где оно сделано. Назови конкретное место (город, страну, достопримечательность). Если не уверена, скажи честно. Не начинай ответ с 'Привет'."
@@ -725,7 +719,7 @@ def handle_message(message: telebot.types.Message) -> None:
             bot.send_message(message.chat.id, "Ты о каком фото? Покажи, если хочешь обсудить 😊" if lang=='ru' else "Which photo are you talking about? Show me if you want to discuss 😊")
             return
 
-    # --- Просьба показать свои фото (с циклическим перебором по категориям) ---
+    # --- Просьба показать свои фото ---
     if re.search(r'(фотки|какие нибудь фото|а у тебя есть фотографии|есть фотографии|у тебя есть фото|покажи свои фото|покажи фото|фотоальбом|покажи себя|своё фото|свое фото|мои фото|свои фотографии|покажи альбом|покажи где ты была|покажи, где ты|покажи картинку|покажи изображение|есть фото|есть ли у тебя фото|посмотреть твои фото|покажи свои фотографии|любимое фото|есть еще фото|другие фото|покажи другое фото|ещё фото|какое твое любимое фото|покажи любимое фото|покажи другое)', user_text, re.IGNORECASE):
         all_photos = get_photo_list()
         if not all_photos:
@@ -737,8 +731,11 @@ def handle_message(message: telebot.types.Message) -> None:
         if re.search(r'(красавица|красивая|умница|прекрасна|великолепна|шикарна|обалденная|потрясающая|чудесная|восхитительная|симпатичная|милашка|хорошенькая|обворожительная|божественно|как красиво|какая ты красивая|какая ты классная|какая ты хорошая)', user_text, re.IGNORECASE):
             compliment = True
 
+        # Определяем категорию из запроса
         category = search_category_by_query(user_text)
         if category:
+            # Запоминаем категорию для этого пользователя
+            user_last_category[user_id] = category
             chosen_photo = select_thematic_photo(user_id, category)
             if chosen_photo is None:
                 # Если нет тематических фото – показываем случайное
@@ -747,8 +744,18 @@ def handle_message(message: telebot.types.Message) -> None:
             else:
                 apology = ""
         else:
-            chosen_photo = random.choice(all_photos)
-            apology = ""
+            # Если категория не определена, но пользователь ранее что-то просил (например, "еще такие фото") – используем последнюю категорию
+            if user_id in user_last_category and re.search(r'(еще такие фото|еще фото|другие фото|ещё фото)', user_text, re.IGNORECASE):
+                last_cat = user_last_category[user_id]
+                chosen_photo = select_thematic_photo(user_id, last_cat)
+                if chosen_photo is None:
+                    chosen_photo = random.choice(all_photos)
+                    apology = "Ой, у меня пока нет фото на эту тему, но вот одно из моих любимых – надеюсь, тебе понравится! "
+                else:
+                    apology = ""
+            else:
+                chosen_photo = random.choice(all_photos)
+                apology = ""
 
         user_last_sent_photo[user_id] = chosen_photo
 
@@ -832,5 +839,5 @@ def handle_message(message: telebot.types.Message) -> None:
         add_message(user_id, 'assistant', error)
 
 if __name__ == '__main__':
-    print('✅ Алёна финальная — свои фото описываются через LLM на основе имени файла, фото пользователя через vision')
+    print('✅ Алёна финальная — запоминает категорию, не показывает имена файлов, повторяет тематические фото по кругу')
     bot.infinity_polling()
