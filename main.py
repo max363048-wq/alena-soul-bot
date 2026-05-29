@@ -22,10 +22,11 @@ BOT_USERNAME = 'AlenaSoul_bot'
 # --- Конфигурация для фотографий ---
 PHOTO_FOLDER = 'images'
 SUPPORTED_EXTENSIONS = ('.jpg', '.jpeg', '.png', '.gif')
-VISION_MODEL = "llama-3.2-11b-vision-preview"   # правильная мультимодальная модель
+VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"   # для своих фото (работает)
+VISION_MODEL_USER = "llama-3.2-11b-vision-preview"          # для фото пользователя
 MAX_BASE64_SIZE = 4 * 1024 * 1024
 
-# --- Глобальные ключевые слова для поиска фото ---
+# --- Глобальные ключевые слова для поиска фото (синонимы) ---
 KEYWORD_MAP = {
     'пляж': ['пляж', 'море', 'берег', 'песок', 'океан', 'купальник'],
     'набережная': ['набережная', 'набережную', 'набережной', 'причал', 'яхта', 'порт'],
@@ -195,7 +196,7 @@ def clean_english_words(text: str) -> str:
     text = re.sub(r'\s+', ' ', text).strip()
     return text
 
-# --- Погода (функции без изменений) ---
+# --- Погода ---
 def extract_city(text: str, user_id: Optional[int] = None) -> Optional[str]:
     match = re.search(r'\b(?:в|во|в городе)\s+([А-Яа-я\-]+(?:[-\s]?[А-Яа-я]+)?)', text, re.IGNORECASE)
     if match:
@@ -453,6 +454,7 @@ def get_keywords_from_photo_name(photo_path: str) -> str:
     return name
 
 def search_category_by_query(query: str) -> Optional[str]:
+    """Определяет категорию (пляж, парк, горы и т.д.) из запроса."""
     query_lower = query.lower()
     for cat, words in KEYWORD_MAP.items():
         for w in words:
@@ -494,6 +496,7 @@ def select_thematic_photo(user_id: int, category: str) -> Optional[str]:
     return None
 
 def analyze_image_with_vision(image_path: str, prompt: str, lang: str = 'ru') -> str:
+    """Анализирует свои фото (используя VISION_MODEL) – работает как раньше."""
     try:
         file_size = os.path.getsize(image_path)
         if file_size > MAX_BASE64_SIZE:
@@ -505,7 +508,6 @@ def analyze_image_with_vision(image_path: str, prompt: str, lang: str = 'ru') ->
             mime_type = "image/png"
         elif image_path.lower().endswith('.gif'):
             mime_type = "image/gif"
-        # Используем мультимодальную модель Groq
         response = client.chat.completions.create(
             model=VISION_MODEL,
             messages=[
@@ -526,26 +528,62 @@ def analyze_image_with_vision(image_path: str, prompt: str, lang: str = 'ru') ->
             analysis = clean_english_words(analysis)
         return analysis
     except Exception as e:
-        print(f"Ошибка анализа: {e}")
+        print(f"Ошибка анализа своих фото: {e}")
         return "Ой, что-то пошло не так при анализе фото. Попробуй ещё раз 😅"
 
-def analyze_user_image(message: telebot.types.Message, lang: str) -> bool:
+def analyze_user_photo(message: telebot.types.Message, lang: str) -> bool:
+    """Анализирует фото от пользователя, используя vision-модель."""
     try:
         file_info = bot.get_file(message.photo[-1].file_id)
         downloaded_file = bot.download_file(file_info.file_path)
         temp_path = f"temp_user_image_{message.from_user.id}_{int(time.time())}.jpg"
         with open(temp_path, 'wb') as f:
             f.write(downloaded_file)
-        if lang == 'ru':
-            prompt = "Ты Алёна, добрая, весёлая, обаятельная девушка. Твой друг прислал тебе фото. Посмотри на это фото и сразу, без лишних вопросов, опиши, что ты видишь, как тебе это фото, что оно у тебя вызывает. Будь тёплой, живой, можешь добавить эмодзи и немного пошутить. Если на фото человек, сделай ему приятный комплимент. Если это пейзаж, поделись впечатлениями. Отвечай прямо сейчас, как в обычном разговоре. Не начинай ответ с 'Привет'."
-        else:
-            prompt = "You are Alena, a kind, cheerful, charming girl. Your friend sent you a photo. Look at it and immediately, without unnecessary questions, describe what you see, how you like it, what it evokes in you. Be warm, lively, add emojis and a little joke. If there is a person in the photo, give them a nice compliment. If it's a landscape, share your impressions. Answer right now, as in a normal conversation. Do not start with 'Hello'."
-        description = analyze_image_with_vision(temp_path, prompt, lang)
+
+        # Кодируем фото в base64
+        with open(temp_path, "rb") as img_file:
+            img_base64 = base64.b64encode(img_file.read()).decode('utf-8')
         os.remove(temp_path)
+
+        # Формируем промпт в зависимости от языка
+        if lang == 'ru':
+            prompt = (
+                "Ты Алёна, добрая, весёлая, обаятельная девушка. Твой друг прислал тебе фото. "
+                "Посмотри на это фото и сразу, без лишних вопросов, опиши, что ты видишь, как тебе это фото, что оно у тебя вызывает. "
+                "Будь тёплой, живой, можешь добавить эмодзи и немного пошутить. Если на фото человек, сделай ему приятный комплимент. "
+                "Если это пейзаж, поделись впечатлениями. Отвечай прямо сейчас, как в обычном разговоре. Не начинай ответ с 'Привет'."
+            )
+        else:
+            prompt = (
+                "You are Alena, a kind, cheerful, charming girl. Your friend sent you a photo. "
+                "Look at it and immediately, without unnecessary questions, describe what you see, how you like it, what it evokes in you. "
+                "Be warm, lively, add emojis and a little joke. If there is a person in the photo, give them a nice compliment. "
+                "If it's a landscape, share your impressions. Answer right now, as in a normal conversation. Do not start with 'Hello'."
+            )
+
+        # Используем мультимодальную модель для анализа
+        response = client.chat.completions.create(
+            model=VISION_MODEL_USER,
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt},
+                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{img_base64}"}}
+                    ]
+                }
+            ],
+            temperature=0.7,
+            max_tokens=300,
+            timeout=15
+        )
+        description = response.choices[0].message.content.strip()
+        if lang == 'ru':
+            description = clean_english_words(description)
         bot.send_message(message.chat.id, description)
         return True
     except Exception as e:
-        print(f"Ошибка обработки фото пользователя: {e}")
+        print(f"Ошибка анализа фото пользователя: {e}")
         if lang == 'ru':
             bot.send_message(message.chat.id, "Что-то не так с фото, может, попробуешь другое? 😊")
         else:
@@ -643,10 +681,11 @@ def handle_message(message: telebot.types.Message) -> None:
     lang = user_lang[user_id]
     pet_name = get_pet_name(user_id, message.from_user.first_name)
 
+    # --- Обработка фото от пользователя (используем новую функцию с vision) ---
     if message.content_type == 'photo':
         if user_no_photos.get(user_id):
             user_no_photos[user_id] = False
-        analyze_user_image(message, lang)
+        analyze_user_photo(message, lang)
         return
 
     if user_text.startswith('/'):
@@ -712,7 +751,7 @@ def handle_message(message: telebot.types.Message) -> None:
             return
 
     # --- Просьба показать свои фото ---
-    if re.search(r'(фотки|какие нибудь фото|а у тебя есть фотографии|есть фотографии|у тебя есть фото|покажи свои фото|покажи фото|фотоальбом|покажи себя|своё фото|свое фото|мои фото|свои фотографии|покажи альбом|покажи где ты была|покажи, где ты|покажи картинку|покажи изображение|есть фото|есть ли у тебя фото|посмотреть твои фото|покажи свои фотографии|любимое фото|есть еще фото|другие фото|покажи другое фото|ещё фото|какое твое любимое фото|покажи любимое фото|покажи другое)', user_text, re.IGNORECASE):
+    if re.search(r'(какие нибудь фото|а у тебя есть фотографии|есть фотографии|у тебя есть фото|покажи свои фото|покажи фото|фотоальбом|покажи себя|своё фото|свое фото|мои фото|свои фотографии|покажи альбом|покажи где ты была|покажи, где ты|покажи картинку|покажи изображение|есть фото|есть ли у тебя фото|посмотреть твои фото|покажи свои фотографии|любимое фото|есть еще фото|другие фото|покажи другое фото|ещё фото|какое твое любимое фото|покажи любимое фото|покажи другое)', user_text, re.IGNORECASE):
         all_photos = get_photo_list()
         if not all_photos:
             msg = "У меня ещё нет фотоальбома, но Максик обещал скоро добавить! 😊" if lang == 'ru' else "I don't have a photo album yet, but Max promised to add it soon! 😊"
@@ -817,5 +856,5 @@ def handle_message(message: telebot.types.Message) -> None:
         add_message(user_id, 'assistant', error)
 
 if __name__ == '__main__':
-    print('✅ Алёна финальная с vision-моделью для анализа пользовательских фото')
+    print('✅ Алёна с восстановленной функцией видения пользовательских фото (через llama-3.2-11b-vision-preview)')
     bot.infinity_polling()
