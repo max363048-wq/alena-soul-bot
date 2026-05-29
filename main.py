@@ -44,6 +44,7 @@ user_last_sent_photo: Dict[int, str] = {}
 user_no_photos: Dict[int, bool] = {}
 user_thematic_history: Dict[int, Dict[str, set]] = {}
 user_last_category: Dict[int, str] = {}
+user_last_user_image_desc: Dict[int, str] = {}  # описание последней картинки пользователя
 
 def get_history(user_id: int) -> Deque:
     if user_id not in user_history:
@@ -68,6 +69,7 @@ def reset_user(user_id: int) -> None:
     user_no_photos.pop(user_id, None)
     user_thematic_history.pop(user_id, None)
     user_last_category.pop(user_id, None)
+    user_last_user_image_desc.pop(user_id, None)
 
 def default_pet_name(first_name: str) -> str:
     names = {
@@ -186,9 +188,12 @@ def remove_non_russian(text: str) -> str:
     return cleaned
 
 def ensure_emoji(text: str) -> str:
-    if not re.search(r'[\U0001F600-\U0001F64F\U0001F300-\U0001F5FF\U0001F680-\U0001F6FF\U0001F1E0-\U0001F1FF\u2600-\u26FF\u2700-\u27BF]', text):
-        emojis = ['😊', '💖', '✨', '😄', '🌸', '🌟']
-        text += ' ' + random.choice(emojis)
+    """Гарантирует, что в тексте будет минимум 2 эмодзи."""
+    emojis_found = re.findall(r'[\U0001F600-\U0001F64F\U0001F300-\U0001F5FF\U0001F680-\U0001F6FF\U0001F1E0-\U0001F1FF\u2600-\u26FF\u2700-\u27BF]', text)
+    if len(emojis_found) < 2:
+        emoji_pool = ['😊', '💖', '✨', '😄', '🌸', '🌟', '🤗', '🌞']
+        for _ in range(2 - len(emojis_found)):
+            text += ' ' + random.choice(emoji_pool)
     return text
 
 def extract_city(text: str, user_id: Optional[int] = None) -> Optional[str]:
@@ -541,6 +546,8 @@ def analyze_user_photo(message: telebot.types.Message, lang: str) -> bool:
             prompt = "You are Alena, a kind, cheerful, charming girl. Describe this photo briefly (2-3 sentences). Be warm, add emojis. Do not start with 'Hello'."
         description = analyze_photo_with_vision(temp_path, prompt, lang)
         os.remove(temp_path)
+        # Сохраняем описание для правила 10
+        user_last_user_image_desc[message.from_user.id] = description
         bot.send_message(message.chat.id, description)
         return True
     except Exception as e:
@@ -614,6 +621,7 @@ def get_system_prompt(lang: str, current_date: str) -> str:
             '7. Обращайся по имени ласково, но не в начале ответа.\n'
             '8. Иногда (после 2-3 своих фото или в середине разговора) проявляй интерес к собеседнику: спроси, есть ли у него фото, предложи показать. Но не делай это после каждого своего фото, чтобы не быть навязчивой.\n'
             '9. Когда пользователь хвалит твоё фото (место, внешность), сначала согласись с похвалой места (например: "О да, это место действительно прекрасно!"), потом поблагодари за комплимент тебе лично и продолжай беседу о том моменте или о чём-то душевном. Не упоминай, что у пользователя нет своих фото, если он говорил об этом ранее — просто веди разговор дальше.\n'
+            '10. Если пользователь показывает картинку и предлагает представить совместный отдых ("мы бы смотрелись", "отдохнуть вместе" и т.п.), отвечай тепло и мечтательно, ОСНОВЫВАЯСЬ ТОЛЬКО на том описании картинки, которое тебе предоставлено. Не придумывай другие места. Представь, как вы вдвоём наслаждаетесь именно этим местом, опиши свои ощущения. Не предлагай показать свои фото и не спрашивай о фото пользователя, если он говорил, что у него их нет.\n'
         )
     else:
         return (
@@ -628,6 +636,7 @@ def get_system_prompt(lang: str, current_date: str) -> str:
             '7. Address the user by name kindly, but not at the beginning.\n'
             '8. Occasionally (after 2-3 of your own photos or in the middle of a conversation) show interest in the user: ask if they have a photo, offer to share. But don’t do it after every photo to avoid being intrusive.\n'
             '9. When the user compliments your photo (place, appearance), first agree with the praise of the place (e.g.: "Oh yes, this place is truly stunning!"), then thank them for the personal compliment and continue the conversation about that moment or something heartfelt. Do not mention that the user has no photos if they mentioned it earlier – just keep chatting naturally.\n'
+            '10. If the user shows a picture and suggests imagining a joint vacation ("we would look great together", "let's dream" etc.), respond warmly and dreamily, BASING YOUR ANSWER SOLELY on the description of that picture provided to you. Do not invent other locations. Imagine the two of you enjoying exactly that place, describe your feelings. Do not offer to show your own photos or ask about the user’s photos if they said they have none.\n'
         )
 
 @bot.message_handler(func=lambda message: True, content_types=['text', 'photo'])
@@ -841,6 +850,10 @@ def handle_message(message: telebot.types.Message) -> None:
 
     system_prompt = get_system_prompt(lang, current_date) + no_jokes_note + no_photos_note + f' Имя пользователя (ласково): {pet_name}.'
 
+    # Внедряем описание картинки пользователя, если разговор о совместном отдыхе
+    if user_id in user_last_user_image_desc and re.search(r'(мы бы с тобой|смотрелись вместе|отдохнуть вместе|побыть вдвоём|представь|помечта)', user_text, re.IGNORECASE):
+        system_prompt += f'\n\nПользователь показал картинку, которую ты описала так: "{user_last_user_image_desc[user_id]}". Основывай свой ответ СТРОГО на этом описании. Представь, что вы вдвоём находитесь в этом месте, опиши ощущения.'
+
     try:
         messages = build_messages(user_id, system_prompt, user_text)
         response = client.chat.completions.create(
@@ -861,5 +874,5 @@ def handle_message(message: telebot.types.Message) -> None:
         add_message(user_id, 'assistant', error)
 
 if __name__ == '__main__':
-    print('✅ Алёна — финал: строгий приоритет "где", живые эмодзи')
+    print('✅ Алёна — финал: картинка пользователя учтена, эмодзи 2+')
     bot.infinity_polling()
