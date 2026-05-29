@@ -45,7 +45,6 @@ user_no_photos: Dict[int, bool] = {}
 user_thematic_history: Dict[int, Dict[str, set]] = {}
 user_last_category: Dict[int, str] = {}
 user_last_user_image_desc: Dict[int, str] = {}
-user_vague_photo_hint_given: Dict[int, bool] = {}
 
 def get_history(user_id: int) -> Deque:
     if user_id not in user_history:
@@ -71,7 +70,6 @@ def reset_user(user_id: int) -> None:
     user_thematic_history.pop(user_id, None)
     user_last_category.pop(user_id, None)
     user_last_user_image_desc.pop(user_id, None)
-    user_vague_photo_hint_given.pop(user_id, None)
 
 def default_pet_name(first_name: str) -> str:
     names = {
@@ -181,7 +179,6 @@ def clean_english_words(text: str) -> str:
         r'\brefreshed\b': 'посвежевшей',
         r'\bfeeling\b': 'чувствуя',
         r'\bdiscuss\b': 'обсудить',
-        r'\btopic\b': 'тему',
     }
     for eng, rus in reps.items():
         text = re.sub(eng, rus, text, flags=re.IGNORECASE)
@@ -764,8 +761,8 @@ def handle_message(message: telebot.types.Message) -> None:
                 else:
                     apology = ""
             else:
-                # Запрос без категории – проверяем, есть ли "такие" (включая "такие же", "похожие", "аналогичные")
-                if user_id in user_last_category and user_last_category[user_id] is not None and re.search(r'(еще такие фото|еще такие фотки|такие же фото|такие же фотки|похожие фото|похожие фотки|аналогичные фото|аналогичные фотки|еще фото|еще фотки|другие фото|другие фотки|ещё фото|ещё фотки|такие фото|такие фотки)', user_text, re.IGNORECASE):
+                # Запрос без категории – проверяем, есть ли явные "такие"
+                if user_id in user_last_category and user_last_category[user_id] is not None and re.search(r'(еще такие фото|еще такие фотки|такие же фото|такие же фотки|похожие фото|похожие фотки|аналогичные фото|аналогичные фотки|такие фото|такие фотки)', user_text, re.IGNORECASE):
                     last_cat = user_last_category[user_id]
                     photos_in_cat = get_photos_by_category(last_cat)
                     if len(photos_in_cat) == 1 and user_id in user_thematic_history and last_cat in user_thematic_history[user_id]:
@@ -789,7 +786,6 @@ def handle_message(message: telebot.types.Message) -> None:
                             if not any(syn in get_keywords_from_photo_name(p) for syn in KEYWORD_MAP.get(last_cat, []))
                         ]
                         if not available_photos:
-                            # Все фото принадлежат последней категории – извиняемся
                             chosen_photo = random.choice(all_photos)
                             apology = "У меня пока в основном такие фото, но я работаю над пополнением альбома! "
                         else:
@@ -832,14 +828,12 @@ def handle_message(message: telebot.types.Message) -> None:
             if description.startswith('Привет'):
                 description = re.sub(r'^Привет[,!\s]*', '', description)
 
-            # Для самого первого расплывчатого запроса добавляем подсказку, но только один раз
+            # Для расплывчатого запроса ВСЕГДА добавляем подсказку
             if not category and not re.search(r'(такие|таких|похожие|аналогичные)', user_text, re.IGNORECASE):
-                if not user_vague_photo_hint_given.get(user_id, False):
-                    if lang == 'ru':
-                        description += "\n\nКстати, у меня много разных фотографий! Есть где я на пляже, в горах или на природе... Какие именно тебя интересуют? 😊"
-                    else:
-                        description += "\n\nBy the way, I have a lot of different photos! I have some at the beach, in the mountains, or in nature... Which ones are you interested in? 😊"
-                    user_vague_photo_hint_given[user_id] = True
+                if lang == 'ru':
+                    description += "\n\nКстати, у меня много разных фотографий! Есть где я на пляже, в горах или на природе... Какие именно тебя интересуют? 😊"
+                else:
+                    description += "\n\nBy the way, I have a lot of different photos! I have some at the beach, in the mountains, or in nature... Which ones are you interested in? 😊"
 
             if user_has_no_photos:
                 if lang == 'ru':
@@ -929,5 +923,5 @@ def handle_message(message: telebot.types.Message) -> None:
         add_message(user_id, 'assistant', error)
 
 if __name__ == '__main__':
-    print('✅ Алёна — финальная, общий запрос исключает последнюю категорию')
+    print('✅ Алёна — общий запрос с подсказкой и сменой темы')
     bot.infinity_polling()
