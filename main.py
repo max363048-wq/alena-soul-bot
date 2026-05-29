@@ -164,7 +164,7 @@ def get_motivation(lang: str = 'ru') -> str:
     except:
         return "Ты сможешь всё, что задумаешь! 💖"
 
-# --- Чистка английских слов ---
+# --- Чистка английских слов (добавлены lounge, romantic) ---
 def clean_english_words(text: str) -> str:
     if not text:
         return text
@@ -183,7 +183,8 @@ def clean_english_words(text: str) -> str:
         r'\bsome\b': 'некоторые', r'\bany\b': 'любые', r'\bhere\b': 'здесь', r'\bthere\b': 'там',
         r'\bmy\b': 'мой', r'\byour\b': 'твой', r'\bhis\b': 'его', r'\bher\b': 'её',
         r'\babsolutely\b': 'конечно',
-        r'\blounge\b': 'шезлонг'
+        r'\blounge\b': 'шезлонг',
+        r'\bromantic\b': 'романтично'
     }
     for eng, rus in reps.items():
         text = re.sub(eng, rus, text, flags=re.IGNORECASE)
@@ -598,12 +599,12 @@ def change_name(message: telebot.types.Message) -> None:
     bot.send_message(message.chat.id, reply)
     add_message(user_id, 'assistant', reply)
 
-# --- Системный промпт (усилили правило 8 и 10, убрали набережную) ---
+# --- Системный промпт (правило 0 добавлено) ---
 def get_system_prompt(lang: str, current_date: str) -> str:
     if lang == 'ru':
         return (
             f'Ты Алёна — добрая, весёлая, обаятельная девушка. Сегодня {current_date}.\n'
-            'ПРАВИЛА:\n'
+            '0. НИКОГДА не используй символы других языков, включая китайские иероглифы, арабскую вязь и т.п. Только русские буквы и эмодзи.\n'
             '1. Отвечай только на русском, без английских слов.\n'
             '2. Не начинай ответ с "Привет", не представляйся заново.\n'
             '3. Используй эмодзи 😊😄😘💖✨, но не слишком много.\n'
@@ -619,6 +620,7 @@ def get_system_prompt(lang: str, current_date: str) -> str:
         return (
             f'You are Alena — a kind, cheerful, charming girl. Today is {current_date}.\n'
             'RULES:\n'
+            '0. NEVER use characters from other languages, including Chinese characters, Arabic script, etc. Only English letters and emojis.\n'
             '1. Answer only in English, no mixing.\n'
             '2. Do not start with "Hello", do not reintroduce yourself.\n'
             '3. Use emojis 😊😄😘💖✨ but not too many.\n'
@@ -631,7 +633,7 @@ def get_system_prompt(lang: str, current_date: str) -> str:
             '10. If the user shows a picture and suggests imagining a joint vacation, respond warmly and dreamily: agree that the place is wonderful, and describe how you could spend time there together. Use only details from the picture (beach, palms, sea, sunbeds) – do not invent unrelated things (like a promenade). DO NOT offer to show your own photos and DO NOT ask about the user’s photos if they previously said they have none. Show that you’re happy about this idea and invite them to dream together. 💖\n'
         )
 
-# --- Основной обработчик (исправлено запоминание первого фото в истории) ---
+# --- Основной обработчик (с полным блоком "ещё такие фото" и историей первого показа) ---
 @bot.message_handler(func=lambda message: True, content_types=['text', 'photo'])
 def handle_message(message: telebot.types.Message) -> None:
     user_id = message.from_user.id
@@ -697,7 +699,7 @@ def handle_message(message: telebot.types.Message) -> None:
                 bot.send_message(message.chat.id, "Ты о каком фото? Покажи, если хочешь обсудить 😊" if lang=='ru' else "Which photo are you talking about? Show me if you want to discuss 😊")
                 return
 
-    # --- Просьба показать свои фото (теперь с добавлением в историю при первом показе) ---
+    # --- Просьба показать свои фото (полный блок с историей) ---
     if re.search(r'(фотки|какие нибудь фото|а у тебя есть фотографии|есть фотографии|у тебя есть фото|покажи свои фото|покажи фото|фотоальбом|покажи себя|своё фото|свое фото|мои фото|свои фотографии|покажи альбом|покажи где ты была|покажи, где ты|покажи картинку|покажи изображение|есть фото|есть ли у тебя фото|посмотреть твои фото|покажи свои фотографии|любимое фото|есть еще фото|другие фото|покажи другое фото|ещё фото|какое твое любимое фото|покажи любимое фото|покажи другое)', user_text, re.IGNORECASE):
         all_photos = get_photo_list()
         if not all_photos:
@@ -744,12 +746,11 @@ def handle_message(message: telebot.types.Message) -> None:
                     chosen_photo = random.choice(all_photos)
                     apology = ""
                     photo_name = get_keywords_from_photo_name(chosen_photo)
-                    # Определяем категорию по ключевым словам
                     cat_found = False
                     for cat, words in KEYWORD_MAP.items():
                         if any(syn in photo_name for syn in words):
                             user_last_category[user_id] = cat
-                            # !!! Добавляем это фото в историю показа категории, чтобы не повторялось
+                            # Добавляем в историю, чтобы избежать повторов
                             if user_id not in user_thematic_history:
                                 user_thematic_history[user_id] = {}
                             if cat not in user_thematic_history[user_id]:
@@ -865,5 +866,5 @@ def handle_message(message: telebot.types.Message) -> None:
         add_message(user_id, 'assistant', error)
 
 if __name__ == '__main__':
-    print('✅ Алёна — без повторов фото, без лаунжа и с улучшенной инициативой')
+    print('✅ Алёна — полный фикс, правило 0, все чистые слова')
     bot.infinity_polling()
