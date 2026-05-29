@@ -180,6 +180,8 @@ def clean_english_words(text: str) -> str:
         r'\binteres\w*\b': 'интересн',
         r'\brefreshed\b': 'посвежевшей',
         r'\bfeeling\b': 'чувствуя',
+        r'\bdiscuss\b': 'обсудить',
+        r'\btopic\b': 'тему',
     }
     for eng, rus in reps.items():
         text = re.sub(eng, rus, text, flags=re.IGNORECASE)
@@ -927,5 +929,5 @@ def handle_message(message: telebot.types.Message) -> None:
         add_message(user_id, 'assistant', error)
 
 if __name__ == '__main__':
-    print('✅ Алёна — общий запрос больше не повторяет категорию')
+    print('✅ Алёна — финальная, общий запрос исключает последнюю категорию')
     bot.infinity_polling()
