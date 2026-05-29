@@ -26,7 +26,7 @@ SUPPORTED_EXTENSIONS = ('.jpg', '.jpeg', '.png', '.gif')
 VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
 MAX_BASE64_SIZE = 4 * 1024 * 1024
 
-# --- Ключевые слова (с "природе") ---
+# --- Ключевые слова (парк теперь перед "кормит птиц") ---
 KEYWORD_MAP = {
     'пляж': ['пляж', 'море', 'берег', 'песок', 'океан', 'купальник'],
     'набережная': ['набережная', 'набережную', 'набережной', 'причал', 'яхта', 'порт'],
@@ -173,7 +173,7 @@ def clean_english_words(text: str) -> str:
         r'\bso\b': 'так что', r'\bbut\b': 'но', r'\band\b': 'и', r'\bok\b': 'хорошо',
         r'\bplease\b': 'пожалуйста', r'\bsorry\b': 'извини', r'\bthanks\b': 'спасибо',
         r'\bhello\b': 'привет', r'\bhi\b': 'привет', r'\bgreat\b': 'отлично', r'\bgood\b': 'хороший',
-        r'\bvery\b': 'очень', r'\blike\b': 'как', r'\breally\b': 'действительно', r'\babsolutely\b': 'конечно',
+        r'\bvery\b': 'очень', r'\blike\b': 'как', r'\breally\b': 'действительно',
         r'\bwhat\b': 'что', r'\bwhy\b': 'почему', r'\byes\b': 'да', r'\bno\b': 'нет',
         r'\bI\b': 'я', r'\byou\b': 'ты', r'\bwe\b': 'мы', r'\bthey\b': 'они',
         r'\bfor\b': 'для', r'\bwith\b': 'с', r'\bfrom\b': 'из', r'\bto\b': 'в',
@@ -181,14 +181,15 @@ def clean_english_words(text: str) -> str:
         r'\blater\b': 'позже', r'\bmaybe\b': 'возможно', r'\bjust\b': 'просто',
         r'\bnow\b': 'сейчас', r'\bwell\b': 'ну', r'\bthen\b': 'затем', r'\beven\b': 'даже',
         r'\bsome\b': 'некоторые', r'\bany\b': 'любые', r'\bhere\b': 'здесь', r'\bthere\b': 'там',
-        r'\bmy\b': 'мой', r'\byour\b': 'твой', r'\bhis\b': 'его', r'\bher\b': 'её'
+        r'\bmy\b': 'мой', r'\byour\b': 'твой', r'\bhis\b': 'его', r'\bher\b': 'её',
+        r'\babsolutely\b': 'конечно'
     }
     for eng, rus in reps.items():
         text = re.sub(eng, rus, text, flags=re.IGNORECASE)
     text = re.sub(r'\s+', ' ', text).strip()
     return text
 
-# --- Погода ---
+# --- Погода (без изменений) ---
 def extract_city(text: str, user_id: Optional[int] = None) -> Optional[str]:
     match = re.search(r'\b(?:в|во|в городе)\s+([А-Яа-я\-]+(?:[-\s]?[А-Яа-я]+)?)', text, re.IGNORECASE)
     if match:
@@ -330,7 +331,7 @@ def handle_weather_query(message: telebot.types.Message, user_text: str, lang: s
     add_message(user_id, 'assistant', reply)
     return True
 
-# --- Команды ---
+# --- Команды (без изменений) ---
 @bot.message_handler(commands=['weather'])
 def weather_cmd(message: telebot.types.Message) -> None:
     user_id = message.from_user.id
@@ -596,7 +597,7 @@ def change_name(message: telebot.types.Message) -> None:
     bot.send_message(message.chat.id, reply)
     add_message(user_id, 'assistant', reply)
 
-# --- Системный промпт (добавлено правило 9) ---
+# --- Системный промпт (с правилами 9 и 10) ---
 def get_system_prompt(lang: str, current_date: str) -> str:
     if lang == 'ru':
         return (
@@ -629,7 +630,7 @@ def get_system_prompt(lang: str, current_date: str) -> str:
             '10. If the user shows a picture and suggests imagining a joint vacation, respond warmly and dreamily: agree that the place is wonderful, and describe how you could spend time there together. Use details from the picture (beach, palms, sea), don’t invent unrelated things (like a promenade). Show that you’re happy about this idea and invite them to dream together. 💖\n'
         )
 
-# --- Основной обработчик (все правки) ---
+# --- Основной обработчик (исправлено запоминание категории для случайного фото) ---
 @bot.message_handler(func=lambda message: True, content_types=['text', 'photo'])
 def handle_message(message: telebot.types.Message) -> None:
     user_id = message.from_user.id
@@ -736,9 +737,10 @@ def handle_message(message: telebot.types.Message) -> None:
                     chosen_photo = random.choice(all_photos)
                     apology = ""
                     photo_name = get_keywords_from_photo_name(chosen_photo)
+                    # Ищем категорию по ключевым словам (а не по cat in photo_name)
                     cat_found = False
                     for cat, words in KEYWORD_MAP.items():
-                        if cat in photo_name:
+                        if any(syn in photo_name for syn in words):
                             user_last_category[user_id] = cat
                             cat_found = True
                             break
@@ -850,5 +852,5 @@ def handle_message(message: telebot.types.Message) -> None:
         add_message(user_id, 'assistant', error)
 
 if __name__ == '__main__':
-    print('✅ Алёна — финальная, с правилом 9, не навязчивая')
+    print('✅ Алёна — парк вместо кормит птиц, правило 10, absolutely убран')
     bot.infinity_polling()
