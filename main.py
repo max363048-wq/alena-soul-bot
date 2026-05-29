@@ -188,7 +188,7 @@ def clean_english_words(text: str) -> str:
     text = re.sub(r'\s+', ' ', text).strip()
     return text
 
-# --- Погода (функции без изменений) ---
+# --- Погода ---
 def extract_city(text: str, user_id: Optional[int] = None) -> Optional[str]:
     match = re.search(r'\b(?:в|во|в городе)\s+([А-Яа-я\-]+(?:[-\s]?[А-Яа-я]+)?)', text, re.IGNORECASE)
     if match:
@@ -596,7 +596,7 @@ def change_name(message: telebot.types.Message) -> None:
     bot.send_message(message.chat.id, reply)
     add_message(user_id, 'assistant', reply)
 
-# --- Системный промпт (с правилом 8) ---
+# --- Системный промпт (добавлено правило 9) ---
 def get_system_prompt(lang: str, current_date: str) -> str:
     if lang == 'ru':
         return (
@@ -610,6 +610,7 @@ def get_system_prompt(lang: str, current_date: str) -> str:
             '6. Отвечай коротко (2-4 предложения), будь живой.\n'
             '7. Обращайся по имени ласково, но не в начале ответа.\n'
             '8. Иногда (после 2-3 своих фото или в середине разговора) проявляй интерес к собеседнику: спроси, есть ли у него фото, предложи показать. Но не делай это после каждого своего фото, чтобы не быть навязчивой.\n'
+            '9. Когда пользователь хвалит твоё фото (место, внешность), сначала согласись с похвалой места (например: "О да, это место действительно прекрасно!"), потом поблагодари за комплимент тебе лично и продолжай беседу о том моменте или о чём-то душевном. Не упоминай, что у пользователя нет своих фото, если он говорил об этом ранее — просто веди разговор дальше.\n'
         )
     else:
         return (
@@ -623,9 +624,10 @@ def get_system_prompt(lang: str, current_date: str) -> str:
             '6. Answer briefly (2-4 sentences), be lively.\n'
             '7. Address the user by name kindly, but not at the beginning.\n'
             '8. Occasionally (after 2-3 of your own photos or in the middle of a conversation) show interest in the user: ask if they have a photo, offer to share. But don’t do it after every photo to avoid being intrusive.\n'
+            '9. When the user compliments your photo (place, appearance), first agree with the praise of the place (e.g.: "Oh yes, this place is truly stunning!"), then thank them for the personal compliment and continue the conversation about that moment or something heartfelt. Do not mention that the user has no photos if they mentioned it earlier – just keep chatting naturally.\n'
         )
 
-# --- Основной обработчик (ВСЕ ПРАВКИ) ---
+# --- Основной обработчик (все правки) ---
 @bot.message_handler(func=lambda message: True, content_types=['text', 'photo'])
 def handle_message(message: telebot.types.Message) -> None:
     user_id = message.from_user.id
@@ -646,15 +648,14 @@ def handle_message(message: telebot.types.Message) -> None:
     if user_text.startswith('/'):
         return
 
-    # --- Проверка на "нет фото" запоминаем, но не отвечаем сразу, если есть запрос фото ---
+    # --- Проверка на "нет фото" запоминаем ---
     user_has_no_photos = False
     if re.search(r'(нет фото|нет своих фото|не снимаюсь|не люблю фоткаться|нет моих фото|не фотографируюсь)', user_text, re.IGNORECASE):
         user_no_photos[user_id] = True
         user_has_no_photos = True
 
-    # --- Вопросы о последнем фото (теперь с приоритетом показа новых фото) ---
+    # --- Вопросы о последнем фото (приоритет показа новых) ---
     lower_text = user_text.lower()
-    # Сначала проверим, не просит ли пользователь показать новое фото
     if not re.search(r'(фотки|фото|фотографи|альбом|покажи|покажешь|есть ли у тебя фото|твои фото|свои фото|любимое фото)', user_text, re.IGNORECASE):
         is_photo_question = any(phrase in lower_text for phrase in [
             'где была сделана', 'какое место', 'что там за фон', 'где это', 'какой город',
@@ -686,7 +687,7 @@ def handle_message(message: telebot.types.Message) -> None:
                 bot.send_message(message.chat.id, "Ты о каком фото? Покажи, если хочешь обсудить 😊" if lang=='ru' else "Which photo are you talking about? Show me if you want to discuss 😊")
                 return
 
-    # --- Просьба показать свои фото (полный фикс) ---
+    # --- Просьба показать свои фото ---
     if re.search(r'(фотки|какие нибудь фото|а у тебя есть фотографии|есть фотографии|у тебя есть фото|покажи свои фото|покажи фото|фотоальбом|покажи себя|своё фото|свое фото|мои фото|свои фотографии|покажи альбом|покажи где ты была|покажи, где ты|покажи картинку|покажи изображение|есть фото|есть ли у тебя фото|посмотреть твои фото|покажи свои фотографии|любимое фото|есть еще фото|другие фото|покажи другое фото|ещё фото|какое твое любимое фото|покажи любимое фото|покажи другое)', user_text, re.IGNORECASE):
         all_photos = get_photo_list()
         if not all_photos:
@@ -698,7 +699,7 @@ def handle_message(message: telebot.types.Message) -> None:
         if re.search(r'(красавица|красивая|умница|прекрасна|великолепна|шикарна|обалденная|потрясающая|чудесная|восхитительная|симпатичная|милашка|хорошенькая|обворожительная|божественно|как красиво|какая ты красивая|какая ты классная|какая ты хорошая)', user_text, re.IGNORECASE):
             compliment = True
 
-        # Проверяем "любимое фото"
+        # Любимое фото
         if re.search(r'(любимое фото|какое твое любимое фото|покажи любимое фото)', user_text, re.IGNORECASE):
             chosen_photo = random.choice(all_photos)
             apology = ""
@@ -818,7 +819,7 @@ def handle_message(message: telebot.types.Message) -> None:
 
     no_photos_note = ''
     if user_no_photos.get(user_id, False):
-        no_photos_note = ' Пользователь сказал, что у него нет своих фото. НЕ ПРОСИ У НЕГО ФОТО И НЕ ПРЕДЛАГАЙ ПОКАЗАТЬ.'
+        no_photos_note = ' Пользователь сказал, что у него нет своих фото. НЕ ПРОСИ У НЕГО ФОТО, НЕ ПРЕДЛАГАЙ ПОКАЗАТЬ И НЕ УПОМИНАЙ ОБ ОТСУТСТВИИ ФОТО, если только он сам не спросит.'
 
     now = datetime.now()
     if lang == 'ru':
@@ -847,5 +848,5 @@ def handle_message(message: telebot.types.Message) -> None:
         add_message(user_id, 'assistant', error)
 
 if __name__ == '__main__':
-    print('✅ Алёна — финальная, все правки')
+    print('✅ Алёна — финальная, с правилом 9, не навязчивая')
     bot.infinity_polling()
