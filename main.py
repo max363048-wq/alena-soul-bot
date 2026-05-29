@@ -497,25 +497,37 @@ def select_thematic_photo(user_id: int, category: str) -> Optional[str]:
     return chosen
 
 def describe_own_photo(image_path: str, prompt: str, lang: str = 'ru') -> str:
-    """Генерирует описание своего фото на основе имени файла и контекста (без vision)."""
+    """Анализирует своё фото через vision-модель (как пользовательские фото)."""
     try:
-        if lang == 'ru':
-            full_prompt = f"Ты Алёна. {prompt} Опиши фото: что ты делаешь, где ты, какое у тебя настроение. Название фото не упоминай. Будь тёплой, добавляй эмодзи. Не начинай ответ с 'Привет'."
-        else:
-            full_prompt = f"You are Alena. {prompt} Describe the photo: what you are doing, where you are, what mood you are in. Do not mention the file name. Be warm, add emojis. Do not start with 'Hello'."
-        resp = client.chat.completions.create(
-            model='llama-3.3-70b-versatile',
-            messages=[{'role': 'user', 'content': full_prompt}],
-            temperature=0.8,
-            max_tokens=350,
-            timeout=10
+        with open(image_path, "rb") as img_file:
+            img_base64 = base64.b64encode(img_file.read()).decode('utf-8')
+        mime_type = "image/jpeg"
+        if image_path.lower().endswith('.png'):
+            mime_type = "image/png"
+        elif image_path.lower().endswith('.gif'):
+            mime_type = "image/gif"
+        # Используем ту же vision-модель, что для фото пользователя
+        response = client.chat.completions.create(
+            model=VISION_MODEL_USER,
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": f"Ты Алёна. {prompt} Опиши это фото: что ты видишь, где ты находишься, какое у тебя настроение. Будь тёплой, добавь эмодзи. Не начинай ответ с 'Привет'."},
+                        {"type": "image_url", "image_url": {"url": f"data:{mime_type};base64,{img_base64}"}}
+                    ]
+                }
+            ],
+            temperature=0.7,
+            max_tokens=250,
+            timeout=15
         )
-        description = resp.choices[0].message.content.strip()
+        description = response.choices[0].message.content.strip()
         if lang == 'ru':
             description = clean_english_words(description)
         return description
     except Exception as e:
-        print(f"Ошибка описания своего фото: {e}")
+        print(f"Ошибка анализа своего фото через vision: {e}")
         return "Ой, что-то пошло не так при описании фото. Попробуй ещё раз 😅"
 
 def analyze_user_photo(message: telebot.types.Message, lang: str) -> bool:
