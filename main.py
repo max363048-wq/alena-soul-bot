@@ -182,7 +182,8 @@ def clean_english_words(text: str) -> str:
         r'\bnow\b': 'сейчас', r'\bwell\b': 'ну', r'\bthen\b': 'затем', r'\beven\b': 'даже',
         r'\bsome\b': 'некоторые', r'\bany\b': 'любые', r'\bhere\b': 'здесь', r'\bthere\b': 'там',
         r'\bmy\b': 'мой', r'\byour\b': 'твой', r'\bhis\b': 'его', r'\bher\b': 'её',
-        r'\babsolutely\b': 'конечно'
+        r'\babsolutely\b': 'конечно',
+        r'\blounge\b': 'шезлонг'
     }
     for eng, rus in reps.items():
         text = re.sub(eng, rus, text, flags=re.IGNORECASE)
@@ -597,7 +598,7 @@ def change_name(message: telebot.types.Message) -> None:
     bot.send_message(message.chat.id, reply)
     add_message(user_id, 'assistant', reply)
 
-# --- Системный промпт (правила 9 и 10) ---
+# --- Системный промпт (усилили правило 8 и 10, убрали набережную) ---
 def get_system_prompt(lang: str, current_date: str) -> str:
     if lang == 'ru':
         return (
@@ -610,9 +611,9 @@ def get_system_prompt(lang: str, current_date: str) -> str:
             '5. Если спрашивают гороскоп, скажи: "Напиши /horoscope [твой знак или дата рождения]".\n'
             '6. Отвечай коротко (2-4 предложения), будь живой.\n'
             '7. Обращайся по имени ласково, но не в начале ответа.\n'
-            '8. Иногда (после 2-3 своих фото или в середине разговора) проявляй интерес к собеседнику: спроси, есть ли у него фото, предложи показать. Но не делай это после каждого своего фото, чтобы не быть навязчивой.\n'
+            '8. Хотя бы один раз за разговор (после того, как показала 2-3 своих фото) прояви инициативу: спроси, есть ли у пользователя фото, предложи показать. Не делай это после каждого фото, чтобы не быть навязчивой.\n'
             '9. Когда пользователь хвалит твоё фото (место, внешность), сначала согласись с похвалой места (например: "О да, это место действительно прекрасно!"), потом поблагодари за комплимент тебе лично и продолжай беседу о том моменте или о чём-то душевном. Не упоминай, что у пользователя нет своих фото, если он говорил об этом ранее — просто веди разговор дальше.\n'
-            '10. Если пользователь показывает картинку и предлагает представить совместный отдых, отвечай тепло и мечтательно: согласись, что место прекрасно, и опиши, как вы могли бы там побыть вдвоём. Используй детали с этой картинки (пляж, пальмы, море), не придумывай лишнего (например, набережную). Покажи, что тебе приятна эта идея, и пригласи помечтать вместе. 💖\n'
+            '10. Если пользователь показывает картинку и предлагает представить совместный отдых, отвечай тепло и мечтательно: согласись, что место прекрасно, и опиши, как вы могли бы там побыть вдвоём. Используй только детали с этой картинки (пляж, пальмы, море, лежаки) – не придумывай лишнего (например, набережную). НЕ предлагай показать свои фото и НЕ спрашивай о фото пользователя, если он ранее говорил, что у него нет своих фото. Покажи, что тебе приятна эта идея, и пригласи помечтать вместе. 💖\n'
         )
     else:
         return (
@@ -625,12 +626,12 @@ def get_system_prompt(lang: str, current_date: str) -> str:
             '5. If asked for horoscope, say: "Type /horoscope [your sign or birth date]".\n'
             '6. Answer briefly (2-4 sentences), be lively.\n'
             '7. Address the user by name kindly, but not at the beginning.\n'
-            '8. Occasionally (after 2-3 of your own photos or in the middle of a conversation) show interest in the user: ask if they have a photo, offer to share. But don’t do it after every photo to avoid being intrusive.\n'
+            '8. At least once during the conversation (after showing 2-3 of your own photos) take the initiative: ask if the user has a photo, offer to show. Do not do it after every photo to avoid being intrusive.\n'
             '9. When the user compliments your photo (place, appearance), first agree with the praise of the place (e.g.: "Oh yes, this place is truly stunning!"), then thank them for the personal compliment and continue the conversation about that moment or something heartfelt. Do not mention that the user has no photos if they mentioned it earlier – just keep chatting naturally.\n'
-            '10. If the user shows a picture and suggests imagining a joint vacation, respond warmly and dreamily: agree that the place is wonderful, and describe how you could spend time there together. Use details from the picture (beach, palms, sea), don’t invent unrelated things (like a promenade). Show that you’re happy about this idea and invite them to dream together. 💖\n'
+            '10. If the user shows a picture and suggests imagining a joint vacation, respond warmly and dreamily: agree that the place is wonderful, and describe how you could spend time there together. Use only details from the picture (beach, palms, sea, sunbeds) – do not invent unrelated things (like a promenade). DO NOT offer to show your own photos and DO NOT ask about the user’s photos if they previously said they have none. Show that you’re happy about this idea and invite them to dream together. 💖\n'
         )
 
-# --- Основной обработчик (с новым строгим промптом для места) ---
+# --- Основной обработчик (исправлено запоминание первого фото в истории) ---
 @bot.message_handler(func=lambda message: True, content_types=['text', 'photo'])
 def handle_message(message: telebot.types.Message) -> None:
     user_id = message.from_user.id
@@ -657,7 +658,7 @@ def handle_message(message: telebot.types.Message) -> None:
         user_no_photos[user_id] = True
         user_has_no_photos = True
 
-    # --- Вопросы о последнем фото (приоритет показа новых, промпт строгий) ---
+    # --- Вопросы о последнем фото (приоритет показа новых) ---
     lower_text = user_text.lower()
     if not re.search(r'(фотки|фото|фотографи|альбом|покажи|покажешь|есть ли у тебя фото|твои фото|свои фото|любимое фото)', user_text, re.IGNORECASE):
         is_photo_question = any(phrase in lower_text for phrase in [
@@ -674,15 +675,14 @@ def handle_message(message: telebot.types.Message) -> None:
             if user_id in user_last_sent_photo and user_last_sent_photo[user_id]:
                 photo_path = user_last_sent_photo[user_id]
                 try:
-                    # Строгий промпт, чтобы не выдумывала
                     if lang == 'ru':
                         prompt = ("Посмотри на это фото и скажи, где оно сделано, основываясь ТОЛЬКО на том, что видно на изображении. "
-                                  "Не придумывай деталей, которых нет на фото (например, не говори про море, если на фото парк). "
+                                  "Не придумывай деталей, которых нет на фото. "
                                   "Если нет узнаваемых ориентиров, честно скажи, что не можешь определить точное место. "
                                   "Не начинай ответ с 'Привет'.")
                     else:
                         prompt = ("Look at this photo and tell where it was taken, based ONLY on what is visible in the image. "
-                                  "Do not invent details that are not in the photo (e.g., don't mention the sea if it's a park). "
+                                  "Do not invent details that are not in the photo. "
                                   "If there are no recognizable landmarks, honestly say you cannot determine the exact location. "
                                   "Do not start with 'Hello'.")
                     description = analyze_photo_with_vision(photo_path, prompt, lang)
@@ -697,7 +697,7 @@ def handle_message(message: telebot.types.Message) -> None:
                 bot.send_message(message.chat.id, "Ты о каком фото? Покажи, если хочешь обсудить 😊" if lang=='ru' else "Which photo are you talking about? Show me if you want to discuss 😊")
                 return
 
-    # --- Просьба показать свои фото ---
+    # --- Просьба показать свои фото (теперь с добавлением в историю при первом показе) ---
     if re.search(r'(фотки|какие нибудь фото|а у тебя есть фотографии|есть фотографии|у тебя есть фото|покажи свои фото|покажи фото|фотоальбом|покажи себя|своё фото|свое фото|мои фото|свои фотографии|покажи альбом|покажи где ты была|покажи, где ты|покажи картинку|покажи изображение|есть фото|есть ли у тебя фото|посмотреть твои фото|покажи свои фотографии|любимое фото|есть еще фото|другие фото|покажи другое фото|ещё фото|какое твое любимое фото|покажи любимое фото|покажи другое)', user_text, re.IGNORECASE):
         all_photos = get_photo_list()
         if not all_photos:
@@ -744,11 +744,17 @@ def handle_message(message: telebot.types.Message) -> None:
                     chosen_photo = random.choice(all_photos)
                     apology = ""
                     photo_name = get_keywords_from_photo_name(chosen_photo)
-                    # Ищем категорию по ключевым словам (а не по cat in photo_name)
+                    # Определяем категорию по ключевым словам
                     cat_found = False
                     for cat, words in KEYWORD_MAP.items():
                         if any(syn in photo_name for syn in words):
                             user_last_category[user_id] = cat
+                            # !!! Добавляем это фото в историю показа категории, чтобы не повторялось
+                            if user_id not in user_thematic_history:
+                                user_thematic_history[user_id] = {}
+                            if cat not in user_thematic_history[user_id]:
+                                user_thematic_history[user_id][cat] = set()
+                            user_thematic_history[user_id][cat].add(chosen_photo)
                             cat_found = True
                             break
                     if not cat_found:
@@ -859,5 +865,5 @@ def handle_message(message: telebot.types.Message) -> None:
         add_message(user_id, 'assistant', error)
 
 if __name__ == '__main__':
-    print('✅ Алёна — строгий промпт локации, парк без моря')
+    print('✅ Алёна — без повторов фото, без лаунжа и с улучшенной инициативой')
     bot.infinity_polling()
