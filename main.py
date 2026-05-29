@@ -176,6 +176,7 @@ def clean_english_words(text: str) -> str:
         r'\bmy\b': 'мой', r'\byour\b': 'твой', r'\bhis\b': 'его', r'\bher\b': 'её',
         r'\babsolutely\b': 'конечно', r'\blounge\b': 'шезлонг', r'\bromantic\b': 'романтично',
         r'\binteres\w*\b': 'интересн',
+        r'\brefreshed\b': 'посвежевшей',
     }
     for eng, rus in reps.items():
         text = re.sub(eng, rus, text, flags=re.IGNORECASE)
@@ -188,23 +189,38 @@ def remove_non_russian(text: str) -> str:
     return cleaned
 
 def distribute_emojis(text: str) -> str:
-    """Распределяет эмодзи по предложениям, если их меньше 2."""
+    """Распределяет эмодзи по предложениям, гарантируя разнообразие."""
     sentences = re.split(r'(?<=[.!?…]) +', text)
-    emoji_pool = ['😊', '💖', '✨', '😄', '🌸', '🌟', '🤗', '🌞']
+    # Более разнообразный пул, из которого будем брать, избегая повторов
+    emoji_pool = ['😊', '💖', '✨', '😄', '🌸', '🌟', '🤗', '🌞', '🌊', '🌴', '💕', '😘', '🎉', '💫']
+    used_emojis = []
     new_sentences = []
     total_emojis = 0
     for s in sentences:
         if not re.search(r'[\U0001F600-\U0001F64F\U0001F300-\U0001F5FF\U0001F680-\U0001F6FF\U0001F1E0-\U0001F1FF\u2600-\u26FF\u2700-\u27BF]', s):
-            s += ' ' + random.choice(emoji_pool)
+            # Выбираем эмодзи, который ещё не использовали в этом сообщении
+            available = [e for e in emoji_pool if e not in used_emojis]
+            if not available:
+                available = emoji_pool
+                used_emojis = []
+            chosen = random.choice(available)
+            s += ' ' + chosen
+            used_emojis.append(chosen)
             total_emojis += 1
         else:
-            total_emojis += len(re.findall(r'[\U0001F600-\U0001F64F\U0001F300-\U0001F5FF\U0001F680-\U0001F6FF\U0001F1E0-\U0001F1FF\u2600-\u26FF\u2700-\u27BF]', s))
+            found = re.findall(r'[\U0001F600-\U0001F64F\U0001F300-\U0001F5FF\U0001F680-\U0001F6FF\U0001F1E0-\U0001F1FF\u2600-\u26FF\u2700-\u27BF]', s)
+            total_emojis += len(found)
         new_sentences.append(s)
     result = ' '.join(new_sentences)
-    # Если всё равно меньше 2 (например, одно предложение), добавляем в конец
+    # Если эмодзи всё ещё меньше 2, добавляем разные
     if total_emojis < 2:
+        available = [e for e in emoji_pool if e not in used_emojis]
+        if not available:
+            available = emoji_pool
         for _ in range(2 - total_emojis):
-            result += ' ' + random.choice(emoji_pool)
+            chosen = random.choice(available)
+            result += ' ' + chosen
+            used_emojis.append(chosen)
     return result
 
 def extract_city(text: str, user_id: Optional[int] = None) -> Optional[str]:
@@ -883,5 +899,5 @@ def handle_message(message: telebot.types.Message) -> None:
         add_message(user_id, 'assistant', error)
 
 if __name__ == '__main__':
-    print('✅ Алёна — горы убраны, эмодзи распределены')
+    print('✅ Алёна — финальная, эмодзи разнообразные')
     bot.infinity_polling()
