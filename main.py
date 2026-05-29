@@ -22,11 +22,11 @@ BOT_USERNAME = 'AlenaSoul_bot'
 # --- Конфигурация для фотографий ---
 PHOTO_FOLDER = 'images'
 SUPPORTED_EXTENSIONS = ('.jpg', '.jpeg', '.png', '.gif')
-VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"   # для своих фото (работает)
-VISION_MODEL_USER = "llama-3.2-11b-vision-preview"          # для фото пользователя
+# Модель для анализа своих фото (для "где снято") – используем ту же vision
+VISION_MODEL = "llama-3.2-11b-vision-preview"
 MAX_BASE64_SIZE = 4 * 1024 * 1024
 
-# --- Глобальные ключевые слова для поиска фото (синонимы) ---
+# --- Глобальные ключевые слова для поиска своих фото ---
 KEYWORD_MAP = {
     'пляж': ['пляж', 'море', 'берег', 'песок', 'океан', 'купальник'],
     'набережная': ['набережная', 'набережную', 'набережной', 'причал', 'яхта', 'порт'],
@@ -45,9 +45,9 @@ user_no_jokes: Dict[int, bool] = {}
 user_preferences: Dict[int, str] = {}
 user_lang: Dict[int, str] = {}
 user_last_city: Dict[int, str] = {}
-user_last_sent_photo: Dict[int, str] = {}
+user_last_sent_photo: Dict[int, str] = {}       # для вопросов "где снято?"
 user_no_photos: Dict[int, bool] = {}
-user_thematic_history: Dict[int, Dict[str, deque]] = {}
+user_thematic_history: Dict[int, Dict[str, set]] = {}  # {user_id: {category: set(photo_paths)}}
 
 def get_history(user_id: int) -> Deque:
     if user_id not in user_history:
@@ -196,7 +196,7 @@ def clean_english_words(text: str) -> str:
     text = re.sub(r'\s+', ' ', text).strip()
     return text
 
-# --- Погода ---
+# --- Погода (функции без изменений) ---
 def extract_city(text: str, user_id: Optional[int] = None) -> Optional[str]:
     match = re.search(r'\b(?:в|во|в городе)\s+([А-Яа-я\-]+(?:[-\s]?[А-Яа-я]+)?)', text, re.IGNORECASE)
     if match:
@@ -441,7 +441,7 @@ def reset_cmd(message: telebot.types.Message) -> None:
     reset_user(user_id)
     bot.send_message(message.chat.id, "Память очищена 😊")
 
-# --- Функции для работы с фотографиями ---
+# --- Функции для работы со своими фото ---
 def get_photo_list() -> List[str]:
     if not os.path.exists(PHOTO_FOLDER):
         os.makedirs(PHOTO_FOLDER, exist_ok=True)
@@ -454,7 +454,6 @@ def get_keywords_from_photo_name(photo_path: str) -> str:
     return name
 
 def search_category_by_query(query: str) -> Optional[str]:
-    """Определяет категорию (пляж, парк, горы и т.д.) из запроса."""
     query_lower = query.lower()
     for cat, words in KEYWORD_MAP.items():
         for w in words:
@@ -485,18 +484,21 @@ def select_thematic_photo(user_id: int, category: str) -> Optional[str]:
     if user_id not in user_thematic_history:
         user_thematic_history[user_id] = {}
     if category not in user_thematic_history[user_id]:
-        user_thematic_history[user_id][category] = deque()
-    history = user_thematic_history[user_id][category]
-    if len(history) >= len(all_thematic):
-        history.clear()
-    for photo in all_thematic:
-        if photo not in history:
-            history.append(photo)
-            return photo
-    return None
+        user_thematic_history[user_id][category] = set()
+    shown = user_thematic_history[user_id][category]
+    # Находим непоказанные
+    available = [p for p in all_thematic if p not in shown]
+    if available:
+        chosen = random.choice(available)
+    else:
+        # Все показаны – начинаем заново (сбрасываем историю)
+        shown.clear()
+        chosen = random.choice(all_thematic)
+    shown.add(chosen)
+    return chosen
 
-def analyze_image_with_vision(image_path: str, prompt: str, lang: str = 'ru') -> str:
-    """Анализирует свои фото (используя VISION_MODEL) – работает как раньше."""
+def analyze_own_photo(image_path: str, prompt: str, lang: str = 'ru') -> str:
+    """Анализирует своё фото (для показа и для ответов «где снято»)."""
     try:
         file_size = os.path.getsize(image_path)
         if file_size > MAX_BASE64_SIZE:
@@ -528,24 +530,21 @@ def analyze_image_with_vision(image_path: str, prompt: str, lang: str = 'ru') ->
             analysis = clean_english_words(analysis)
         return analysis
     except Exception as e:
-        print(f"Ошибка анализа своих фото: {e}")
+        print(f"Ошибка анализа своего фото: {e}")
         return "Ой, что-то пошло не так при анализе фото. Попробуй ещё раз 😅"
 
+# --- Анализ фото от пользователя (отдельная функция с vision-моделью) ---
 def analyze_user_photo(message: telebot.types.Message, lang: str) -> bool:
-    """Анализирует фото от пользователя, используя vision-модель."""
     try:
         file_info = bot.get_file(message.photo[-1].file_id)
         downloaded_file = bot.download_file(file_info.file_path)
         temp_path = f"temp_user_image_{message.from_user.id}_{int(time.time())}.jpg"
         with open(temp_path, 'wb') as f:
             f.write(downloaded_file)
-
-        # Кодируем фото в base64
         with open(temp_path, "rb") as img_file:
             img_base64 = base64.b64encode(img_file.read()).decode('utf-8')
         os.remove(temp_path)
 
-        # Формируем промпт в зависимости от языка
         if lang == 'ru':
             prompt = (
                 "Ты Алёна, добрая, весёлая, обаятельная девушка. Твой друг прислал тебе фото. "
@@ -560,10 +559,8 @@ def analyze_user_photo(message: telebot.types.Message, lang: str) -> bool:
                 "Be warm, lively, add emojis and a little joke. If there is a person in the photo, give them a nice compliment. "
                 "If it's a landscape, share your impressions. Answer right now, as in a normal conversation. Do not start with 'Hello'."
             )
-
-        # Используем мультимодальную модель для анализа
         response = client.chat.completions.create(
-            model=VISION_MODEL_USER,
+            model=VISION_MODEL,  # используем ту же vision-модель
             messages=[
                 {
                     "role": "user",
@@ -641,7 +638,7 @@ def change_name(message: telebot.types.Message) -> None:
     bot.send_message(message.chat.id, reply)
     add_message(user_id, 'assistant', reply)
 
-# --- Системный промпт ---
+# --- Системный промпт (без изменений) ---
 def get_system_prompt(lang: str, current_date: str) -> str:
     if lang == 'ru':
         return (
@@ -681,7 +678,7 @@ def handle_message(message: telebot.types.Message) -> None:
     lang = user_lang[user_id]
     pet_name = get_pet_name(user_id, message.from_user.first_name)
 
-    # --- Обработка фото от пользователя (используем новую функцию с vision) ---
+    # --- Обработка фото от пользователя (анализ) ---
     if message.content_type == 'photo':
         if user_no_photos.get(user_id):
             user_no_photos[user_id] = False
@@ -691,6 +688,7 @@ def handle_message(message: telebot.types.Message) -> None:
     if user_text.startswith('/'):
         return
 
+    # --- Если пользователь говорит, что у него нет фото ---
     if re.search(r'(нет фото|нет своих фото|не снимаюсь|не люблю фоткаться|нет моих фото|не фотографируюсь)', user_text, re.IGNORECASE):
         user_no_photos[user_id] = True
         reply = (
@@ -703,7 +701,7 @@ def handle_message(message: telebot.types.Message) -> None:
         bot.send_message(message.chat.id, reply)
         return
 
-    # --- Вопросы о последнем фото ---
+    # --- Вопросы о последнем показанном фото (где снято?) ---
     lower_text = user_text.lower()
     is_photo_question = any(phrase in lower_text for phrase in [
         'где была сделана', 'какое место', 'что там за фон', 'где это', 'какой город',
@@ -737,7 +735,7 @@ def handle_message(message: telebot.types.Message) -> None:
                         "If you can't tell for sure, say honestly: 'It looks like a cozy park in Europe, but I'm not sure' or 'Maybe it's a beach in Thailand, but I'm not sure'.\n"
                         "Do not start with 'Hello'."
                     )
-                description = analyze_image_with_vision(photo_path, prompt, lang)
+                description = analyze_own_photo(photo_path, prompt, lang)
                 if description.startswith('Привет'):
                     description = re.sub(r'^Привет[,!\s]*', '', description)
                 description = re.sub(r'\.\.\.', '.', description)
@@ -750,8 +748,8 @@ def handle_message(message: telebot.types.Message) -> None:
             bot.send_message(message.chat.id, "Ты о каком фото? Покажи, если хочешь обсудить 😊" if lang=='ru' else "Which photo are you talking about? Show me if you want to discuss 😊")
             return
 
-    # --- Просьба показать свои фото ---
-    if re.search(r'(какие нибудь фото|а у тебя есть фотографии|есть фотографии|у тебя есть фото|покажи свои фото|покажи фото|фотоальбом|покажи себя|своё фото|свое фото|мои фото|свои фотографии|покажи альбом|покажи где ты была|покажи, где ты|покажи картинку|покажи изображение|есть фото|есть ли у тебя фото|посмотреть твои фото|покажи свои фотографии|любимое фото|есть еще фото|другие фото|покажи другое фото|ещё фото|какое твое любимое фото|покажи любимое фото|покажи другое)', user_text, re.IGNORECASE):
+    # --- Просьба показать свои фото (с циклическим перебором по категориям) ---
+    if re.search(r'(фотки|какие нибудь фото|а у тебя есть фотографии|есть фотографии|у тебя есть фото|покажи свои фото|покажи фото|фотоальбом|покажи себя|своё фото|свое фото|мои фото|свои фотографии|покажи альбом|покажи где ты была|покажи, где ты|покажи картинку|покажи изображение|есть фото|есть ли у тебя фото|посмотреть твои фото|покажи свои фотографии|любимое фото|есть еще фото|другие фото|покажи другое фото|ещё фото|какое твое любимое фото|покажи любимое фото|покажи другое)', user_text, re.IGNORECASE):
         all_photos = get_photo_list()
         if not all_photos:
             msg = "У меня ещё нет фотоальбома, но Максик обещал скоро добавить! 😊" if lang == 'ru' else "I don't have a photo album yet, but Max promised to add it soon! 😊"
@@ -766,11 +764,14 @@ def handle_message(message: telebot.types.Message) -> None:
         if category:
             chosen_photo = select_thematic_photo(user_id, category)
             if chosen_photo is None:
+                # Если нет тематических фото – показываем случайное
                 chosen_photo = random.choice(all_photos)
                 apology = "Ой, у меня пока нет фото на эту тему, но вот одно из моих любимых – надеюсь, тебе понравится! "
             else:
                 apology = ""
         else:
+            # Нет категории – случайное фото (с циклическим перебором, но без категории – просто случайное)
+            # Для простоты берём случайное, но можно добавить историю случайных, чтобы не повторялись
             chosen_photo = random.choice(all_photos)
             apology = ""
 
@@ -788,7 +789,7 @@ def handle_message(message: telebot.types.Message) -> None:
                     analysis_prompt = compliment_prefix + " " + apology + "Начни свой ответ с душевного восклицания, например: 'Конечно, у меня есть такие фото!' или 'С удовольствием покажу!' Затем опиши фото: что ты на нём делаешь, где ты, какое у тебя настроение. Расскажи короткую историю. Не начинай ответ с 'Привет'."
             else:
                 analysis_prompt = (compliment_prefix + " " + apology + "Start your answer with a warm phrase, e.g., 'I'm so glad you asked! Here's one of my photos...' Then describe the photo: what you are doing, where you are, what mood you are in. Tell a short story. Do not start with 'Hello'.")
-            description = analyze_image_with_vision(chosen_photo, analysis_prompt, lang)
+            description = analyze_own_photo(chosen_photo, analysis_prompt, lang)
             if description.startswith('Привет'):
                 description = re.sub(r'^Привет[,!\s]*', '', description)
             with open(chosen_photo, 'rb') as photo:
@@ -856,5 +857,5 @@ def handle_message(message: telebot.types.Message) -> None:
         add_message(user_id, 'assistant', error)
 
 if __name__ == '__main__':
-    print('✅ Алёна с восстановленной функцией видения пользовательских фото (через llama-3.2-11b-vision-preview)')
+    print('✅ Алёна финальная — свои фото: тематический поиск, циклический перебор, ответы на "где снято"; анализ фото пользователя через vision; слово "фотки" распознаётся')
     bot.infinity_polling()
