@@ -597,7 +597,7 @@ def change_name(message: telebot.types.Message) -> None:
     bot.send_message(message.chat.id, reply)
     add_message(user_id, 'assistant', reply)
 
-# --- Системный промпт (с правилами 9 и 10) ---
+# --- Системный промпт (правила 9 и 10) ---
 def get_system_prompt(lang: str, current_date: str) -> str:
     if lang == 'ru':
         return (
@@ -630,7 +630,7 @@ def get_system_prompt(lang: str, current_date: str) -> str:
             '10. If the user shows a picture and suggests imagining a joint vacation, respond warmly and dreamily: agree that the place is wonderful, and describe how you could spend time there together. Use details from the picture (beach, palms, sea), don’t invent unrelated things (like a promenade). Show that you’re happy about this idea and invite them to dream together. 💖\n'
         )
 
-# --- Основной обработчик (исправлено запоминание категории для случайного фото) ---
+# --- Основной обработчик (с новым строгим промптом для места) ---
 @bot.message_handler(func=lambda message: True, content_types=['text', 'photo'])
 def handle_message(message: telebot.types.Message) -> None:
     user_id = message.from_user.id
@@ -657,7 +657,7 @@ def handle_message(message: telebot.types.Message) -> None:
         user_no_photos[user_id] = True
         user_has_no_photos = True
 
-    # --- Вопросы о последнем фото (приоритет показа новых) ---
+    # --- Вопросы о последнем фото (приоритет показа новых, промпт строгий) ---
     lower_text = user_text.lower()
     if not re.search(r'(фотки|фото|фотографи|альбом|покажи|покажешь|есть ли у тебя фото|твои фото|свои фото|любимое фото)', user_text, re.IGNORECASE):
         is_photo_question = any(phrase in lower_text for phrase in [
@@ -674,10 +674,17 @@ def handle_message(message: telebot.types.Message) -> None:
             if user_id in user_last_sent_photo and user_last_sent_photo[user_id]:
                 photo_path = user_last_sent_photo[user_id]
                 try:
+                    # Строгий промпт, чтобы не выдумывала
                     if lang == 'ru':
-                        prompt = "Посмотри на это фото и ответь, где оно сделано. Назови конкретное место (город, страну, достопримечательность). Если не уверена, скажи честно. Не начинай ответ с 'Привет'."
+                        prompt = ("Посмотри на это фото и скажи, где оно сделано, основываясь ТОЛЬКО на том, что видно на изображении. "
+                                  "Не придумывай деталей, которых нет на фото (например, не говори про море, если на фото парк). "
+                                  "Если нет узнаваемых ориентиров, честно скажи, что не можешь определить точное место. "
+                                  "Не начинай ответ с 'Привет'.")
                     else:
-                        prompt = "Look at this photo and answer where it was taken. Name the specific place (city, country, landmark). If you're not sure, say so. Do not start with 'Hello'."
+                        prompt = ("Look at this photo and tell where it was taken, based ONLY on what is visible in the image. "
+                                  "Do not invent details that are not in the photo (e.g., don't mention the sea if it's a park). "
+                                  "If there are no recognizable landmarks, honestly say you cannot determine the exact location. "
+                                  "Do not start with 'Hello'.")
                     description = analyze_photo_with_vision(photo_path, prompt, lang)
                     if description.startswith('Привет'):
                         description = re.sub(r'^Привет[,!\s]*', '', description)
@@ -852,5 +859,5 @@ def handle_message(message: telebot.types.Message) -> None:
         add_message(user_id, 'assistant', error)
 
 if __name__ == '__main__':
-    print('✅ Алёна — парк вместо кормит птиц, правило 10, absolutely убран')
+    print('✅ Алёна — строгий промпт локации, парк без моря')
     bot.infinity_polling()
