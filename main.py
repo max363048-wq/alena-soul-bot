@@ -45,6 +45,7 @@ user_no_photos: Dict[int, bool] = {}
 user_thematic_history: Dict[int, Dict[str, set]] = {}
 user_last_category: Dict[int, str] = {}
 user_last_user_image_desc: Dict[int, str] = {}
+user_vague_photo_hint_given: Dict[int, bool] = {}  # флаг, показывали ли уже "Кстати..."
 
 def get_history(user_id: int) -> Deque:
     if user_id not in user_history:
@@ -70,6 +71,7 @@ def reset_user(user_id: int) -> None:
     user_thematic_history.pop(user_id, None)
     user_last_category.pop(user_id, None)
     user_last_user_image_desc.pop(user_id, None)
+    user_vague_photo_hint_given.pop(user_id, None)
 
 def default_pet_name(first_name: str) -> str:
     names = {
@@ -820,12 +822,14 @@ def handle_message(message: telebot.types.Message) -> None:
             if description.startswith('Привет'):
                 description = re.sub(r'^Привет[,!\s]*', '', description)
 
-            # Для расплывчатого запроса добавляем предложение уточнить
+            # Для расплывчатого запроса добавляем предложение уточнить, но только если ещё не говорили
             if not category and not re.search(r'(такие|таких)', user_text, re.IGNORECASE):
-                if lang == 'ru':
-                    description += "\n\nКстати, у меня много разных фотографий! Есть где я на пляже, в горах или на природе... Какие именно тебя интересуют? 😊"
-                else:
-                    description += "\n\nBy the way, I have a lot of different photos! I have some at the beach, in the mountains, or in nature... Which ones are you interested in? 😊"
+                if not user_vague_photo_hint_given.get(user_id, False):
+                    if lang == 'ru':
+                        description += "\n\nКстати, у меня много разных фотографий! Есть где я на пляже, в горах или на природе... Какие именно тебя интересуют? 😊"
+                    else:
+                        description += "\n\nBy the way, I have a lot of different photos! I have some at the beach, in the mountains, or in nature... Which ones are you interested in? 😊"
+                    user_vague_photo_hint_given[user_id] = True
 
             if user_has_no_photos:
                 if lang == 'ru':
@@ -915,5 +919,5 @@ def handle_message(message: telebot.types.Message) -> None:
         add_message(user_id, 'assistant', error)
 
 if __name__ == '__main__':
-    print('✅ Алёна — идеальные "каверзные" вопросы')
+    print('✅ Алёна — финал: умные подсказки, без повторов')
     bot.infinity_polling()
