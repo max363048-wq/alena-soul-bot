@@ -787,11 +787,15 @@ def handle_message(message: telebot.types.Message) -> None:
                             if not any(syn in get_keywords_from_photo_name(p) for syn in KEYWORD_MAP.get(last_cat, []))
                         ]
                         if not available_photos:
-                            available_photos = all_photos
-                        chosen_photo = random.choice(available_photos)
+                            # Все фото принадлежат последней категории – извиняемся
+                            chosen_photo = random.choice(all_photos)
+                            apology = "У меня пока в основном такие фото, но я работаю над пополнением альбома! "
+                        else:
+                            chosen_photo = random.choice(available_photos)
+                            apology = ""
                     else:
                         chosen_photo = random.choice(all_photos)
-                    apology = ""
+                        apology = ""
                     # Определяем категорию для выбранного фото
                     photo_name = get_keywords_from_photo_name(chosen_photo)
                     cat_found = False
@@ -901,7 +905,7 @@ def handle_message(message: telebot.types.Message) -> None:
     system_prompt = get_system_prompt(lang, current_date) + no_jokes_note + no_photos_note + f' Имя пользователя (ласково): {pet_name}.'
 
     if user_id in user_last_user_image_desc and re.search(r'(мы бы с тобой|смотрелись вместе|отдохнуть вместе|побыть вдвоём|представь|помечта)', user_text, re.IGNORECASE):
-        system_prompt += f'\n\nПользователь показал картинку, которую ты описала так: "{user_last_user_image_desc[user_id]}". ОТВЕЧАЙ ТОЛЬКО НА ОСНОВЕ ЭТОГО ОПИСАНИЯ, ИГНОРИРУЙ ВСЕ ПРЕДЫДУЩИЕ ТЕМЫ. Представь, что вы вдвоём находитесь в этом месте, опиши ощущения.'
+        system_prompt += f'\n\nПользователь показал картинку, которую ты описала так: "{user_last_user_image_desc[user_id]}". ОТВЕЧАЙ ТОЛЬКО НА ОСНОВЕ ЭТОГО ОПИСАНИЯ, ИГНОРИРУЙ ВСЕ ПРЕДЫДУЩИЕ ТЕМЫ. Представь, что вы вдвоём находятся в этом месте, опиши ощущения.'
 
     try:
         messages = build_messages(user_id, system_prompt, user_text)
@@ -923,5 +927,5 @@ def handle_message(message: telebot.types.Message) -> None:
         add_message(user_id, 'assistant', error)
 
 if __name__ == '__main__':
-    print('✅ Алёна — "такие же" работают')
+    print('✅ Алёна — финальная, общий запрос исключает категорию')
     bot.infinity_polling()
