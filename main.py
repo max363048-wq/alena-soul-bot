@@ -498,13 +498,11 @@ def select_thematic_photo(user_id: int, category: str) -> Optional[str]:
 
 def describe_own_photo(image_path: str, prompt: str, lang: str = 'ru') -> str:
     """Генерирует описание своего фото на основе имени файла и контекста (без vision)."""
-    # Получаем имя файла, но НЕ используем его в тексте описания – только для внутренней логики
     try:
         if lang == 'ru':
-            # Промпт: создать описание фото на основе имени, но не упоминать само имя
-            full_prompt = f"Ты Алёна. {prompt} Придумай естественное, живое описание фотографии, которое соответствует её названию («{os.path.basename(image_path)}»), но не упоминай само название файла. Опиши своё настроение, что ты делаешь, где находишься. Будь тёплой, добавляй эмодзи. Не начинай ответ с 'Привет'."
+            full_prompt = f"Ты Алёна. {prompt} Создай естественное, живое описание фотографии, которое соответствует её названию (название не упоминай). Опиши своё настроение, что ты делаешь, где находишься. Будь тёплой, добавляй эмодзи. Не начинай ответ с 'Привет'."
         else:
-            full_prompt = f"You are Alena. {prompt} Create a natural, lively description of a photo that matches its name ('{os.path.basename(image_path)}'), but do not mention the file name itself. Describe your mood, what you are doing, where you are. Be warm, add emojis. Do not start with 'Hello'."
+            full_prompt = f"You are Alena. {prompt} Create a natural, lively description of a photo that matches its name (do not mention the file name). Describe your mood, what you are doing, where you are. Be warm, add emojis. Do not start with 'Hello'."
         resp = client.chat.completions.create(
             model='llama-3.3-70b-versatile',
             messages=[{'role': 'user', 'content': full_prompt}],
@@ -734,17 +732,15 @@ def handle_message(message: telebot.types.Message) -> None:
         # Определяем категорию из запроса
         category = search_category_by_query(user_text)
         if category:
-            # Запоминаем категорию для этого пользователя
             user_last_category[user_id] = category
             chosen_photo = select_thematic_photo(user_id, category)
             if chosen_photo is None:
-                # Если нет тематических фото – показываем случайное
                 chosen_photo = random.choice(all_photos)
                 apology = "Ой, у меня пока нет фото на эту тему, но вот одно из моих любимых – надеюсь, тебе понравится! "
             else:
                 apology = ""
         else:
-            # Если категория не определена, но пользователь ранее что-то просил (например, "еще такие фото") – используем последнюю категорию
+            # Если нет явной категории, но это запрос «еще такие фото» – используем последнюю категорию
             if user_id in user_last_category and re.search(r'(еще такие фото|еще фото|другие фото|ещё фото)', user_text, re.IGNORECASE):
                 last_cat = user_last_category[user_id]
                 chosen_photo = select_thematic_photo(user_id, last_cat)
@@ -754,8 +750,15 @@ def handle_message(message: telebot.types.Message) -> None:
                 else:
                     apology = ""
             else:
+                # Первый запрос без темы – случайное фото, но запоминаем его категорию (если есть)
                 chosen_photo = random.choice(all_photos)
                 apology = ""
+                # Определяем категорию выбранного случайного фото, чтобы потом использовать для «еще»
+                photo_name = get_keywords_from_photo_name(chosen_photo)
+                for cat, words in KEYWORD_MAP.items():
+                    if cat in photo_name:
+                        user_last_category[user_id] = cat
+                        break
 
         user_last_sent_photo[user_id] = chosen_photo
 
@@ -839,5 +842,5 @@ def handle_message(message: telebot.types.Message) -> None:
         add_message(user_id, 'assistant', error)
 
 if __name__ == '__main__':
-    print('✅ Алёна финальная — запоминает категорию, не показывает имена файлов, повторяет тематические фото по кругу')
+    print('✅ Алёна финальная — нет отказов, запоминает категорию, циклический перебор')
     bot.infinity_polling()
