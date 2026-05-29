@@ -927,5 +927,5 @@ def handle_message(message: telebot.types.Message) -> None:
         add_message(user_id, 'assistant', error)
 
 if __name__ == '__main__':
-    print('✅ Алёна — финальная, общий запрос исключает категорию')
+    print('✅ Алёна — финальная, все кейсы закрыты')
     bot.infinity_polling()
