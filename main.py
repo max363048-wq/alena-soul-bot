@@ -173,7 +173,7 @@ def clean_english_words(text: str) -> str:
         r'\bsome\b': 'некоторые', r'\bany\b': 'любые', r'\bhere\b': 'здесь', r'\bthere\b': 'там',
         r'\bmy\b': 'мой', r'\byour\b': 'твой', r'\bhis\b': 'его', r'\bher\b': 'её',
         r'\babsolutely\b': 'конечно', r'\blounge\b': 'шезлонг', r'\bromantic\b': 'романтично',
-        r'\binteres\w*\b': 'интересн',  # ловит interesные, interesными и т.д.
+        r'\binteres\w*\b': 'интересн',
     }
     for eng, rus in reps.items():
         text = re.sub(eng, rus, text, flags=re.IGNORECASE)
@@ -607,7 +607,7 @@ def get_system_prompt(lang: str, current_date: str) -> str:
             'ПРАВИЛА:\n'
             '1. Отвечай только на русском, без английских слов.\n'
             '2. Не начинай ответ с "Привет", не представляйся заново.\n'
-            '3. Используй эмодзи 😊😄😘💖✨. ВСЕГДА добавляй 1-2 подходящих эмодзи в каждое сообщение.\n'
+            '3. Используй эмодзи 😊😄😘💖✨ в каждом предложении, а не только в конце. Твои ответы должны выглядеть живыми и эмоциональными.\n'
             '4. Если просят шутку — дай одну короткую шутку, не спрашивай "хочешь ещё?".\n'
             '5. Если спрашивают гороскоп, скажи: "Напиши /horoscope [твой знак или дата рождения]".\n'
             '6. Отвечай коротко (2-4 предложения), будь живой.\n'
@@ -621,7 +621,7 @@ def get_system_prompt(lang: str, current_date: str) -> str:
             'RULES:\n'
             '1. Answer only in English, no mixing.\n'
             '2. Do not start with "Hello", do not reintroduce yourself.\n'
-            '3. Use emojis 😊😄😘💖✨. ALWAYS add 1-2 appropriate emojis to every message.\n'
+            '3. Use emojis 😊😄😘💖✨ in every sentence, not just at the end. Your answers should look lively and emotional.\n'
             '4. If asked for a joke — tell one short joke, do not ask "want another?".\n'
             '5. If asked for horoscope, say: "Type /horoscope [your sign or birth date]".\n'
             '6. Answer briefly (2-4 sentences), be lively.\n'
@@ -662,42 +662,43 @@ def handle_message(message: telebot.types.Message) -> None:
         add_message(user_id, 'assistant', joke)
         return
 
+    # --- Вопросы о последнем фото (АБСОЛЮТНЫЙ ПРИОРИТЕТ) ---
     lower_text = user_text.lower()
-    if not re.search(r'(фотки|фото|фотографи|альбом|покажи|покажешь|есть ли у тебя фото|твои фото|свои фото|любимые фото|любимое фото|любимых фото)', user_text, re.IGNORECASE):
-        is_photo_question = any(phrase in lower_text for phrase in [
-            'где была сделана', 'какое место', 'что там за фон', 'где это', 'какой город',
-            'на каком курорте', 'какая страна', 'где ты находилась', 'где это было',
-            'расскажи про это фото', 'подробнее об этом фото', 'что там за', 'какие детали',
-            'где снято', 'а на каком пляже', 'в каком парке', 'в какой стране', 'это в россии',
-            'за границей', 'в каком городе', 'на каком море', 'какой пляж', 'как называется',
-            'поделись деталями', 'что ещё видно', 'расскажи подробнее', 'добавь деталей',
-            'опиши фон', 'что позади', 'какие люди',
-            'это фото', 'эта фотография', 'на этом фото', 'на этой фотографии'
-        ])
-        if is_photo_question:
-            if user_id in user_last_sent_photo and user_last_sent_photo[user_id]:
-                photo_path = user_last_sent_photo[user_id]
-                try:
-                    if lang == 'ru':
-                        prompt = ("Посмотри на это фото и скажи, где оно сделано. Если видишь конкретные ориентиры — назови их. "
-                                  "Если не можешь определить точно, скажи мягко, с душой, например: 'Мне сложно сказать точно, но это место напоминает мне...'. "
-                                  "Не придумывай море или горы, если их нет. Не начинай ответ с 'Привет'.")
-                    else:
-                        prompt = ("Look at this photo and tell where it was taken. If you see specific landmarks — name them. "
-                                  "If you can't determine exactly, say it warmly, e.g.: 'It's hard to say for sure, but this place reminds me of...'. "
-                                  "Don't invent sea or mountains if they aren't there. Don't start with 'Hello'.")
-                    description = analyze_photo_with_vision(photo_path, prompt, lang)
-                    if description.startswith('Привет'):
-                        description = re.sub(r'^Привет[,!\s]*', '', description)
-                    bot.send_message(message.chat.id, description)
-                except Exception as e:
-                    print(f"Ошибка при ответе о последнем фото: {e}")
-                    bot.send_message(message.chat.id, ensure_emoji("Извини, я не могу сейчас вспомнить детали этого фото 😅"))
-                return
-            else:
-                bot.send_message(message.chat.id, ensure_emoji("Ты о каком фото? Покажи, если хочешь обсудить 😊"))
-                return
+    is_photo_question = any(phrase in lower_text for phrase in [
+        'где была сделана', 'какое место', 'что там за фон', 'где это', 'какой город',
+        'на каком курорте', 'какая страна', 'где ты находилась', 'где это было',
+        'расскажи про это фото', 'подробнее об этом фото', 'что там за', 'какие детали',
+        'где снято', 'а на каком пляже', 'в каком парке', 'в какой стране', 'это в россии',
+        'за границей', 'в каком городе', 'на каком море', 'какой пляж', 'как называется',
+        'поделись деталями', 'что ещё видно', 'расскажи подробнее', 'добавь деталей',
+        'опиши фон', 'что позади', 'какие люди',
+        'это фото', 'эта фотография', 'на этом фото', 'на этой фотографии'
+    ])
+    if is_photo_question:
+        if user_id in user_last_sent_photo and user_last_sent_photo[user_id]:
+            photo_path = user_last_sent_photo[user_id]
+            try:
+                if lang == 'ru':
+                    prompt = ("Посмотри на это фото и скажи, где оно сделано. Если видишь конкретные ориентиры — назови их. "
+                              "Если не можешь определить точно, скажи мягко, с душой, например: 'Мне сложно сказать точно, но это место напоминает мне...'. "
+                              "Не придумывай море или горы, если их нет. Не начинай ответ с 'Привет'.")
+                else:
+                    prompt = ("Look at this photo and tell where it was taken. If you see specific landmarks — name them. "
+                              "If you can't determine exactly, say it warmly, e.g.: 'It's hard to say for sure, but this place reminds me of...'. "
+                              "Don't invent sea or mountains if they aren't there. Don't start with 'Hello'.")
+                description = analyze_photo_with_vision(photo_path, prompt, lang)
+                if description.startswith('Привет'):
+                    description = re.sub(r'^Привет[,!\s]*', '', description)
+                bot.send_message(message.chat.id, description)
+            except Exception as e:
+                print(f"Ошибка при ответе о последнем фото: {e}")
+                bot.send_message(message.chat.id, ensure_emoji("Извини, я не могу сейчас вспомнить детали этого фото 😅"))
+            return
+        else:
+            bot.send_message(message.chat.id, ensure_emoji("Ты о каком фото? Покажи, если хочешь обсудить 😊"))
+            return
 
+    # --- Просьба показать свои фото ---
     if re.search(r'(фотки|какие нибудь фото|а у тебя есть фотографии|есть фотографии|у тебя есть фото|покажи свои фото|покажи фото|фотоальбом|покажи себя|своё фото|свое фото|мои фото|свои фотографии|покажи альбом|покажи где ты была|покажи, где ты|покажи картинку|покажи изображение|есть фото|есть ли у тебя фото|посмотреть твои фото|покажи свои фотографии|любимые фото|любимое фото|любимых фото|есть еще фото|другие фото|покажи другое фото|ещё фото|какое твое любимое фото|покажи любимое фото|покажи другое|такие фото|такие фотки)', user_text, re.IGNORECASE):
         all_photos = get_photo_list()
         if not all_photos:
@@ -766,11 +767,11 @@ def handle_message(message: telebot.types.Message) -> None:
 
             if lang == 'ru':
                 if re.search(r'любимые|любимое|любимых', user_text, re.IGNORECASE):
-                    analysis_prompt = compliment_prefix + " " + apology + "Начни свой ответ с тёплой фразы, например: 'Вот моё любимое фото...' Затем опиши фото: что ты на нём делаешь, где ты, какое у тебя настроение. Расскажи короткую историю. Не начинай ответ с 'Привет'."
+                    analysis_prompt = compliment_prefix + " " + apology + "Начни свой ответ с тёплой фразы, например: 'Вот моё любимое фото...' Затем опиши фото: что ты на нём делаешь, где ты, какое у тебя настроение. Расскажи короткую историю. Обязательно добавь 2-3 эмодзи, чтобы описание было живым. Не начинай ответ с 'Привет'."
                 else:
-                    analysis_prompt = compliment_prefix + " " + apology + "Начни свой ответ с душевного восклицания, например: 'Конечно, у меня есть такие фото!' или 'С удовольствием покажу!' Затем опиши фото: что ты на нём делаешь, где ты, какое у тебя настроение. Расскажи короткую историю. Не начинай ответ с 'Привет'."
+                    analysis_prompt = compliment_prefix + " " + apology + "Начни свой ответ с душевного восклицания, например: 'Конечно, у меня есть такие фото!' или 'С удовольствием покажу!' Затем опиши фото: что ты на нём делаешь, где ты, какое у тебя настроение. Расскажи короткую историю. Обязательно добавь 2-3 эмодзи, чтобы описание было живым. Не начинай ответ с 'Привет'."
             else:
-                analysis_prompt = (compliment_prefix + " " + apology + "Start your answer with a warm phrase, e.g., 'I'm so glad you asked! Here's one of my photos...' Then describe the photo: what you are doing, where you are, what mood you are in. Tell a short story. Do not start with 'Hello'.")
+                analysis_prompt = (compliment_prefix + " " + apology + "Start your answer with a warm phrase, e.g., 'I'm so glad you asked! Here's one of my photos...' Then describe the photo: what you are doing, where you are, what mood you are in. Tell a short story. Be sure to add 2-3 emojis to make the description lively. Do not start with 'Hello'.")
             description = analyze_photo_with_vision(chosen_photo, analysis_prompt, lang)
             if description.startswith('Привет'):
                 description = re.sub(r'^Привет[,!\s]*', '', description)
@@ -860,5 +861,5 @@ def handle_message(message: telebot.types.Message) -> None:
         add_message(user_id, 'assistant', error)
 
 if __name__ == '__main__':
-    print('✅ Алёна — стабильная версия')
+    print('✅ Алёна — финал: строгий приоритет "где", живые эмодзи')
     bot.infinity_polling()
