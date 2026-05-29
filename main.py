@@ -45,7 +45,7 @@ user_no_photos: Dict[int, bool] = {}
 user_thematic_history: Dict[int, Dict[str, set]] = {}
 user_last_category: Dict[int, str] = {}
 user_last_user_image_desc: Dict[int, str] = {}
-user_vague_photo_hint_given: Dict[int, bool] = {}  # флаг, показывали ли уже "Кстати..."
+user_vague_photo_hint_given: Dict[int, bool] = {}
 
 def get_history(user_id: int) -> Deque:
     if user_id not in user_history:
@@ -781,7 +781,11 @@ def handle_message(message: telebot.types.Message) -> None:
                 else:
                     # Расплывчатый запрос "еще фотки" – исключаем последнюю категорию
                     if user_id in user_last_category and user_last_category[user_id] is not None:
-                        available_photos = [p for p in all_photos if get_keywords_from_photo_name(p) != user_last_category[user_id]]
+                        last_cat = user_last_category[user_id]
+                        available_photos = [
+                            p for p in all_photos
+                            if not any(syn in get_keywords_from_photo_name(p) for syn in KEYWORD_MAP.get(last_cat, []))
+                        ]
                         if not available_photos:
                             available_photos = all_photos
                         chosen_photo = random.choice(available_photos)
@@ -822,7 +826,7 @@ def handle_message(message: telebot.types.Message) -> None:
             if description.startswith('Привет'):
                 description = re.sub(r'^Привет[,!\s]*', '', description)
 
-            # Для расплывчатого запроса добавляем предложение уточнить, но только если ещё не говорили
+            # Для самого первого расплывчатого запроса добавляем подсказку, но только один раз
             if not category and not re.search(r'(такие|таких)', user_text, re.IGNORECASE):
                 if not user_vague_photo_hint_given.get(user_id, False):
                     if lang == 'ru':
@@ -897,7 +901,7 @@ def handle_message(message: telebot.types.Message) -> None:
     system_prompt = get_system_prompt(lang, current_date) + no_jokes_note + no_photos_note + f' Имя пользователя (ласково): {pet_name}.'
 
     if user_id in user_last_user_image_desc and re.search(r'(мы бы с тобой|смотрелись вместе|отдохнуть вместе|побыть вдвоём|представь|помечта)', user_text, re.IGNORECASE):
-        system_prompt += f'\n\nПользователь показал картинку, которую ты описала так: "{user_last_user_image_desc[user_id]}". ОТВЕЧАЙ ТОЛЬКО НА ОСНОВЕ ЭТОГО ОПИСАНИЯ, ИГНОРИРУЙ ВСЕ ПРЕДЫДУЩИЕ ТЕМЫ. Представь, что вы вдвоём находитесь в этом месте, опиши ощущения.'
+        system_prompt += f'\n\nПользователь показал картинку, которую ты описала так: "{user_last_user_image_desc[user_id]}". ОТВЕЧАЙ ТОЛЬКО НА ОСНОВЕ ЭТОГО ОПИСАНИЯ, ИГНОРИРУЙ ВСЕ ПРЕДЫДУЩИЕ ТЕМЫ. Представь, что вы вдвоём находятся в этом месте, опиши ощущения.'
 
     try:
         messages = build_messages(user_id, system_prompt, user_text)
@@ -919,5 +923,5 @@ def handle_message(message: telebot.types.Message) -> None:
         add_message(user_id, 'assistant', error)
 
 if __name__ == '__main__':
-    print('✅ Алёна — финал: умные подсказки, без повторов')
+    print('✅ Алёна — исправлен фильтр категорий')
     bot.infinity_polling()
