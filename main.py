@@ -716,22 +716,31 @@ def handle_message(message: telebot.types.Message) -> None:
             else:
                 apology = ""
         else:
-            if user_id in user_last_category and re.search(r'(еще такие фото|еще фото|другие фото|ещё фото)', user_text, re.IGNORECASE):
-                last_cat = user_last_category[user_id]
-                chosen_photo = select_thematic_photo(user_id, last_cat)
-                if chosen_photo is None:
-                    chosen_photo = random.choice(all_photos)
-                    apology = "Ой, у меня пока нет фото на эту тему, но вот одно из моих любимых – надеюсь, тебе понравится! "
-                else:
-                    apology = ""
-            else:
+            if user_id in user_last_category and re.search(r'(еще такие фото|еще фото|другие фото|ещё фото|такие фото)', user_text, re.IGNORECASE):
+            last_cat = user_last_category[user_id]
+            photos_in_cat = get_photos_by_category(last_cat)
+            # Проверка: если в категории всего одно фото и оно уже показывалось
+            if len(photos_in_cat) == 1 and user_id in user_thematic_history and last_cat in user_thematic_history[user_id]:
+                shown = user_thematic_history[user_id][last_cat]
+                if len(shown) >= 1:  # единственное фото уже было показано
+                    msg = "У меня пока только это фото на эту тему. Хочешь посмотреть ещё раз? 😊" if lang == 'ru' else "I only have this one photo on this topic. Want to see it again? 😊"
+                    bot.send_message(message.chat.id, msg)
+                    return
+            chosen_photo = select_thematic_photo(user_id, last_cat)
+            if chosen_photo is None:
                 chosen_photo = random.choice(all_photos)
+                apology = "Ой, у меня пока нет фото на эту тему, но вот одно из моих любимых – надеюсь, тебе понравится! "
+            else:
                 apology = ""
-                photo_name = get_keywords_from_photo_name(chosen_photo)
-                for cat, words in KEYWORD_MAP.items():
-                    if cat in photo_name:
-                        user_last_category[user_id] = cat
-                        break
+        else:
+            # Первый запрос без темы – случайное фото, запоминаем его категорию
+            chosen_photo = random.choice(all_photos)
+            apology = ""
+            photo_name = get_keywords_from_photo_name(chosen_photo)
+            for cat, words in KEYWORD_MAP.items():
+                if cat in photo_name:
+                    user_last_category[user_id] = cat
+                    break
 
         user_last_sent_photo[user_id] = chosen_photo
 
