@@ -23,10 +23,10 @@ BOT_USERNAME = 'AlenaSoul_bot'
 # --- Конфигурация для фотографий ---
 PHOTO_FOLDER = 'images'
 SUPPORTED_EXTENSIONS = ('.jpg', '.jpeg', '.png', '.gif')
-VISION_MODEL_USER = "qwen/qwen3-vl-32b-instruct"   # новая работающая модель для фото пользователя
+VISION_MODEL_USER = "qwen/qwen3-vl-32b-instruct"   # актуальная мультимодальная модель
 MAX_BASE64_SIZE = 4 * 1024 * 1024
 
-# --- Глобальные ключевые слова для поиска своих фото ---
+# --- Ключевые слова для поиска своих фото ---
 KEYWORD_MAP = {
     'пляж': ['пляж', 'море', 'берег', 'песок', 'океан', 'купальник'],
     'набережная': ['набережная', 'набережную', 'набережной', 'причал', 'яхта', 'порт'],
@@ -91,7 +91,7 @@ def get_pet_name(user_id: int, first_name: str) -> str:
         return user_preferences[user_id]
     return default_pet_name(first_name)
 
-# --- Знаки зодиака ---
+# --- Знаки зодиака (сокращённо) ---
 def zodiac_sign(day: int, month: int) -> str:
     if (month == 1 and day >= 20) or (month == 2 and day <= 18): return 'водолей'
     elif (month == 2 and day >= 19) or (month == 3 and day <= 20): return 'рыбы'
@@ -188,7 +188,7 @@ def clean_english_words(text: str) -> str:
     text = re.sub(r'\s+', ' ', text).strip()
     return text
 
-# --- Погода ---
+# --- Погода (сокращённо, но рабочие функции) ---
 def extract_city(text: str, user_id: Optional[int] = None) -> Optional[str]:
     match = re.search(r'\b(?:в|во|в городе)\s+([А-Яа-я\-]+(?:[-\s]?[А-Яа-я]+)?)', text, re.IGNORECASE)
     if match:
@@ -330,7 +330,7 @@ def handle_weather_query(message: telebot.types.Message, user_text: str, lang: s
     add_message(user_id, 'assistant', reply)
     return True
 
-# --- Команды ---
+# --- Команды (сокращённо) ---
 @bot.message_handler(commands=['weather'])
 def weather_cmd(message: telebot.types.Message) -> None:
     user_id = message.from_user.id
@@ -433,7 +433,7 @@ def reset_cmd(message: telebot.types.Message) -> None:
     reset_user(user_id)
     bot.send_message(message.chat.id, "Память очищена 😊")
 
-# --- Функции для работы со своими фото ---
+# --- Функции для своих фото ---
 def get_photo_list() -> List[str]:
     if not os.path.exists(PHOTO_FOLDER):
         os.makedirs(PHOTO_FOLDER, exist_ok=True)
@@ -488,29 +488,39 @@ def select_thematic_photo(user_id: int, category: str) -> Optional[str]:
     return chosen
 
 def describe_own_photo(image_path: str, prompt: str, lang: str = 'ru') -> str:
-    """Генерирует описание своего фото через текстовую модель (без vision)."""
+    """Генерирует описание своего фото на основе категории (из имени файла)."""
     try:
+        # Извлекаем категорию из имени файла
+        name = os.path.basename(image_path).lower()
+        category = None
+        for cat, words in KEYWORD_MAP.items():
+            for w in words:
+                if w in name:
+                    category = cat
+                    break
+            if category:
+                break
+        if not category:
+            category = "фото"
+        # Формируем промпт с явным указанием категории
         if lang == 'ru':
-            full_prompt = f"Ты Алёна. {prompt} Опиши это фото коротко (3-4 предложения): что ты делаешь, где ты, какое настроение. Не упоминай название файла. Добавь эмодзи. Не начинай с 'Привет'."
+            full_prompt = f"Ты Алёна. {prompt} Это фото относится к категории «{category}». Опиши его правдоподобно: что ты делаешь, где ты, какое настроение. Не выходи за рамки категории. Не упоминай название файла. Будь тёплой, добавляй эмодзи. Не начинай с 'Привет'. Коротко (2-3 предложения)."
         else:
-            full_prompt = f"You are Alena. {prompt} Describe this photo briefly (3-4 sentences): what you are doing, where you are, what mood. Do not mention the file name. Add emojis. Do not start with 'Hello'."
+            full_prompt = f"You are Alena. {prompt} This photo belongs to the category '{category}'. Describe it plausibly: what you are doing, where you are, what mood. Do not go beyond the category. Do not mention the file name. Be warm, add emojis. Do not start with 'Hello'. Briefly (2-3 sentences)."
         resp = client.chat.completions.create(
             model='llama-3.3-70b-versatile',
             messages=[{'role': 'user', 'content': full_prompt}],
             temperature=0.8,
-            max_tokens=400,
+            max_tokens=200,
             timeout=10
         )
         description = resp.choices[0].message.content.strip()
         if lang == 'ru':
             description = clean_english_words(description)
-        # Если описание пустое или слишком короткое – запасной вариант
-        if not description or len(description) < 10:
-            return "Смотри, какое красивое фото! 😊"
         return description
     except Exception as e:
         print(f"Ошибка описания своего фото: {e}")
-        return "Ой, что-то пошло не так при описании фото. Попробуй ещё раз 😅"
+        return "Смотри, какое красивое фото! 😊"
 
 def analyze_user_photo(message: telebot.types.Message, lang: str) -> bool:
     try:
@@ -524,9 +534,9 @@ def analyze_user_photo(message: telebot.types.Message, lang: str) -> bool:
         os.remove(temp_path)
 
         if lang == 'ru':
-            prompt = "Ты Алёна, добрая, весёлая, обаятельная девушка. Опиши это фото одним-двумя предложениями, будь тёплой. Добавь эмодзи. Не начинай ответ с 'Привет'."
+            prompt = "Ты Алёна, добрая, весёлая, обаятельная девушка. Опиши это фото коротко (2-3 предложения). Будь тёплой, добавь эмодзи. Не начинай ответ с 'Привет'."
         else:
-            prompt = "You are Alena, a kind, cheerful, charming girl. Describe this photo in one or two sentences, be warm. Add emojis. Do not start with 'Hello'."
+            prompt = "You are Alena, a kind, cheerful, charming girl. Describe this photo briefly (2-3 sentences). Be warm, add emojis. Do not start with 'Hello'."
         response = client.chat.completions.create(
             model=VISION_MODEL_USER,
             messages=[
@@ -822,5 +832,5 @@ def handle_message(message: telebot.types.Message) -> None:
         add_message(user_id, 'assistant', error)
 
 if __name__ == '__main__':
-    print('✅ Алёна финальная — исправлена ошибка time, увеличен max_tokens, новая модель для фото пользователя')
+    print('✅ Алёна финальная — свои фото описываются по категории (горы, пляж, парк), фото пользователя через Qwen VL, ошибка time исправлена')
     bot.infinity_polling()
