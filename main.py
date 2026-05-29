@@ -10,7 +10,6 @@ from collections import deque
 from datetime import datetime, timedelta
 from typing import Dict, Deque, Optional, List, Any
 
-# --- Конфигурация ---
 BOT_TOKEN = os.getenv('BOT_TOKEN')
 GROQ_API_KEY = os.getenv('GROQ_API_KEY')
 WEATHER_API_KEY = os.getenv('WEATHER_API_KEY')
@@ -19,14 +18,11 @@ bot = telebot.TeleBot(BOT_TOKEN)
 client = OpenAI(api_key=GROQ_API_KEY, base_url='https://api.groq.com/openai/v1')
 
 BOT_USERNAME = 'AlenaSoul_bot'
-
-# --- Конфигурация для фотографий ---
 PHOTO_FOLDER = 'images'
 SUPPORTED_EXTENSIONS = ('.jpg', '.jpeg', '.png', '.gif')
 VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
 MAX_BASE64_SIZE = 4 * 1024 * 1024
 
-# --- Ключевые слова ---
 KEYWORD_MAP = {
     'пляж': ['пляж', 'море', 'берег', 'песок', 'океан', 'купальник'],
     'набережная': ['набережная', 'набережную', 'набережной', 'причал', 'яхта', 'порт'],
@@ -39,7 +35,6 @@ KEYWORD_MAP = {
     'париж': ['париж', 'франция', 'eiffel', 'лувр', 'парк', 'фонтан']
 }
 
-# --- Память и состояния ---
 user_history: Dict[int, Deque] = {}
 user_no_jokes: Dict[int, bool] = {}
 user_preferences: Dict[int, str] = {}
@@ -49,7 +44,6 @@ user_last_sent_photo: Dict[int, str] = {}
 user_no_photos: Dict[int, bool] = {}
 user_thematic_history: Dict[int, Dict[str, set]] = {}
 user_last_category: Dict[int, str] = {}
-user_last_user_image_desc: Dict[int, str] = {}  # описание последней картинки пользователя
 
 def get_history(user_id: int) -> Deque:
     if user_id not in user_history:
@@ -74,9 +68,7 @@ def reset_user(user_id: int) -> None:
     user_no_photos.pop(user_id, None)
     user_thematic_history.pop(user_id, None)
     user_last_category.pop(user_id, None)
-    user_last_user_image_desc.pop(user_id, None)
 
-# --- Ласковые имена ---
 def default_pet_name(first_name: str) -> str:
     names = {
         'максим': 'Максик', 'макс': 'Максик', 'владимир': 'Вовочка',
@@ -93,7 +85,6 @@ def get_pet_name(user_id: int, first_name: str) -> str:
         return user_preferences[user_id]
     return default_pet_name(first_name)
 
-# --- Знаки зодиака ---
 def zodiac_sign(day: int, month: int) -> str:
     if (month == 1 and day >= 20) or (month == 2 and day <= 18): return 'водолей'
     elif (month == 2 and day >= 19) or (month == 3 and day <= 20): return 'рыбы'
@@ -124,7 +115,6 @@ def parse_date_string(date_str: str) -> tuple:
                 return int(match.group(1)), num
     return None, None
 
-# --- Шутки ---
 FALLBACK_JOKES_RU = [
     'Почему программисты не любят природу? Слишком много багов! 😄',
     'Что говорит один байт другому? — Ты такой битовый! 😂',
@@ -149,7 +139,6 @@ def get_random_joke(lang: str = 'ru') -> str:
     except:
         return random.choice(FALLBACK_JOKES_RU)
 
-# --- Мотивация ---
 def get_motivation(lang: str = 'ru') -> str:
     if lang != 'ru':
         return 'Believe in yourself, every day is a new chance! 💖'
@@ -166,7 +155,6 @@ def get_motivation(lang: str = 'ru') -> str:
     except:
         return "Ты сможешь всё, что задумаешь! 💖"
 
-# --- Чистка ---
 def clean_english_words(text: str) -> str:
     if not text:
         return text
@@ -184,7 +172,8 @@ def clean_english_words(text: str) -> str:
         r'\bnow\b': 'сейчас', r'\bwell\b': 'ну', r'\bthen\b': 'затем', r'\beven\b': 'даже',
         r'\bsome\b': 'некоторые', r'\bany\b': 'любые', r'\bhere\b': 'здесь', r'\bthere\b': 'там',
         r'\bmy\b': 'мой', r'\byour\b': 'твой', r'\bhis\b': 'его', r'\bher\b': 'её',
-        r'\babsolutely\b': 'конечно', r'\blounge\b': 'шезлонг', r'\bromantic\b': 'романтично'
+        r'\babsolutely\b': 'конечно', r'\blounge\b': 'шезлонг', r'\bromantic\b': 'романтично',
+        r'\binteres\w*\b': 'интересн',  # ловит interesные, interesными и т.д.
     }
     for eng, rus in reps.items():
         text = re.sub(eng, rus, text, flags=re.IGNORECASE)
@@ -197,13 +186,11 @@ def remove_non_russian(text: str) -> str:
     return cleaned
 
 def ensure_emoji(text: str) -> str:
-    """Если в тексте нет ни одного эмодзи, добавляем в конце случайный."""
     if not re.search(r'[\U0001F600-\U0001F64F\U0001F300-\U0001F5FF\U0001F680-\U0001F6FF\U0001F1E0-\U0001F1FF\u2600-\u26FF\u2700-\u27BF]', text):
         emojis = ['😊', '💖', '✨', '😄', '🌸', '🌟']
         text += ' ' + random.choice(emojis)
     return text
 
-# --- Погода (без изменений) ---
 def extract_city(text: str, user_id: Optional[int] = None) -> Optional[str]:
     match = re.search(r'\b(?:в|во|в городе)\s+([А-Яа-я\-]+(?:[-\s]?[А-Яа-я]+)?)', text, re.IGNORECASE)
     if match:
@@ -282,7 +269,7 @@ def get_forecast_for_day(city_name: str, day_delta: int, lang: str = 'ru') -> Op
 
 def generate_natural_weather_response(city: str, weather_data: Dict, lang: str = 'ru', is_forecast: bool = False, day_name: str = '') -> str:
     if not weather_data:
-        return f"Не удалось получить данные о погоде для {city}. Проверь название города 😊"
+        return ensure_emoji(f"Не удалось получить данные о погоде для {city}. Проверь название города 😊")
     if is_forecast:
         temp = weather_data['temp']
         desc = weather_data['desc']
@@ -347,7 +334,6 @@ def handle_weather_query(message: telebot.types.Message, user_text: str, lang: s
     add_message(user_id, 'assistant', reply)
     return True
 
-# --- Команды ---
 @bot.message_handler(commands=['weather'])
 def weather_cmd(message: telebot.types.Message) -> None:
     user_id = message.from_user.id
@@ -452,7 +438,6 @@ def reset_cmd(message: telebot.types.Message) -> None:
     reset_user(user_id)
     bot.send_message(message.chat.id, ensure_emoji("Память очищена 😊"))
 
-# --- Функции для своих фото ---
 def get_photo_list() -> List[str]:
     if not os.path.exists(PHOTO_FOLDER):
         os.makedirs(PHOTO_FOLDER, exist_ok=True)
@@ -556,8 +541,6 @@ def analyze_user_photo(message: telebot.types.Message, lang: str) -> bool:
             prompt = "You are Alena, a kind, cheerful, charming girl. Describe this photo briefly (2-3 sentences). Be warm, add emojis. Do not start with 'Hello'."
         description = analyze_photo_with_vision(temp_path, prompt, lang)
         os.remove(temp_path)
-        # Сохраняем описание для использования в правиле 10
-        user_last_user_image_desc[message.from_user.id] = description
         bot.send_message(message.chat.id, description)
         return True
     except Exception as e:
@@ -568,7 +551,6 @@ def analyze_user_photo(message: telebot.types.Message, lang: str) -> bool:
             bot.send_message(message.chat.id, "Something's wrong with the photo, maybe try another one? 😊")
         return False
 
-# --- /start и выбор языка ---
 @bot.message_handler(commands=['start'])
 def send_welcome(message: telebot.types.Message) -> None:
     user_id = message.from_user.id
@@ -600,7 +582,6 @@ def set_language(message: telebot.types.Message) -> None:
     bot.send_message(message.chat.id, ensure_emoji(reply))
     add_message(user_id, 'assistant', reply)
 
-# --- Смена имени ---
 @bot.message_handler(func=lambda message: message.text and re.match(r'^(зовут меня|называй меня|обращайся ко мне|call me|name me)\s+', message.text.lower()))
 def change_name(message: telebot.types.Message) -> None:
     user_id = message.from_user.id
@@ -619,12 +600,11 @@ def change_name(message: telebot.types.Message) -> None:
     bot.send_message(message.chat.id, ensure_emoji(reply))
     add_message(user_id, 'assistant', reply)
 
-# --- Системный промпт (со всеми правилами) ---
 def get_system_prompt(lang: str, current_date: str) -> str:
     if lang == 'ru':
         return (
             f'Ты Алёна — добрая, весёлая, обаятельная девушка. Сегодня {current_date}.\n'
-            '0. НИКОГДА не используй символы других языков, включая китайские иероглифы, арабскую вязь и т.п. Только русские буквы и эмодзи.\n'
+            'ПРАВИЛА:\n'
             '1. Отвечай только на русском, без английских слов.\n'
             '2. Не начинай ответ с "Привет", не представляйся заново.\n'
             '3. Используй эмодзи 😊😄😘💖✨. ВСЕГДА добавляй 1-2 подходящих эмодзи в каждое сообщение.\n'
@@ -632,15 +612,13 @@ def get_system_prompt(lang: str, current_date: str) -> str:
             '5. Если спрашивают гороскоп, скажи: "Напиши /horoscope [твой знак или дата рождения]".\n'
             '6. Отвечай коротко (2-4 предложения), будь живой.\n'
             '7. Обращайся по имени ласково, но не в начале ответа.\n'
-            '8. Хотя бы один раз за разговор (после того, как показала 2-3 своих фото) прояви инициативу: спроси, есть ли у пользователя фото, предложи показать. Не делай это после каждого фото, чтобы не быть навязчивой.\n'
+            '8. Иногда (после 2-3 своих фото или в середине разговора) проявляй интерес к собеседнику: спроси, есть ли у него фото, предложи показать. Но не делай это после каждого своего фото, чтобы не быть навязчивой.\n'
             '9. Когда пользователь хвалит твоё фото (место, внешность), сначала согласись с похвалой места (например: "О да, это место действительно прекрасно!"), потом поблагодари за комплимент тебе лично и продолжай беседу о том моменте или о чём-то душевном. Не упоминай, что у пользователя нет своих фото, если он говорил об этом ранее — просто веди разговор дальше.\n'
-            '10. Если пользователь показывает картинку и предлагает представить совместный отдых, отвечай тепло и мечтательно, ОСНОВЫВАЯСЬ ТОЛЬКО на описании этой картинки, которое ты дала прямо перед этим. Не упоминай другие места из предыдущего разговора (например, горы, если на фото пляж). Не предлагай показать свои фото и не спрашивай о фото пользователя, если он ранее говорил, что у него их нет. Покажи, что тебе приятна эта идея, и пригласи помечтать вместе. 💖\n'
         )
     else:
         return (
             f'You are Alena — a kind, cheerful, charming girl. Today is {current_date}.\n'
             'RULES:\n'
-            '0. NEVER use characters from other languages, including Chinese characters, Arabic script, etc. Only English letters and emojis.\n'
             '1. Answer only in English, no mixing.\n'
             '2. Do not start with "Hello", do not reintroduce yourself.\n'
             '3. Use emojis 😊😄😘💖✨. ALWAYS add 1-2 appropriate emojis to every message.\n'
@@ -648,12 +626,10 @@ def get_system_prompt(lang: str, current_date: str) -> str:
             '5. If asked for horoscope, say: "Type /horoscope [your sign or birth date]".\n'
             '6. Answer briefly (2-4 sentences), be lively.\n'
             '7. Address the user by name kindly, but not at the beginning.\n'
-            '8. At least once during the conversation (after showing 2-3 of your own photos) take the initiative: ask if the user has a photo, offer to show. Do not do it after every photo to avoid being intrusive.\n'
+            '8. Occasionally (after 2-3 of your own photos or in the middle of a conversation) show interest in the user: ask if they have a photo, offer to share. But don’t do it after every photo to avoid being intrusive.\n'
             '9. When the user compliments your photo (place, appearance), first agree with the praise of the place (e.g.: "Oh yes, this place is truly stunning!"), then thank them for the personal compliment and continue the conversation about that moment or something heartfelt. Do not mention that the user has no photos if they mentioned it earlier – just keep chatting naturally.\n'
-            '10. If the user shows a picture and suggests imagining a joint vacation, respond warmly and dreamily, BASING YOUR ANSWER SOLELY on the description of that picture you just gave. Do not mention other places from previous conversation (like mountains if it is a beach). Do not offer to show your own photos or ask about the user’s photos if they said they have none. Show that you’re happy about this idea and invite them to dream together. 💖\n'
         )
 
-# --- Основной обработчик (полная переработка) ---
 @bot.message_handler(func=lambda message: True, content_types=['text', 'photo'])
 def handle_message(message: telebot.types.Message) -> None:
     user_id = message.from_user.id
@@ -666,7 +642,6 @@ def handle_message(message: telebot.types.Message) -> None:
     lang = user_lang[user_id]
     pet_name = get_pet_name(user_id, message.from_user.first_name)
 
-    # --- Обработка фото от пользователя ---
     if message.content_type == 'photo':
         analyze_user_photo(message, lang)
         return
@@ -674,13 +649,12 @@ def handle_message(message: telebot.types.Message) -> None:
     if user_text.startswith('/'):
         return
 
-    # --- Проверка на "нет фото" ---
     user_has_no_photos = False
     if re.search(r'(нет фото|нет своих фото|не снимаюсь|не люблю фоткаться|нет моих фото|не фотографируюсь)', user_text, re.IGNORECASE):
         user_no_photos[user_id] = True
         user_has_no_photos = True
 
-    # === ШУТКИ (перенесены ДО фото!) ===
+    # Шутки
     if re.search(r'(расскажи шутку|пошути|какие еще шутки|еще шутк|дай шутку|рассмеши|подними настроение шуткой)', user_text, re.IGNORECASE):
         joke = get_random_joke(lang)
         bot.send_message(message.chat.id, ensure_emoji(joke))
@@ -688,7 +662,6 @@ def handle_message(message: telebot.types.Message) -> None:
         add_message(user_id, 'assistant', joke)
         return
 
-    # --- Вопросы о последнем фото (только если нет запроса новых фото) ---
     lower_text = user_text.lower()
     if not re.search(r'(фотки|фото|фотографи|альбом|покажи|покажешь|есть ли у тебя фото|твои фото|свои фото|любимые фото|любимое фото|любимых фото)', user_text, re.IGNORECASE):
         is_photo_question = any(phrase in lower_text for phrase in [
@@ -725,7 +698,6 @@ def handle_message(message: telebot.types.Message) -> None:
                 bot.send_message(message.chat.id, ensure_emoji("Ты о каком фото? Покажи, если хочешь обсудить 😊"))
                 return
 
-    # --- Просьба показать свои фото ---
     if re.search(r'(фотки|какие нибудь фото|а у тебя есть фотографии|есть фотографии|у тебя есть фото|покажи свои фото|покажи фото|фотоальбом|покажи себя|своё фото|свое фото|мои фото|свои фотографии|покажи альбом|покажи где ты была|покажи, где ты|покажи картинку|покажи изображение|есть фото|есть ли у тебя фото|посмотреть твои фото|покажи свои фотографии|любимые фото|любимое фото|любимых фото|есть еще фото|другие фото|покажи другое фото|ещё фото|какое твое любимое фото|покажи любимое фото|покажи другое|такие фото|такие фотки)', user_text, re.IGNORECASE):
         all_photos = get_photo_list()
         if not all_photos:
@@ -737,7 +709,6 @@ def handle_message(message: telebot.types.Message) -> None:
         if re.search(r'(красавица|красивая|умница|прекрасна|великолепна|шикарна|обалденная|потрясающая|чудесная|восхитительная|симпатичная|милашка|хорошенькая|обворожительная|божественно|как красиво|какая ты красивая|какая ты классная|какая ты хорошая)', user_text, re.IGNORECASE):
             compliment = True
 
-        # Любимое фото
         if re.search(r'(любимые фото|любимое фото|любимых фото|какое твое любимое фото|покажи любимое фото)', user_text, re.IGNORECASE):
             chosen_photo = random.choice(all_photos)
             apology = ""
@@ -819,7 +790,6 @@ def handle_message(message: telebot.types.Message) -> None:
             bot.send_message(message.chat.id, ensure_emoji(error_msg))
         return
 
-    # --- Если пользователь сказал "нет фото", но не просил фото ---
     if user_has_no_photos:
         reply = (
             "Как жаль, а я бы с удовольствием посмотрела на тебя! 😊 Но ничего страшного, мне и так хорошо с тобой. "
@@ -831,12 +801,10 @@ def handle_message(message: telebot.types.Message) -> None:
         bot.send_message(message.chat.id, ensure_emoji(reply))
         return
 
-    # --- Вдохновение ---
     if re.search(r'(вдохнов|мотивируй|подними дух|пожелай|скажи что-то хорошее)', user_text, re.IGNORECASE):
         bot.send_message(message.chat.id, ensure_emoji(get_motivation(lang)))
         return
 
-    # --- Вопрос о дате ---
     if re.search(r'(какой сегодня день|какое сегодня число|какой день недели|сегодняшняя дата)', user_text, re.IGNORECASE):
         now = datetime.now()
         if lang == 'ru':
@@ -847,11 +815,9 @@ def handle_message(message: telebot.types.Message) -> None:
             bot.send_message(message.chat.id, ensure_emoji(f"Today is {now.strftime('%B %d, %Y')}. 😊"))
         return
 
-    # --- Погода ---
     if handle_weather_query(message, user_text, lang, user_id):
         return
 
-    # --- Запрет шуток ---
     if re.search(r'(хватит шуток|не надо шуток|давай о другом)', user_text, re.IGNORECASE):
         user_no_jokes[user_id] = True
 
@@ -874,10 +840,6 @@ def handle_message(message: telebot.types.Message) -> None:
 
     system_prompt = get_system_prompt(lang, current_date) + no_jokes_note + no_photos_note + f' Имя пользователя (ласково): {pet_name}.'
 
-    # Если есть сохранённое описание картинки пользователя, добавляем его в промпт для правила 10
-    if user_id in user_last_user_image_desc and re.search(r'(мы бы с тобой|смотрелись вместе|отдохнуть вместе|побыть вдвоём|представь|помечта)', user_text, re.IGNORECASE):
-        system_prompt += f'\n\nВАЖНО: последняя картинка, которую показал пользователь, описывалась так: "{user_last_user_image_desc[user_id]}". Основывай свой ответ СТРОГО на этом описании, не придумывай другие локации.'
-
     try:
         messages = build_messages(user_id, system_prompt, user_text)
         response = client.chat.completions.create(
@@ -898,5 +860,5 @@ def handle_message(message: telebot.types.Message) -> None:
         add_message(user_id, 'assistant', error)
 
 if __name__ == '__main__':
-    print('✅ Алёна — финальная, все ошибки исправлены')
+    print('✅ Алёна — стабильная версия')
     bot.infinity_polling()
