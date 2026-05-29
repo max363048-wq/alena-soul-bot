@@ -23,7 +23,7 @@ BOT_USERNAME = 'AlenaSoul_bot'
 # --- Конфигурация для фотографий ---
 PHOTO_FOLDER = 'images'
 SUPPORTED_EXTENSIONS = ('.jpg', '.jpeg', '.png', '.gif')
-VISION_MODEL_USER = "qwen/qwen3-vl-32b-instruct"   # актуальная мультимодальная модель
+VISION_MODEL_USER = "llama-3.2-11b-vision-preview"   # рабочая мультимодальная модель
 MAX_BASE64_SIZE = 4 * 1024 * 1024
 
 # --- Ключевые слова для поиска своих фото ---
@@ -91,7 +91,7 @@ def get_pet_name(user_id: int, first_name: str) -> str:
         return user_preferences[user_id]
     return default_pet_name(first_name)
 
-# --- Знаки зодиака (сокращённо) ---
+# --- Знаки зодиака ---
 def zodiac_sign(day: int, month: int) -> str:
     if (month == 1 and day >= 20) or (month == 2 and day <= 18): return 'водолей'
     elif (month == 2 and day >= 19) or (month == 3 and day <= 20): return 'рыбы'
@@ -188,7 +188,7 @@ def clean_english_words(text: str) -> str:
     text = re.sub(r'\s+', ' ', text).strip()
     return text
 
-# --- Погода (сокращённо, но рабочие функции) ---
+# --- Погода ---
 def extract_city(text: str, user_id: Optional[int] = None) -> Optional[str]:
     match = re.search(r'\b(?:в|во|в городе)\s+([А-Яа-я\-]+(?:[-\s]?[А-Яа-я]+)?)', text, re.IGNORECASE)
     if match:
@@ -330,7 +330,7 @@ def handle_weather_query(message: telebot.types.Message, user_text: str, lang: s
     add_message(user_id, 'assistant', reply)
     return True
 
-# --- Команды (сокращённо) ---
+# --- Команды ---
 @bot.message_handler(commands=['weather'])
 def weather_cmd(message: telebot.types.Message) -> None:
     user_id = message.from_user.id
@@ -488,9 +488,9 @@ def select_thematic_photo(user_id: int, category: str) -> Optional[str]:
     return chosen
 
 def describe_own_photo(image_path: str, prompt: str, lang: str = 'ru') -> str:
-    """Генерирует описание своего фото на основе категории (из имени файла)."""
+    """Генерирует описание своего фото строго по категории."""
     try:
-        # Извлекаем категорию из имени файла
+        # Определяем категорию из имени файла
         name = os.path.basename(image_path).lower()
         category = None
         for cat, words in KEYWORD_MAP.items():
@@ -502,11 +502,19 @@ def describe_own_photo(image_path: str, prompt: str, lang: str = 'ru') -> str:
                 break
         if not category:
             category = "фото"
-        # Формируем промпт с явным указанием категории
         if lang == 'ru':
-            full_prompt = f"Ты Алёна. {prompt} Это фото относится к категории «{category}». Опиши его правдоподобно: что ты делаешь, где ты, какое настроение. Не выходи за рамки категории. Не упоминай название файла. Будь тёплой, добавляй эмодзи. Не начинай с 'Привет'. Коротко (2-3 предложения)."
+            full_prompt = (
+                f"Ты Алёна. {prompt} Это фото из категории «{category}». Опиши его ТОЛЬКО в рамках этой категории. "
+                f"Например, если категория «горы», ты должна описывать горы, скалы, вершины, природу. "
+                f"Если категория «пляж» – описывай море, песок, волны. Ни в коем случае не путай категории. "
+                f"Не упоминай название файла. Будь тёплой, добавляй эмодзи. Не начинай с 'Привет'. Коротко (2-3 предложения)."
+            )
         else:
-            full_prompt = f"You are Alena. {prompt} This photo belongs to the category '{category}'. Describe it plausibly: what you are doing, where you are, what mood. Do not go beyond the category. Do not mention the file name. Be warm, add emojis. Do not start with 'Hello'. Briefly (2-3 sentences)."
+            full_prompt = (
+                f"You are Alena. {prompt} This photo belongs to the category '{category}'. Describe it ONLY within this category. "
+                f"For example, if category is 'mountains', describe mountains, rocks, peaks. If category is 'beach', describe sea, sand, waves. "
+                f"Do not confuse categories. Do not mention the file name. Be warm, add emojis. Do not start with 'Hello'. Briefly (2-3 sentences)."
+            )
         resp = client.chat.completions.create(
             model='llama-3.3-70b-versatile',
             messages=[{'role': 'user', 'content': full_prompt}],
@@ -832,5 +840,5 @@ def handle_message(message: telebot.types.Message) -> None:
         add_message(user_id, 'assistant', error)
 
 if __name__ == '__main__':
-    print('✅ Алёна финальная — свои фото описываются по категории (горы, пляж, парк), фото пользователя через Qwen VL, ошибка time исправлена')
+    print('✅ Алёна финальная — модель llama-3.2-11b-vision-preview, строгое описание по категориям')
     bot.infinity_polling()
