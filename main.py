@@ -702,8 +702,9 @@ def handle_message(message: telebot.types.Message) -> None:
         if re.search(r'(любимое фото|какое твое любимое фото|покажи любимое фото)', user_text, re.IGNORECASE):
             chosen_photo = random.choice(all_photos)
             apology = ""
-            analysis_prompt = "Начни свой ответ с тёплой фразы: 'Вот моё любимое фото...' Затем опиши фото: что ты на нём делаешь, где ты, какое у тебя настроение. Расскажи короткую историю. Не начинай ответ с 'Привет'."
+            user_last_category[user_id] = None  # сбрасываем категорию, т.к. запрос особый
         else:
+            # Пытаемся понять категорию из текста
             category = search_category_by_query(user_text)
             if category:
                 user_last_category[user_id] = category
@@ -714,7 +715,8 @@ def handle_message(message: telebot.types.Message) -> None:
                 else:
                     apology = ""
             else:
-                if user_id in user_last_category and re.search(r'(еще такие фото|еще фото|другие фото|ещё фото|такие фото)', user_text, re.IGNORECASE):
+                # Если категория не указана, но есть "еще такие" – используем последнюю
+                if user_id in user_last_category and user_last_category[user_id] is not None and re.search(r'(еще такие фото|еще фото|другие фото|ещё фото|такие фото)', user_text, re.IGNORECASE):
                     last_cat = user_last_category[user_id]
                     photos_in_cat = get_photos_by_category(last_cat)
                     if len(photos_in_cat) == 1 and user_id in user_thematic_history and last_cat in user_thematic_history[user_id]:
@@ -730,13 +732,18 @@ def handle_message(message: telebot.types.Message) -> None:
                     else:
                         apology = ""
                 else:
+                    # Первый запрос без темы – случайное фото, запоминаем его категорию
                     chosen_photo = random.choice(all_photos)
                     apology = ""
                     photo_name = get_keywords_from_photo_name(chosen_photo)
+                    cat_found = False
                     for cat, words in KEYWORD_MAP.items():
                         if cat in photo_name:
                             user_last_category[user_id] = cat
+                            cat_found = True
                             break
+                    if not cat_found:
+                        user_last_category[user_id] = None  # если категория не определилась
 
         user_last_sent_photo[user_id] = chosen_photo
 
@@ -756,7 +763,7 @@ def handle_message(message: telebot.types.Message) -> None:
             if description.startswith('Привет'):
                 description = re.sub(r'^Привет[,!\s]*', '', description)
 
-            # Если пользователь сказал, что у него нет фото, добавляем утешение после описания
+            # Если пользователь только что сказал "нет фото" – добавляем утешение
             if user_has_no_photos:
                 if lang == 'ru':
                     description += "\n\nКак жаль, а я бы с удовольствием посмотрела на тебя! 😊 Но ничего страшного, мне и так хорошо с тобой."
@@ -770,19 +777,6 @@ def handle_message(message: telebot.types.Message) -> None:
             error_msg = "Не могу отправить фото, что-то пошло не так 😅" if lang=='ru' else "I can't send the photo, something went wrong 😅"
             bot.send_message(message.chat.id, error_msg)
         return
-
-    # --- Если пользователь сказал "нет фото", но не просил фото ---
-    if user_has_no_photos:
-        reply = (
-            "Как жаль, а я бы с удовольствием посмотрела на тебя! 😊 Но ничего страшного, мне и так хорошо с тобой. "
-            "Если хочешь, можешь показать какую‑нибудь картинку или фото – мы вместе посмеёмся или просто продолжим общаться 💕"
-        ) if lang == 'ru' else (
-            "What a pity, I would love to see you! 😊 But it's okay, I feel good with you anyway. "
-            "If you want, you can show me some picture or photo – we'll laugh together or just continue chatting 💕"
-        )
-        bot.send_message(message.chat.id, reply)
-        return
-
     # --- Вдохновение ---
     if re.search(r'(вдохнов|мотивируй|подними дух|пожелай|скажи что-то хорошее)', user_text, re.IGNORECASE):
         bot.send_message(message.chat.id, get_motivation(lang))
