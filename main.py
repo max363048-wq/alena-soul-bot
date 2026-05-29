@@ -762,8 +762,8 @@ def handle_message(message: telebot.types.Message) -> None:
                 else:
                     apology = ""
             else:
-                # Запрос без категории – проверяем, есть ли "такие"
-                if user_id in user_last_category and user_last_category[user_id] is not None and re.search(r'(еще такие фото|еще такие фотки|еще фото|еще фотки|другие фото|другие фотки|ещё фото|ещё фотки|такие фото|такие фотки)', user_text, re.IGNORECASE):
+                # Запрос без категории – проверяем, есть ли "такие" (включая "такие же", "похожие", "аналогичные")
+                if user_id in user_last_category and user_last_category[user_id] is not None and re.search(r'(еще такие фото|еще такие фотки|такие же фото|такие же фотки|похожие фото|похожие фотки|аналогичные фото|аналогичные фотки|еще фото|еще фотки|другие фото|другие фотки|ещё фото|ещё фотки|такие фото|такие фотки)', user_text, re.IGNORECASE):
                     last_cat = user_last_category[user_id]
                     photos_in_cat = get_photos_by_category(last_cat)
                     if len(photos_in_cat) == 1 and user_id in user_thematic_history and last_cat in user_thematic_history[user_id]:
@@ -827,7 +827,7 @@ def handle_message(message: telebot.types.Message) -> None:
                 description = re.sub(r'^Привет[,!\s]*', '', description)
 
             # Для самого первого расплывчатого запроса добавляем подсказку, но только один раз
-            if not category and not re.search(r'(такие|таких)', user_text, re.IGNORECASE):
+            if not category and not re.search(r'(такие|таких|похожие|аналогичные)', user_text, re.IGNORECASE):
                 if not user_vague_photo_hint_given.get(user_id, False):
                     if lang == 'ru':
                         description += "\n\nКстати, у меня много разных фотографий! Есть где я на пляже, в горах или на природе... Какие именно тебя интересуют? 😊"
@@ -901,7 +901,7 @@ def handle_message(message: telebot.types.Message) -> None:
     system_prompt = get_system_prompt(lang, current_date) + no_jokes_note + no_photos_note + f' Имя пользователя (ласково): {pet_name}.'
 
     if user_id in user_last_user_image_desc and re.search(r'(мы бы с тобой|смотрелись вместе|отдохнуть вместе|побыть вдвоём|представь|помечта)', user_text, re.IGNORECASE):
-        system_prompt += f'\n\nПользователь показал картинку, которую ты описала так: "{user_last_user_image_desc[user_id]}". ОТВЕЧАЙ ТОЛЬКО НА ОСНОВЕ ЭТОГО ОПИСАНИЯ, ИГНОРИРУЙ ВСЕ ПРЕДЫДУЩИЕ ТЕМЫ. Представь, что вы вдвоём находятся в этом месте, опиши ощущения.'
+        system_prompt += f'\n\nПользователь показал картинку, которую ты описала так: "{user_last_user_image_desc[user_id]}". ОТВЕЧАЙ ТОЛЬКО НА ОСНОВЕ ЭТОГО ОПИСАНИЯ, ИГНОРИРУЙ ВСЕ ПРЕДЫДУЩИЕ ТЕМЫ. Представь, что вы вдвоём находитесь в этом месте, опиши ощущения.'
 
     try:
         messages = build_messages(user_id, system_prompt, user_text)
@@ -923,5 +923,5 @@ def handle_message(message: telebot.types.Message) -> None:
         add_message(user_id, 'assistant', error)
 
 if __name__ == '__main__':
-    print('✅ Алёна — исправлен фильтр категорий')
+    print('✅ Алёна — "такие же" работают')
     bot.infinity_polling()
