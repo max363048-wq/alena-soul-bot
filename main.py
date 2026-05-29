@@ -31,7 +31,7 @@ KEYWORD_MAP = {
     'город': ['город', 'городе', 'улица', 'проспект', 'площадь'],
     'дома': ['дома', 'дом', 'квартира', 'комната', 'уют', 'свитер', 'плед', 'свечи'],
     'кормит птиц': ['кормит птиц', 'птиц', 'голуби', 'корм'],
-    'природа': ['природа', 'природе', 'поле', 'луг', 'лес', 'озеро', 'река', 'трава', 'деревья'],
+    'природа': ['природа', 'природе', 'на природе', 'поле', 'луг', 'лес', 'озеро', 'река', 'трава', 'деревья'],
     'париж': ['париж', 'франция', 'eiffel', 'лувр', 'парк', 'фонтан']
 }
 
@@ -189,23 +189,17 @@ def remove_non_russian(text: str) -> str:
     cleaned = re.sub(r'\s+', ' ', cleaned).strip()
     return cleaned
 
-# Универсальные эмодзи, которые безопасно добавлять в любом контексте
 SAFE_EMOJIS = ['😊', '💖', '✨', '😄', '😘', '🥰', '💕', '🤗']
 
 def distribute_emojis(text: str) -> str:
-    """Распределяет эмодзи по предложениям, гарантируя уместность."""
-    # Находим все эмодзи, уже присутствующие в тексте
     all_emojis = re.findall(r'[\U0001F600-\U0001F64F\U0001F300-\U0001F5FF\U0001F680-\U0001F6FF\U0001F1E0-\U0001F1FF\u2600-\u26FF\u2700-\u27BF]', text)
     sentences = re.split(r'(?<=[.!?…]) +', text)
     new_sentences = []
     used_safe_emojis = []
     total_emojis = 0
-
     for s in sentences:
-        # Проверяем, есть ли в предложении хоть один эмодзи
         emojis_in_s = re.findall(r'[\U0001F600-\U0001F64F\U0001F300-\U0001F5FF\U0001F680-\U0001F6FF\U0001F1E0-\U0001F1FF\u2600-\u26FF\u2700-\u27BF]', s)
         if not emojis_in_s:
-            # Добавляем ОДИН безопасный эмодзи в предложение
             available = [e for e in SAFE_EMOJIS if e not in used_safe_emojis]
             if not available:
                 available = SAFE_EMOJIS
@@ -217,10 +211,7 @@ def distribute_emojis(text: str) -> str:
         else:
             total_emojis += len(emojis_in_s)
         new_sentences.append(s)
-
     result = ' '.join(new_sentences)
-
-    # Если эмодзи всё ещё меньше 2, добавляем недостающие в конец
     if total_emojis < 2:
         available = [e for e in SAFE_EMOJIS if e not in used_safe_emojis]
         if not available:
@@ -229,7 +220,6 @@ def distribute_emojis(text: str) -> str:
             chosen = random.choice(available)
             result += ' ' + chosen
             used_safe_emojis.append(chosen)
-
     return result
 
 def extract_city(text: str, user_id: Optional[int] = None) -> Optional[str]:
@@ -754,6 +744,7 @@ def handle_message(message: telebot.types.Message) -> None:
         if re.search(r'(красавица|красивая|умница|прекрасна|великолепна|шикарна|обалденная|потрясающая|чудесная|восхитительная|симпатичная|милашка|хорошенькая|обворожительная|божественно|как красиво|какая ты красивая|какая ты классная|какая ты хорошая)', user_text, re.IGNORECASE):
             compliment = True
 
+        # Любимое фото
         if re.search(r'(любимые фото|любимое фото|любимых фото|какое твое любимое фото|покажи любимое фото)', user_text, re.IGNORECASE):
             chosen_photo = random.choice(all_photos)
             apology = ""
@@ -769,6 +760,7 @@ def handle_message(message: telebot.types.Message) -> None:
                 else:
                     apology = ""
             else:
+                # Запрос без категории – проверяем, есть ли "такие"
                 if user_id in user_last_category and user_last_category[user_id] is not None and re.search(r'(еще такие фото|еще такие фотки|еще фото|еще фотки|другие фото|другие фотки|ещё фото|ещё фотки|такие фото|такие фотки)', user_text, re.IGNORECASE):
                     last_cat = user_last_category[user_id]
                     photos_in_cat = get_photos_by_category(last_cat)
@@ -785,8 +777,16 @@ def handle_message(message: telebot.types.Message) -> None:
                     else:
                         apology = ""
                 else:
-                    chosen_photo = random.choice(all_photos)
+                    # Расплывчатый запрос "еще фотки" – исключаем последнюю категорию
+                    if user_id in user_last_category and user_last_category[user_id] is not None:
+                        available_photos = [p for p in all_photos if get_keywords_from_photo_name(p) != user_last_category[user_id]]
+                        if not available_photos:
+                            available_photos = all_photos
+                        chosen_photo = random.choice(available_photos)
+                    else:
+                        chosen_photo = random.choice(all_photos)
                     apology = ""
+                    # Определяем категорию для выбранного фото
                     photo_name = get_keywords_from_photo_name(chosen_photo)
                     cat_found = False
                     for cat, words in KEYWORD_MAP.items():
@@ -819,6 +819,13 @@ def handle_message(message: telebot.types.Message) -> None:
             description = analyze_photo_with_vision(chosen_photo, analysis_prompt, lang)
             if description.startswith('Привет'):
                 description = re.sub(r'^Привет[,!\s]*', '', description)
+
+            # Для расплывчатого запроса добавляем предложение уточнить
+            if not category and not re.search(r'(такие|таких)', user_text, re.IGNORECASE):
+                if lang == 'ru':
+                    description += "\n\nКстати, у меня много разных фотографий! Есть где я на пляже, в горах или на природе... Какие именно тебя интересуют? 😊"
+                else:
+                    description += "\n\nBy the way, I have a lot of different photos! I have some at the beach, in the mountains, or in nature... Which ones are you interested in? 😊"
 
             if user_has_no_photos:
                 if lang == 'ru':
@@ -886,7 +893,7 @@ def handle_message(message: telebot.types.Message) -> None:
     system_prompt = get_system_prompt(lang, current_date) + no_jokes_note + no_photos_note + f' Имя пользователя (ласково): {pet_name}.'
 
     if user_id in user_last_user_image_desc and re.search(r'(мы бы с тобой|смотрелись вместе|отдохнуть вместе|побыть вдвоём|представь|помечта)', user_text, re.IGNORECASE):
-        system_prompt += f'\n\nПользователь показал картинку, которую ты описала так: "{user_last_user_image_desc[user_id]}". ОТВЕЧАЙ ТОЛЬКО НА ОСНОВЕ ЭТОГО ОПИСАНИЯ, ИГНОРИРУЙ ВСЕ ПРЕДЫДУЩИЕ ТЕМЫ. Представь, что вы вдвоём находятся в этом месте, опиши ощущения.'
+        system_prompt += f'\n\nПользователь показал картинку, которую ты описала так: "{user_last_user_image_desc[user_id]}". ОТВЕЧАЙ ТОЛЬКО НА ОСНОВЕ ЭТОГО ОПИСАНИЯ, ИГНОРИРУЙ ВСЕ ПРЕДЫДУЩИЕ ТЕМЫ. Представь, что вы вдвоём находитесь в этом месте, опиши ощущения.'
 
     try:
         messages = build_messages(user_id, system_prompt, user_text)
@@ -908,5 +915,5 @@ def handle_message(message: telebot.types.Message) -> None:
         add_message(user_id, 'assistant', error)
 
 if __name__ == '__main__':
-    print('✅ Алёна — финальная, эмодзи уместны, язык чист')
+    print('✅ Алёна — идеальные "каверзные" вопросы')
     bot.infinity_polling()
