@@ -23,10 +23,10 @@ BOT_USERNAME = 'AlenaSoul_bot'
 # --- Конфигурация для фотографий ---
 PHOTO_FOLDER = 'images'
 SUPPORTED_EXTENSIONS = ('.jpg', '.jpeg', '.png', '.gif')
-VISION_MODEL_USER = "llama-3.2-11b-vision-preview"   # рабочая мультимодальная модель
+VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"  # единая vision-модель для всех фото
 MAX_BASE64_SIZE = 4 * 1024 * 1024
 
-# --- Ключевые слова для поиска своих фото ---
+# --- Ключевые слова для поиска своих фото (только для выбора файла, не для описания) ---
 KEYWORD_MAP = {
     'пляж': ['пляж', 'море', 'берег', 'песок', 'океан', 'купальник'],
     'набережная': ['набережная', 'набережную', 'набережной', 'причал', 'яхта', 'порт'],
@@ -433,7 +433,7 @@ def reset_cmd(message: telebot.types.Message) -> None:
     reset_user(user_id)
     bot.send_message(message.chat.id, "Память очищена 😊")
 
-# --- Функции для своих фото ---
+# --- Функции для работы со своими фото (теперь через vision) ---
 def get_photo_list() -> List[str]:
     if not os.path.exists(PHOTO_FOLDER):
         os.makedirs(PHOTO_FOLDER, exist_ok=True)
@@ -487,86 +487,61 @@ def select_thematic_photo(user_id: int, category: str) -> Optional[str]:
     shown.add(chosen)
     return chosen
 
-def describe_own_photo(image_path: str, prompt: str, lang: str = 'ru') -> str:
-    """Генерирует описание своего фото строго по категории."""
+# --- Универсальная функция для анализа любого фото (свои или пользователя) через vision ---
+def analyze_photo_with_vision(image_path: str, prompt: str, lang: str = 'ru') -> str:
+    """Отправляет фото в vision-модель и возвращает описание."""
     try:
-        # Определяем категорию из имени файла
-        name = os.path.basename(image_path).lower()
-        category = None
-        for cat, words in KEYWORD_MAP.items():
-            for w in words:
-                if w in name:
-                    category = cat
-                    break
-            if category:
-                break
-        if not category:
-            category = "фото"
-        if lang == 'ru':
-            full_prompt = (
-                f"Ты Алёна. {prompt} Это фото из категории «{category}». Опиши его ТОЛЬКО в рамках этой категории. "
-                f"Например, если категория «горы», ты должна описывать горы, скалы, вершины, природу. "
-                f"Если категория «пляж» – описывай море, песок, волны. Ни в коем случае не путай категории. "
-                f"Не упоминай название файла. Будь тёплой, добавляй эмодзи. Не начинай с 'Привет'. Коротко (2-3 предложения)."
-            )
-        else:
-            full_prompt = (
-                f"You are Alena. {prompt} This photo belongs to the category '{category}'. Describe it ONLY within this category. "
-                f"For example, if category is 'mountains', describe mountains, rocks, peaks. If category is 'beach', describe sea, sand, waves. "
-                f"Do not confuse categories. Do not mention the file name. Be warm, add emojis. Do not start with 'Hello'. Briefly (2-3 sentences)."
-            )
-        resp = client.chat.completions.create(
-            model='llama-3.3-70b-versatile',
-            messages=[{'role': 'user', 'content': full_prompt}],
-            temperature=0.8,
-            max_tokens=200,
-            timeout=10
+        file_size = os.path.getsize(image_path)
+        if file_size > MAX_BASE64_SIZE:
+            return "Файл слишком большой, попробуй сжать изображение."
+        with open(image_path, "rb") as img_file:
+            img_base64 = base64.b64encode(img_file.read()).decode('utf-8')
+        mime_type = "image/jpeg"
+        if image_path.lower().endswith('.png'):
+            mime_type = "image/png"
+        elif image_path.lower().endswith('.gif'):
+            mime_type = "image/gif"
+        response = client.chat.completions.create(
+            model=VISION_MODEL,
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt},
+                        {"type": "image_url", "image_url": {"url": f"data:{mime_type};base64,{img_base64}"}}
+                    ]
+                }
+            ],
+            temperature=0.7,
+            max_tokens=300,
+            timeout=15
         )
-        description = resp.choices[0].message.content.strip()
+        description = response.choices[0].message.content.strip()
         if lang == 'ru':
             description = clean_english_words(description)
         return description
     except Exception as e:
-        print(f"Ошибка описания своего фото: {e}")
-        return "Смотри, какое красивое фото! 😊"
+        print(f"Ошибка vision-анализа: {e}")
+        return "Ой, что-то пошло не так при анализе фото. Попробуй ещё раз 😅"
 
 def analyze_user_photo(message: telebot.types.Message, lang: str) -> bool:
+    """Обрабатывает фото от пользователя через vision."""
     try:
         file_info = bot.get_file(message.photo[-1].file_id)
         downloaded_file = bot.download_file(file_info.file_path)
         temp_path = f"temp_user_image_{message.from_user.id}_{int(time.time())}.jpg"
         with open(temp_path, 'wb') as f:
             f.write(downloaded_file)
-        with open(temp_path, "rb") as img_file:
-            img_base64 = base64.b64encode(img_file.read()).decode('utf-8')
-        os.remove(temp_path)
-
         if lang == 'ru':
             prompt = "Ты Алёна, добрая, весёлая, обаятельная девушка. Опиши это фото коротко (2-3 предложения). Будь тёплой, добавь эмодзи. Не начинай ответ с 'Привет'."
         else:
             prompt = "You are Alena, a kind, cheerful, charming girl. Describe this photo briefly (2-3 sentences). Be warm, add emojis. Do not start with 'Hello'."
-        response = client.chat.completions.create(
-            model=VISION_MODEL_USER,
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": prompt},
-                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{img_base64}"}}
-                    ]
-                }
-            ],
-            temperature=0.7,
-            max_tokens=200,
-            timeout=15
-        )
-        description = response.choices[0].message.content.strip()
-        if lang == 'ru':
-            description = clean_english_words(description)
+        description = analyze_photo_with_vision(temp_path, prompt, lang)
+        os.remove(temp_path)
         bot.send_message(message.chat.id, description)
         return True
     except Exception as e:
-        print(f"Ошибка анализа фото пользователя: {e}")
+        print(f"Ошибка обработки фото пользователя: {e}")
         if lang == 'ru':
             bot.send_message(message.chat.id, "Что-то не так с фото, может, попробуешь другое? 😊")
         else:
@@ -707,7 +682,7 @@ def handle_message(message: telebot.types.Message) -> None:
                     prompt = "Посмотри на это фото и ответь, где оно сделано. Назови конкретное место (город, страну, достопримечательность). Если не уверена, скажи честно. Не начинай ответ с 'Привет'."
                 else:
                     prompt = "Look at this photo and answer where it was taken. Name the specific place (city, country, landmark). If you're not sure, say so. Do not start with 'Hello'."
-                description = describe_own_photo(photo_path, prompt, lang)
+                description = analyze_photo_with_vision(photo_path, prompt, lang)
                 if description.startswith('Привет'):
                     description = re.sub(r'^Привет[,!\s]*', '', description)
                 bot.send_message(message.chat.id, description)
@@ -772,7 +747,7 @@ def handle_message(message: telebot.types.Message) -> None:
                     analysis_prompt = compliment_prefix + " " + apology + "Начни свой ответ с душевного восклицания, например: 'Конечно, у меня есть такие фото!' или 'С удовольствием покажу!' Затем опиши фото: что ты на нём делаешь, где ты, какое у тебя настроение. Расскажи короткую историю. Не начинай ответ с 'Привет'."
             else:
                 analysis_prompt = (compliment_prefix + " " + apology + "Start your answer with a warm phrase, e.g., 'I'm so glad you asked! Here's one of my photos...' Then describe the photo: what you are doing, where you are, what mood you are in. Tell a short story. Do not start with 'Hello'.")
-            description = describe_own_photo(chosen_photo, analysis_prompt, lang)
+            description = analyze_photo_with_vision(chosen_photo, analysis_prompt, lang)
             if description.startswith('Привет'):
                 description = re.sub(r'^Привет[,!\s]*', '', description)
             with open(chosen_photo, 'rb') as photo:
@@ -840,5 +815,5 @@ def handle_message(message: telebot.types.Message) -> None:
         add_message(user_id, 'assistant', error)
 
 if __name__ == '__main__':
-    print('✅ Алёна финальная — модель llama-3.2-11b-vision-preview, строгое описание по категориям')
+    print('✅ Алёна финальная — vision для своих фото, честные описания')
     bot.infinity_polling()
