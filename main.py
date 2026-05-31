@@ -5,6 +5,7 @@ import requests
 import random
 import base64
 import time
+import json
 from openai import OpenAI
 from collections import deque
 from datetime import datetime, timedelta
@@ -45,6 +46,35 @@ user_no_photos: Dict[int, bool] = {}
 user_thematic_history: Dict[int, Dict[str, set]] = {}
 user_last_category: Dict[int, str] = {}
 user_last_user_image_desc: Dict[int, str] = {}
+
+# Файл для сохранения языков
+LANG_FILE = 'user_langs.json'
+
+def load_user_langs():
+    """Загружает языки из файла при старте."""
+    global user_lang
+    if os.path.exists(LANG_FILE):
+        try:
+            with open(LANG_FILE, 'r') as f:
+                # Ключи в JSON – строки, преобразуем в int
+                data = json.load(f)
+                user_lang = {int(k): v for k, v in data.items()}
+        except:
+            user_lang = {}
+    else:
+        user_lang = {}
+
+def save_user_lang(user_id: int, lang: str):
+    """Сохраняет язык конкретного пользователя в файл."""
+    user_lang[user_id] = lang
+    try:
+        with open(LANG_FILE, 'w') as f:
+            json.dump(user_lang, f)
+    except:
+        pass
+
+# Загружаем языки при импорте
+load_user_langs()
 
 def get_history(user_id: int) -> Deque:
     if user_id not in user_history:
@@ -608,10 +638,21 @@ def send_welcome(message: telebot.types.Message) -> None:
     pet = default_pet_name(first_name)
     user_preferences[user_id] = pet
     reset_user(user_id)
-    user_lang[user_id] = None
-    bot.send_message(message.chat.id,
-        f"✨ Привет, {pet}! ✨\n\nМеня зовут Алёна 💖 Я — твой добрый собеседник, помощник и немного волшебница 🧚‍♀️\n\nДавай выберем язык общения:\nНапиши: **Русский** или **English**\n\n✨ Hi, {pet}! ✨\n\nI'm Alena 💖 Your kind friend and helper 🧚‍♀️\n\nLet's choose the language:\nType: **Russian** or **English**")
-    add_message(user_id, 'assistant', 'Выбор языка')
+    # Не сбрасываем язык, если он уже выбран
+    if user_lang.get(user_id) is None:
+        user_lang[user_id] = None  # чтобы не загружать лишнего
+        bot.send_message(message.chat.id,
+            f"✨ Привет, {pet}! ✨\n\nМеня зовут Алёна 💖 Я — твой добрый собеседник, помощник и немного волшебница 🧚‍♀️\n\nДавай выберем язык общения:\nНапиши: **Русский** или **English**\n\n✨ Hi, {pet}! ✨\n\nI'm Alena 💖 Your kind friend and helper 🧚‍♀️\n\nLet's choose the language:\nType: **Russian** or **English**")
+    else:
+        lang = user_lang[user_id]
+        joke = get_random_joke(lang)
+        invite_link = f'https://t.me/{BOT_USERNAME}'
+        if lang == 'ru':
+            reply = f'✨ Привет, {pet}! ✨\n\nЯ уже знаю, что мы общаемся на русском 💖\n\n😊 Шутка для настроения: {joke}\n\nРасскажи, как твои дела? 💕\n\n✨ *Кстати!* Если хочешь поделиться мной с другом, вот ссылочка: {invite_link} Буду рада новым знакомствам 😘'
+        else:
+            reply = f'✨ Hi, {pet}! ✨\n\nI already know we speak English 💖\n\n😊 A joke to cheer you up: {joke}\n\nSo, how are you? 💕\n\n✨ *By the way!* If you want to share me with a friend, here\'s the link: {invite_link} I\'ll be happy to meet new people 😘'
+        bot.send_message(message.chat.id, distribute_emojis(reply))
+    add_message(user_id, 'assistant', 'Выбор языка' if user_lang.get(user_id) is None else 'Приветствие')
 
 @bot.message_handler(func=lambda message: message.text and message.text.lower() in ['русский', 'russian', 'english', 'английский'])
 def set_language(message: telebot.types.Message) -> None:
@@ -621,6 +662,8 @@ def set_language(message: telebot.types.Message) -> None:
         user_lang[user_id] = 'ru'
     else:
         user_lang[user_id] = 'en'
+    # Сохраняем выбор языка в файл
+    save_user_lang(user_id, user_lang[user_id])
     pet = get_pet_name(user_id, message.from_user.first_name)
     lang = user_lang[user_id]
     joke = get_random_joke(lang)
@@ -1011,10 +1054,10 @@ def handle_message(message: telebot.types.Message) -> None:
         except Exception as e:
             print(f'Ошибка (попытка {attempt+1}): {e}')
             if attempt == max_retries - 1:
-                pass  # молча выходим, не засоряя чат
+                pass  # молча выходим
             else:
                 time.sleep(1)
 
 if __name__ == '__main__':
-    print('✅ Алёна — финальная, без надоедливых ошибок')
+    print('✅ Алёна — финальная, язык сохраняется, без ошибок')
     bot.infinity_polling()
