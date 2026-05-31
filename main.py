@@ -14,6 +14,8 @@ from typing import Dict, Deque, Optional, List, Any
 BOT_TOKEN = os.getenv('BOT_TOKEN')
 GROQ_API_KEY = os.getenv('GROQ_API_KEY')
 WEATHER_API_KEY = os.getenv('WEATHER_API_KEY')
+GIST_ID = os.getenv('GIST_ID')
+GITHUB_TOKEN = os.getenv('GITHUB_TOKEN')
 
 bot = telebot.TeleBot(BOT_TOKEN)
 client = OpenAI(api_key=GROQ_API_KEY, base_url='https://api.groq.com/openai/v1')
@@ -47,31 +49,47 @@ user_thematic_history: Dict[int, Dict[str, set]] = {}
 user_last_category: Dict[int, str] = {}
 user_last_user_image_desc: Dict[int, str] = {}
 
-# Файл для сохранения языков
-LANG_FILE = 'user_langs.json'
+# --- Загрузка/сохранение языков через GitHub Gist ---
+GIST_FILENAME = 'user_langs.json'
+GIST_API_URL = f'https://api.github.com/gists/{GIST_ID}'
+HEADERS = {
+    'Authorization': f'token {GITHUB_TOKEN}',
+    'Accept': 'application/vnd.github.v3+json'
+}
 
 def load_user_langs():
-    """Загружает языки из файла при старте."""
+    """Загружает языки из Gist при старте."""
     global user_lang
-    if os.path.exists(LANG_FILE):
-        try:
-            with open(LANG_FILE, 'r') as f:
-                # Ключи в JSON – строки, преобразуем в int
-                data = json.load(f)
+    if not GIST_ID or not GITHUB_TOKEN:
+        return
+    try:
+        resp = requests.get(GIST_API_URL, headers=HEADERS, timeout=5)
+        if resp.status_code == 200:
+            gist_data = resp.json()
+            files = gist_data.get('files', {})
+            if GIST_FILENAME in files:
+                content = files[GIST_FILENAME].get('content', '{}')
+                data = json.loads(content)
                 user_lang = {int(k): v for k, v in data.items()}
-        except:
-            user_lang = {}
-    else:
-        user_lang = {}
+    except Exception as e:
+        print(f'Ошибка загрузки языков из Gist: {e}')
 
 def save_user_lang(user_id: int, lang: str):
-    """Сохраняет язык конкретного пользователя в файл."""
+    """Сохраняет язык пользователя в Gist."""
     user_lang[user_id] = lang
+    if not GIST_ID or not GITHUB_TOKEN:
+        return
     try:
-        with open(LANG_FILE, 'w') as f:
-            json.dump(user_lang, f)
-    except:
-        pass
+        payload = {
+            'files': {
+                GIST_FILENAME: {
+                    'content': json.dumps(user_lang, ensure_ascii=False, indent=2)
+                }
+            }
+        }
+        requests.patch(GIST_API_URL, headers=HEADERS, json=payload, timeout=5)
+    except Exception as e:
+        print(f'Ошибка сохранения языков в Gist: {e}')
 
 # Загружаем языки при импорте
 load_user_langs()
@@ -638,9 +656,8 @@ def send_welcome(message: telebot.types.Message) -> None:
     pet = default_pet_name(first_name)
     user_preferences[user_id] = pet
     reset_user(user_id)
-    # Не сбрасываем язык, если он уже выбран
     if user_lang.get(user_id) is None:
-        user_lang[user_id] = None  # чтобы не загружать лишнего
+        user_lang[user_id] = None
         bot.send_message(message.chat.id,
             f"✨ Привет, {pet}! ✨\n\nМеня зовут Алёна 💖 Я — твой добрый собеседник, помощник и немного волшебница 🧚‍♀️\n\nДавай выберем язык общения:\nНапиши: **Русский** или **English**\n\n✨ Hi, {pet}! ✨\n\nI'm Alena 💖 Your kind friend and helper 🧚‍♀️\n\nLet's choose the language:\nType: **Russian** or **English**")
     else:
@@ -657,12 +674,11 @@ def send_welcome(message: telebot.types.Message) -> None:
 @bot.message_handler(func=lambda message: message.text and re.match(r'^(русский|russian|english|английский)[!.\s]*$', message.text.lower()))
 def set_language(message: telebot.types.Message) -> None:
     user_id = message.from_user.id
-    text = message.text.lower()
-    if text in ['русский', 'russian']:
+    text = message.text.lower().strip()
+    if 'русский' in text or 'russian' in text:
         user_lang[user_id] = 'ru'
     else:
         user_lang[user_id] = 'en'
-    # Сохраняем выбор языка в файл
     save_user_lang(user_id, user_lang[user_id])
     pet = get_pet_name(user_id, message.from_user.first_name)
     lang = user_lang[user_id]
@@ -1059,5 +1075,5 @@ def handle_message(message: telebot.types.Message) -> None:
                 time.sleep(1)
 
 if __name__ == '__main__':
-    print('✅ Алёна — финальная, язык сохраняется, без ошибок')
+    print('✅ Алёна — финальная, язык в Gist, без ошибок')
     bot.infinity_polling()
