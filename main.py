@@ -711,7 +711,7 @@ def handle_message(message: telebot.types.Message) -> None:
         user_has_no_photos = True
 
     # Шутки
-    if re.search(r'(расскажи шутку|пошути|какие еще шутки|еще шутк|дай шутку|рассмеши|подними настроение шуткой)', user_text, re.IGNORECASE):
+    if re.search(r'(расскажи\s+.*шутку|расскажи шутку|пошути|какие еще шутки|еще шутк|дай шутку|рассмеши|подними настроение шуткой)', user_text, re.IGNORECASE):
         joke = get_random_joke(lang)
         bot.send_message(message.chat.id, distribute_emojis(joke))
         add_message(user_id, 'user', user_text)
