@@ -25,7 +25,7 @@ PHOTO_FOLDER = 'images'
 SUPPORTED_EXTENSIONS = ('.jpg', '.jpeg', '.png', '.gif')
 VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
 MAX_BASE64_SIZE = 4 * 1024 * 1024
-
+# финальный словарь
 KEYWORD_MAP = {
     'пляж': ['пляж', 'море', 'берег', 'песок', 'океан', 'купальник', 'вода'],
     'набережная': ['набережная', 'набережную', 'набережной', 'причал', 'яхта', 'порт'],
