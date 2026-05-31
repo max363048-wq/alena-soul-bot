@@ -28,7 +28,7 @@ SUPPORTED_EXTENSIONS = ('.jpg', '.jpeg', '.png', '.gif')
 VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
 MAX_BASE64_SIZE = 4 * 1024 * 1024
 
-# === ИСПРАВЛЕНИЕ: убрали 'птиц' из парка, добавили формы воды и купания в пляж ===
+# === КАТЕГОРИИ ФОТО (пикник теперь отдельно!) ===
 KEYWORD_MAP = {
     'пляж': ['пляж', 'море', 'берег', 'песок', 'океан', 'купальник', 'вода', 'воде', 'воду', 'водой', 'купаюсь', 'купаешься', 'купаться', 'плаваю', 'плаваешь'],
     'набережная': ['набережная', 'набережную', 'набережной', 'причал', 'яхта', 'порт'],
@@ -58,6 +58,8 @@ user_last_user_image_desc: Dict[int, str] = {}
 
 # --- Загрузка/сохранение языков через GitHub Gist ---
 GIST_FILENAME = 'user_langs.json'
+LAST_PHOTO_FILENAME = 'user_last_photo.json'
+HISTORY_FILENAME = 'user_history.json'
 GIST_API_URL = f'https://api.github.com/gists/{GIST_ID}'
 HEADERS = {
     'Authorization': f'token {GITHUB_TOKEN}',
@@ -96,7 +98,80 @@ def save_user_lang(user_id: int, lang: str):
     except Exception as e:
         print(f'Ошибка сохранения языков в Gist: {e}')
 
+# --- Сохранение последнего фото в Gist ---
+def load_user_last_photo():
+    global user_last_sent_photo
+    if not GIST_ID or not GITHUB_TOKEN:
+        return
+    try:
+        resp = requests.get(GIST_API_URL, headers=HEADERS, timeout=5)
+        if resp.status_code == 200:
+            gist_data = resp.json()
+            files = gist_data.get('files', {})
+            if LAST_PHOTO_FILENAME in files:
+                content = files[LAST_PHOTO_FILENAME].get('content', '{}')
+                data = json.loads(content)
+                user_last_sent_photo = {int(k): v for k, v in data.items()}
+    except Exception as e:
+        print(f'Ошибка загрузки последних фото из Gist: {e}')
+
+def save_user_last_photo(user_id: int, photo_path: Optional[str] = None):
+    if photo_path:
+        user_last_sent_photo[user_id] = photo_path
+    else:
+        user_last_sent_photo.pop(user_id, None)
+    if not GIST_ID or not GITHUB_TOKEN:
+        return
+    try:
+        payload = {
+            'files': {
+                LAST_PHOTO_FILENAME: {
+                    'content': json.dumps(user_last_sent_photo, ensure_ascii=False)
+                }
+            }
+        }
+        requests.patch(GIST_API_URL, headers=HEADERS, json=payload, timeout=5)
+    except Exception as e:
+        print(f'Ошибка сохранения последнего фото в Gist: {e}')
+
+# --- Сохранение истории сообщений в Gist ---
+def load_user_history():
+    global user_history
+    if not GIST_ID or not GITHUB_TOKEN:
+        return
+    try:
+        resp = requests.get(GIST_API_URL, headers=HEADERS, timeout=5)
+        if resp.status_code == 200:
+            gist_data = resp.json()
+            files = gist_data.get('files', {})
+            if HISTORY_FILENAME in files:
+                content = files[HISTORY_FILENAME].get('content', '{}')
+                data = json.loads(content)
+                for k, v in data.items():
+                    user_history[int(k)] = deque(v, maxlen=12)
+    except Exception as e:
+        print(f'Ошибка загрузки истории из Gist: {e}')
+
+def save_user_history(user_id: int):
+    if not GIST_ID or not GITHUB_TOKEN:
+        return
+    try:
+        data_to_save = {str(uid): list(hist) for uid, hist in user_history.items()}
+        payload = {
+            'files': {
+                HISTORY_FILENAME: {
+                    'content': json.dumps(data_to_save, ensure_ascii=False)
+                }
+            }
+        }
+        requests.patch(GIST_API_URL, headers=HEADERS, json=payload, timeout=5)
+    except Exception as e:
+        print(f'Ошибка сохранения истории в Gist: {e}')
+
+# Загружаем все данные при старте
 load_user_langs()
+load_user_last_photo()
+load_user_history()
 
 def get_history(user_id: int) -> Deque:
     if user_id not in user_history:
@@ -118,6 +193,7 @@ def reset_user(user_id: int) -> None:
     user_no_jokes[user_id] = False
     user_last_city.pop(user_id, None)
     user_last_sent_photo.pop(user_id, None)
+    save_user_last_photo(user_id)  # удаляем запись о последнем фото
     user_no_photos.pop(user_id, None)
     user_thematic_history.pop(user_id, None)
     user_last_category.pop(user_id, None)
@@ -414,6 +490,7 @@ def handle_weather_query(message: telebot.types.Message, user_text: str, lang: s
     if not city:
         bot.send_message(message.chat.id, distribute_emojis("В каком городе тебя интересует погода? Напиши название, например: Санкт-Петербург 😊"))
         add_message(user_id, 'user', user_text)
+        save_user_history(user_id)
         return True
     user_last_city[user_id] = city
     add_message(user_id, 'user', user_text)
@@ -431,6 +508,7 @@ def handle_weather_query(message: telebot.types.Message, user_text: str, lang: s
             reply = distribute_emojis(f"Не удалось получить прогноз на {day_name} для {city}. Попробуй позже 😊")
     bot.send_message(message.chat.id, reply)
     add_message(user_id, 'assistant', reply)
+    save_user_history(user_id)
     return True
 
 @bot.message_handler(commands=['weather'])
@@ -672,6 +750,7 @@ def send_welcome(message: telebot.types.Message) -> None:
             reply = f'✨ Hi, {pet}! ✨\n\nI already know we speak English 💖\n\n😊 A joke to cheer you up: {joke}\n\nSo, how are you? 💕\n\n✨ *By the way!* If you want to share me with a friend, here\'s the link: {invite_link} I\'ll be happy to meet new people 😘'
         bot.send_message(message.chat.id, distribute_emojis(reply))
     add_message(user_id, 'assistant', 'Выбор языка' if user_lang.get(user_id) is None else 'Приветствие')
+    save_user_history(user_id)
 
 @bot.message_handler(func=lambda message: message.text and re.match(r'^(русский|russian|english|английский)[!.\s]*$', message.text.lower()))
 def set_language(message: telebot.types.Message) -> None:
@@ -692,6 +771,7 @@ def set_language(message: telebot.types.Message) -> None:
         reply = (f'Great, {pet}! We\'ll speak English 💖\n\n😊 A joke to cheer you up: {joke}\n\nHere\'s what I can do: chat from the heart, make you laugh, give advice, inspire, and even make a horoscope for you ✨ Just ask — I\'m here.\n\nSo, how are you? 💕\n\n✨ *By the way!* If you want to share me with a friend, here\'s the link: {invite_link} I\'ll be happy to meet new people 😘')
     bot.send_message(message.chat.id, distribute_emojis(reply))
     add_message(user_id, 'assistant', reply)
+    save_user_history(user_id)
 
 @bot.message_handler(func=lambda message: message.text and re.match(r'^(зовут меня|называй меня|обращайся ко мне|call me|name me)\s+', message.text.lower()))
 def change_name(message: telebot.types.Message) -> None:
@@ -705,11 +785,13 @@ def change_name(message: telebot.types.Message) -> None:
             reply = f'Запомнила! Теперь буду называть тебя «{new_name}» 💖😘' if lang=='ru' else f'Got it! Now I\'ll call you {new_name} 💖😘'
             bot.send_message(message.chat.id, distribute_emojis(reply))
             add_message(user_id, 'assistant', reply)
+            save_user_history(user_id)
             return
     lang = user_lang.get(user_id, 'ru')
     reply = 'Напиши, как тебя называть, например: «Зови меня Друг» 😊' if lang=='ru' else 'Tell me what to call you, e.g. "Call me Friend" 😊'
     bot.send_message(message.chat.id, distribute_emojis(reply))
     add_message(user_id, 'assistant', reply)
+    save_user_history(user_id)
 
 def get_system_prompt(lang: str, current_date: str) -> str:
     if lang == 'ru':
@@ -777,6 +859,7 @@ def handle_message(message: telebot.types.Message) -> None:
         bot.send_message(message.chat.id, distribute_emojis(joke))
         add_message(user_id, 'user', user_text)
         add_message(user_id, 'assistant', joke)
+        save_user_history(user_id)
         return
 
     # --- Просьба "ещё такие же фото" (приоритетнее вопросов о месте) ---
@@ -785,6 +868,7 @@ def handle_message(message: telebot.types.Message) -> None:
         chosen_photo = select_thematic_photo(user_id, last_cat)
         if chosen_photo:
             user_last_sent_photo[user_id] = chosen_photo
+            save_user_last_photo(user_id, chosen_photo)
             apology = ""
             try:
                 if lang == 'ru':
@@ -799,6 +883,7 @@ def handle_message(message: telebot.types.Message) -> None:
                     bot.send_photo(message.chat.id, photo, caption=description)
                 add_message(user_id, 'user', user_text)
                 add_message(user_id, 'assistant', description)
+                save_user_history(user_id)
             except Exception as e:
                 print(f"Ошибка отправки ещё одного фото: {e}")
                 bot.send_message(message.chat.id, distribute_emojis("Ой, не могу показать другое фото, попробуй ещё раз 😅"))
@@ -822,6 +907,7 @@ def handle_message(message: telebot.types.Message) -> None:
             apology = ""
             user_last_category[user_id] = None
             user_last_sent_photo[user_id] = chosen_photo
+            save_user_last_photo(user_id, chosen_photo)
 
             max_attempts = 3
             attempt = 0
@@ -853,6 +939,7 @@ def handle_message(message: telebot.types.Message) -> None:
                     if attempt < max_attempts:
                         chosen_photo = random.choice(all_photos)
                         user_last_sent_photo[user_id] = chosen_photo
+                        save_user_last_photo(user_id, chosen_photo)
                     else:
                         # Запасной план – отправляем фото без анализа
                         try:
@@ -864,6 +951,9 @@ def handle_message(message: telebot.types.Message) -> None:
                             print(f"Ошибка запасной отправки любимого фото: {e2}")
                             bot.send_message(message.chat.id, distribute_emojis("Не могу отправить фото, что-то не так 😅" if lang=='ru' else "I can't send the photo, something went wrong 😅"))
             if sent:
+                add_message(user_id, 'user', user_text)
+                add_message(user_id, 'assistant', description)
+                save_user_history(user_id)
                 return
         else:
             category = search_category_by_query(user_text)
@@ -926,6 +1016,7 @@ def handle_message(message: telebot.types.Message) -> None:
                         user_last_category[user_id] = None
 
             user_last_sent_photo[user_id] = chosen_photo
+            save_user_last_photo(user_id, chosen_photo)
 
             # Попытки отправки с повтором при ошибке
             max_attempts = 3
@@ -971,6 +1062,7 @@ def handle_message(message: telebot.types.Message) -> None:
                     if attempt < max_attempts:
                         chosen_photo = random.choice(all_photos)
                         user_last_sent_photo[user_id] = chosen_photo
+                        save_user_last_photo(user_id, chosen_photo)
                         # переопределим категорию для нового фото
                         photo_name = get_keywords_from_photo_name(chosen_photo)
                         cat_found = False
@@ -990,6 +1082,9 @@ def handle_message(message: telebot.types.Message) -> None:
                         error_msg = "Не могу отправить фото, что-то не так 😅" if lang=='ru' else "I can't send the photo, something went wrong 😅"
                         bot.send_message(message.chat.id, distribute_emojis(error_msg))
             if sent:
+                add_message(user_id, 'user', user_text)
+                add_message(user_id, 'assistant', description)
+                save_user_history(user_id)
                 return
 
     # --- Вопросы о последнем фото (теперь после основного блока фото) ---
@@ -1097,6 +1192,7 @@ def handle_message(message: telebot.types.Message) -> None:
             reply = distribute_emojis(reply)
             bot.send_message(message.chat.id, reply)
             add_message(user_id, 'assistant', reply)
+            save_user_history(user_id)
             break
         except Exception as e:
             print(f'Ошибка (попытка {attempt+1}): {e}')
@@ -1119,5 +1215,5 @@ def run_web():
 threading.Thread(target=run_web, daemon=True).start()
 
 if __name__ == '__main__':
-    print('✅ Алёна — финальная, язык в Gist, шутки без повторов, Render-ready')
+    print('✅ Алёна — финальная, язык в Gist, шутки без повторов, Render-ready, история в Gist')
     bot.infinity_polling()
