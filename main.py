@@ -654,7 +654,7 @@ def send_welcome(message: telebot.types.Message) -> None:
         bot.send_message(message.chat.id, distribute_emojis(reply))
     add_message(user_id, 'assistant', 'Выбор языка' if user_lang.get(user_id) is None else 'Приветствие')
 
-@bot.message_handler(func=lambda message: message.text and message.text.lower() in ['русский', 'russian', 'english', 'английский'])
+@bot.message_handler(func=lambda message: message.text and re.match(r'^(русский|russian|english|английский)[!.\s]*$', message.text.lower()))
 def set_language(message: telebot.types.Message) -> None:
     user_id = message.from_user.id
     text = message.text.lower()
