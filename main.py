@@ -6,6 +6,8 @@ import random
 import base64
 import time
 import json
+import threading
+from flask import Flask
 from openai import OpenAI
 from collections import deque
 from datetime import datetime, timedelta
@@ -1075,6 +1077,19 @@ def handle_message(message: telebot.types.Message) -> None:
             else:
                 time.sleep(1)
 
+# === ДЛЯ RENDER: фоновый веб-сервер ===
+app = Flask(__name__)
+
+@app.route('/')
+def health():
+    return "Bot is running", 200
+
+def run_web():
+    port = int(os.environ.get("PORT", 8000))
+    app.run(host='0.0.0.0', port=port)
+
+threading.Thread(target=run_web, daemon=True).start()
+
 if __name__ == '__main__':
-    print('✅ Алёна — финальная, язык в Gist, шутки без повторов')
+    print('✅ Алёна — финальная, язык в Gist, шутки без повторов, Render-ready')
     bot.infinity_polling()
