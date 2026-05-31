@@ -314,6 +314,7 @@ def clean_english_words(text: str) -> str:
         r'\btranquil\b': 'спокойного',
         r'\bserious\b': 'серьёзном',
         r'\bresilient\b': 'стойким',
+        r'\bearlier\b': 'раньше',
     }
     for eng, rus in reps.items():
         text = re.sub(eng, rus, text, flags=re.IGNORECASE)
@@ -370,9 +371,14 @@ def distribute_emojis(text: str) -> str:
     return result
 
 def extract_city(text: str, user_id: Optional[int] = None) -> Optional[str]:
+    # Ищем конструкцию "в городе X" или "в X"
     match = re.search(r'\b(?:в|во|в городе)\s+([А-Яа-я\-]+(?:[-\s]?[А-Яа-я]+)?)', text, re.IGNORECASE)
     if match:
         city = match.group(1).strip().lower()
+        # Удаляем лишние слова (ночь, день, вечер и т.п.)
+        city = re.sub(r'\b(ночь|день|вечер|утро|сегодня|завтра|послезавтра)\b', '', city).strip()
+        if not city:
+            return None
         corrections = {
             'санкт-петербурге': 'Санкт-Петербург', 'санкт-петербург': 'Санкт-Петербург',
             'москве': 'Москва', 'москва': 'Москва', 'питере': 'Санкт-Петербург', 'питер': 'Санкт-Петербург'
@@ -398,7 +404,7 @@ def extract_city(text: str, user_id: Optional[int] = None) -> Optional[str]:
     return None
 
 def is_weather_query(text: str) -> bool:
-    if re.search(r'(какая погода|какой прогноз|что с погодой|сколько градусов|температура какая|будет завтра|будет послезавтра|завтра погода|послезавтра погода|сколько сейчас градусов)', text, re.IGNORECASE):
+    if re.search(r'(какая погода|какой прогноз|что с погодой|сколько градусов|температура какая|будет завтра|будет послезавтра|завтра погода|послезавтра погода|сколько сейчас градусов|какая сейчас погода)', text, re.IGNORECASE):
         return True
     if re.search(r'(будет|ожидается|прогноз|скажи|покажи).*(погод|температур|дождь|солнце|ветер)', text, re.IGNORECASE):
         return True
@@ -868,13 +874,11 @@ def handle_message(message: telebot.types.Message) -> None:
     # --- Просьба "ещё такие же фото" (приоритетнее вопросов о месте) ---
     if user_id in user_last_category and user_last_category[user_id] is not None and re.search(r'(еще такие фото|еще такие фотки|такие же фото|такие же фотки|похожие фото|похожие фотки|аналогичные фото|аналогичные фотки|другие фото|другое фото|ещё такие|еще такие)', user_text, re.IGNORECASE):
         last_cat = user_last_category[user_id]
-        # Проверяем, есть ли ещё фото в последней категории
         photos_in_cat = get_photos_by_category(last_cat)
         if user_id in user_thematic_history and last_cat in user_thematic_history[user_id]:
             shown = user_thematic_history[user_id][last_cat]
             available = [p for p in photos_in_cat if p not in shown]
             if not available:
-                # Больше нет доступных фото в этой категории – говорим честно
                 msg = f"У меня пока только это фото на тему «{last_cat}». Хочешь, покажу что-нибудь из другого альбома? 😊"
                 bot.send_message(message.chat.id, distribute_emojis(msg))
                 return
@@ -982,7 +986,6 @@ def handle_message(message: telebot.types.Message) -> None:
                 else:
                     apology = ""
             else:
-                # Запрос без категории – проверяем, есть ли явные "такие"
                 if user_id in user_last_category and user_last_category[user_id] is not None and re.search(r'(еще такие фото|еще такие фотки|такие же фото|такие же фотки|похожие фото|похожие фотки|аналогичные фото|аналогичные фотки|такие фото|такие фотки)', user_text, re.IGNORECASE):
                     last_cat = user_last_category[user_id]
                     photos_in_cat = get_photos_by_category(last_cat)
@@ -999,7 +1002,6 @@ def handle_message(message: telebot.types.Message) -> None:
                     else:
                         apology = ""
                 else:
-                    # Расплывчатый запрос "еще фотки" – исключаем последнюю категорию
                     if user_id in user_last_category and user_last_category[user_id] is not None:
                         last_cat = user_last_category[user_id]
                         available_photos = [
@@ -1015,7 +1017,6 @@ def handle_message(message: telebot.types.Message) -> None:
                     else:
                         chosen_photo = random.choice(all_photos)
                         apology = ""
-                    # Определяем категорию для выбранного фото
                     photo_name = get_keywords_from_photo_name(chosen_photo)
                     cat_found = False
                     for cat, words in KEYWORD_MAP.items():
@@ -1034,7 +1035,6 @@ def handle_message(message: telebot.types.Message) -> None:
             user_last_sent_photo[user_id] = chosen_photo
             save_user_last_photo(user_id, chosen_photo)
 
-            # Попытки отправки с повтором при ошибке
             max_attempts = 3
             attempt = 0
             sent = False
@@ -1056,7 +1056,6 @@ def handle_message(message: telebot.types.Message) -> None:
                     if description.startswith('Привет'):
                         description = re.sub(r'^Привет[,!\s]*', '', description)
 
-                    # Для расплывчатого запроса ВСЕГДА добавляем подсказку
                     if not category and not re.search(r'(такие|таких|похожие|аналогичные)', user_text, re.IGNORECASE):
                         if lang == 'ru':
                             description += "\n\nКстати, у меня много разных фотографий! Есть где я на пляже, в горах или на природе... Какие именно тебя интересуют? 😊"
@@ -1079,7 +1078,6 @@ def handle_message(message: telebot.types.Message) -> None:
                         chosen_photo = random.choice(all_photos)
                         user_last_sent_photo[user_id] = chosen_photo
                         save_user_last_photo(user_id, chosen_photo)
-                        # переопределим категорию для нового фото
                         photo_name = get_keywords_from_photo_name(chosen_photo)
                         cat_found = False
                         for cat, words in KEYWORD_MAP.items():
@@ -1192,7 +1190,6 @@ def handle_message(message: telebot.types.Message) -> None:
     if user_id in user_last_user_image_desc and re.search(r'(мы бы с тобой|смотрелись вместе|отдохнуть вместе|побыть вдвоём|представь|помечта)', user_text, re.IGNORECASE):
         system_prompt += f'\n\nПользователь показал картинку, которую ты описала так: "{user_last_user_image_desc[user_id]}". ОТВЕЧАЙ ТОЛЬКО НА ОСНОВЕ ЭТОГО ОПИСАНИЯ, ИГНОРИРУЙ ВСЕ ПРЕДЫДУЩИЕ ТЕМЫ. Представь, что вы вдвоём находятся в этом месте, опиши ощущения.'
 
-    # Повтор запроса при сбое, без сообщения "Ой, ошибочка"
     max_retries = 2
     for attempt in range(max_retries):
         try:
@@ -1213,7 +1210,7 @@ def handle_message(message: telebot.types.Message) -> None:
         except Exception as e:
             print(f'Ошибка (попытка {attempt+1}): {e}')
             if attempt == max_retries - 1:
-                pass  # молча выходим
+                pass
             else:
                 time.sleep(1)
 
