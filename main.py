@@ -130,16 +130,13 @@ def get_random_joke(lang: str = 'ru') -> str:
     if lang != 'ru':
         return "Why don't programmers like nature? Too many bugs! 😄"
     try:
-        # Усиленный промпт для более живых шуток
         resp = client.chat.completions.create(
             model='llama-3.1-8b-instant',
             messages=[{'role': 'user', 'content': 'Придумай одну короткую, живую и обязательно смешную шутку на чистом русском языке без грамматических ошибок. Шутка должна быть понятна любому человеку и вызывать улыбку. Не используй архаизмы и странные сравнения.'}],
             temperature=0.9, max_tokens=100, timeout=5
         )
         joke = resp.choices[0].message.content.strip()
-        # Фильтрация неудачных шуток
         if joke and 10 < len(joke) < 200 and not re.search(r'[a-zA-Z]', joke):
-            # Проверяем, нет ли "подозрительных" слов неестественного звучания
             if re.search(r'\bпоскольку\b', joke) and len(joke) < 40:
                 return random.choice(FALLBACK_JOKES_RU)
             return joke
@@ -204,7 +201,6 @@ def filter_emojis(text: str) -> str:
     allowed = set(SAFE_EMOJIS)
     result = []
     for ch in text:
-        # Если символ – эмодзи (грубый диапазон), проверяем, есть ли он в списке
         if '\U0001F000' <= ch <= '\U0001FFFF' or '\u2600' <= ch <= '\u27BF':
             if ch in allowed:
                 result.append(ch)
@@ -214,7 +210,7 @@ def filter_emojis(text: str) -> str:
 
 def distribute_emojis(text: str) -> str:
     """Удаляет небезопасные эмодзи, затем распределяет душевные по предложениям."""
-    text = filter_emojis(text)  # сначала удаляем чужаков
+    text = filter_emojis(text)
     sentences = re.split(r'(?<=[.!?…]) +', text)
     new_sentences = []
     used_safe_emojis = []
@@ -995,25 +991,30 @@ def handle_message(message: telebot.types.Message) -> None:
     if user_id in user_last_user_image_desc and re.search(r'(мы бы с тобой|смотрелись вместе|отдохнуть вместе|побыть вдвоём|представь|помечта)', user_text, re.IGNORECASE):
         system_prompt += f'\n\nПользователь показал картинку, которую ты описала так: "{user_last_user_image_desc[user_id]}". ОТВЕЧАЙ ТОЛЬКО НА ОСНОВЕ ЭТОГО ОПИСАНИЯ, ИГНОРИРУЙ ВСЕ ПРЕДЫДУЩИЕ ТЕМЫ. Представь, что вы вдвоём находятся в этом месте, опиши ощущения.'
 
-    try:
-        messages = build_messages(user_id, system_prompt, user_text)
-        response = client.chat.completions.create(
-            model='llama-3.1-8b-instant',
-            messages=messages,
-            temperature=0.8, max_tokens=200, timeout=10
-        )
-        reply = response.choices[0].message.content.strip()
-        reply = clean_english_words(reply)
-        reply = remove_non_russian(reply)
-        reply = distribute_emojis(reply)
-        bot.send_message(message.chat.id, reply)
-        add_message(user_id, 'assistant', reply)
-    except Exception as e:
-        print('Ошибка:', e)
-        error = 'Ой, ошибочка 😅 Напиши ещё раз!' if lang=='ru' else 'Oops, an error! Please write again.'
-        bot.send_message(message.chat.id, distribute_emojis(error))
-        add_message(user_id, 'assistant', error)
+    # Повтор запроса при сбое, без сообщения "Ой, ошибочка"
+    max_retries = 2
+    for attempt in range(max_retries):
+        try:
+            messages = build_messages(user_id, system_prompt, user_text)
+            response = client.chat.completions.create(
+                model='llama-3.1-8b-instant',
+                messages=messages,
+                temperature=0.8, max_tokens=200, timeout=10
+            )
+            reply = response.choices[0].message.content.strip()
+            reply = clean_english_words(reply)
+            reply = remove_non_russian(reply)
+            reply = distribute_emojis(reply)
+            bot.send_message(message.chat.id, reply)
+            add_message(user_id, 'assistant', reply)
+            break
+        except Exception as e:
+            print(f'Ошибка (попытка {attempt+1}): {e}')
+            if attempt == max_retries - 1:
+                pass  # молча выходим, не засоряя чат
+            else:
+                time.sleep(1)
 
 if __name__ == '__main__':
-    print('✅ Алёна — финальная, все блоки на месте, шутки живые, эмодзи душевные')
+    print('✅ Алёна — финальная, без надоедливых ошибок')
     bot.infinity_polling()
