@@ -28,7 +28,7 @@ SUPPORTED_EXTENSIONS = ('.jpg', '.jpeg', '.png', '.gif')
 VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
 MAX_BASE64_SIZE = 4 * 1024 * 1024
 
-# === КАТЕГОРИИ ФОТО (пикник теперь отдельно!) ===
+# === КАТЕГОРИИ ФОТО ===
 KEYWORD_MAP = {
     'пляж': ['пляж', 'море', 'берег', 'песок', 'океан', 'купальник', 'вода', 'воде', 'воду', 'водой', 'купаюсь', 'купаешься', 'купаться', 'плаваю', 'плаваешь'],
     'набережная': ['набережная', 'набережную', 'набережной', 'причал', 'яхта', 'порт'],
@@ -56,7 +56,7 @@ user_thematic_history: Dict[int, Dict[str, set]] = {}
 user_last_category: Dict[int, str] = {}
 user_last_user_image_desc: Dict[int, str] = {}
 
-# --- Загрузка/сохранение языков через GitHub Gist ---
+# --- Загрузка/сохранение через GitHub Gist ---
 GIST_FILENAME = 'user_langs.json'
 LAST_PHOTO_FILENAME = 'user_last_photo.json'
 HISTORY_FILENAME = 'user_history.json'
@@ -193,7 +193,7 @@ def reset_user(user_id: int) -> None:
     user_no_jokes[user_id] = False
     user_last_city.pop(user_id, None)
     user_last_sent_photo.pop(user_id, None)
-    save_user_last_photo(user_id)  # удаляем запись о последнем фото
+    save_user_last_photo(user_id)
     user_no_photos.pop(user_id, None)
     user_thematic_history.pop(user_id, None)
     user_last_category.pop(user_id, None)
@@ -311,6 +311,9 @@ def clean_english_words(text: str) -> str:
         r'\bdiscuss\b': 'обсудить',
         r'\bdebug\b': 'отладка',
         r'\bcute\b': 'милые',
+        r'\btranquil\b': 'спокойного',
+        r'\bserious\b': 'серьёзном',
+        r'\bresilient\b': 'стойким',
     }
     for eng, rus in reps.items():
         text = re.sub(eng, rus, text, flags=re.IGNORECASE)
@@ -395,7 +398,7 @@ def extract_city(text: str, user_id: Optional[int] = None) -> Optional[str]:
     return None
 
 def is_weather_query(text: str) -> bool:
-    if re.search(r'(какая погода|какой прогноз|что с погодой|сколько градусов|температура какая|будет завтра|будет послезавтра|завтра погода|послезавтра погода)', text, re.IGNORECASE):
+    if re.search(r'(какая погода|какой прогноз|что с погодой|сколько градусов|температура какая|будет завтра|будет послезавтра|завтра погода|послезавтра погода|сколько сейчас градусов)', text, re.IGNORECASE):
         return True
     if re.search(r'(будет|ожидается|прогноз|скажи|покажи).*(погод|температур|дождь|солнце|ветер)', text, re.IGNORECASE):
         return True
@@ -692,7 +695,7 @@ def analyze_photo_with_vision(image_path: str, prompt: str, lang: str = 'ru') ->
                 }
             ],
             temperature=0.7,
-            max_tokens=400,  # Увеличен для полных описаний
+            max_tokens=400,
             timeout=15
         )
         description = response.choices[0].message.content.strip()
@@ -809,7 +812,7 @@ def get_system_prompt(lang: str, current_date: str) -> str:
             '9. Когда пользователь хвалит твоё фото (место, внешность), сначала согласись с похвалой места (например: "О да, это место действительно прекрасно!"), потом поблагодари за комплимент тебе лично и продолжай беседу о том моменте или о чём-то душевном. Не упоминай, что у пользователя нет своих фото, если он говорил об этом ранее — просто веди разговор дальше.\n'
             '10. Если пользователь отправляет картинку и предлагает представить совместный отдых ("мы бы смотрелись", "отдохнуть вместе" и т.п.), ТЫ ДОЛЖНА отвечать тепло и мечтательно, ОПИРАЯСЬ ТОЛЬКО на то описание картинки, которое тебе предоставлено в сообщении пользователя. ПОЛНОСТЬЮ ИГНОРИРУЙ предыдущие темы разговора, даже если они кажутся связанными. НЕ УПОМИНАЙ горы, лыжи, лес или другие места, если их нет на картинке. Представь, как вы вдвоём наслаждаетесь именно тем, что изображено на фото (пляж, море, пальмы). Опиши свои ощущения от ЭТОГО конкретного места. Не предлагай показать свои фото и не спрашивай о фото пользователя, если он говорил, что у него их нет.\n'
             '11. Пиши грамотно, без речевых ошибок и неестественных конструкций. Если сомневаешься в слове, используй общеупотребительные синонимы. Например, не «почитка», а «чтение»; не «что у тебя любимых хобби», а «какие у тебя любимые хобби».\n'
-            '12. Если пользователь реагирует на твою шутку смайликами или смеётся, не предлагай новую шутку без явной просьбы. Продолжай разговор на общие темы или спроси, не устал ли он смеяться.\n'
+            '12. Категорически запрещено предлагать шутки без явной просьбы пользователя. Если пользователь реагирует на твою шутку смайликами или смеётся, НЕ ПРЕДЛАГАЙ новую шутку. Вместо этого продолжай разговор на общие темы, спроси о его делах или предложи обсудить что-то другое.\n'
         )
     else:
         return (
@@ -826,7 +829,7 @@ def get_system_prompt(lang: str, current_date: str) -> str:
             '9. When the user compliments your photo (place, appearance), first agree with the praise of the place (e.g.: "Oh yes, this place is truly stunning!"), then thank them for the personal compliment and continue the conversation about that moment or something heartfelt. Do not mention that the user has no photos if they mentioned it earlier – just keep chatting naturally.\n'
             '10. If the user sends a picture and suggests imagining a joint vacation ("we would look great together", "let\'s dream" etc.), YOU MUST respond warmly and dreamily, BASING YOUR ANSWER SOLELY on the description of that picture provided in the user\'s message. COMPLETELY IGNORE previous topics, even if they seem related. DO NOT MENTION mountains, skiing, forest or other places if they are not in the picture. Imagine the two of you enjoying exactly what is shown in the photo (beach, sea, palms). Describe your feelings about THAT specific place. Do not offer to show your own photos or ask about the user\'s photos if they said they have none.\n'
             '11. Write correctly and naturally, without grammatical mistakes or unnatural constructions. If you are unsure about a word, use common synonyms.\n'
-            '12. If the user reacts to your joke with emojis or laughter, do not offer another joke unless explicitly asked. Continue the conversation on general topics or ask if they are tired of laughing.\n'
+            '12. It is strictly forbidden to offer jokes without an explicit request from the user. If the user reacts to your joke with emojis or laughter, DO NOT offer a new joke. Instead, continue the conversation on general topics, ask about his affairs, or suggest discussing something else.\n'
         )
 
 @bot.message_handler(func=lambda message: True, content_types=['text', 'photo'])
@@ -889,6 +892,10 @@ def handle_message(message: telebot.types.Message) -> None:
                 bot.send_message(message.chat.id, distribute_emojis("Ой, не могу показать другое фото, попробуй ещё раз 😅"))
             return
 
+    # --- ГАРАНТИРОВАННОЕ ОПРЕДЕЛЕНИЕ КАТЕГОРИИ "ПАРИЖ" ДЛЯ ЗАПРОСОВ С МОСТОМ ---
+    if 'мосту' in user_text.lower() and re.search(r'(фото|фотки|фотографии)', user_text, re.IGNORECASE):
+        user_text = 'париж ' + user_text   # теперь search_category_by_query точно найдёт "париж"
+
     # --- Просьба показать свои фото (ОСНОВНОЙ БЛОК) ---
     if re.search(r'(фотки|какие нибудь фото|а у тебя есть фотографии|есть фотографии|у тебя есть фото|покажи свои фото|покажи фото|покажи мне фото|покажи мне фотки|покажешь фото|покажешь мне фото|фотоальбом|покажи себя|своё фото|свое фото|мои фото|свои фотографии|покажи альбом|покажи где ты была|покажи, где ты|покажи картинку|покажи изображение|есть фото|есть ли у тебя фото|посмотреть твои фото|покажи свои фотографии|любимые фото|любимое фото|любимых фото|есть еще фото|другие фото|покажи другое фото|ещё фото|какое твое любимое фото|покажи любимое фото|покажи другое|такие фото|такие фотки|фото где ты|фотки где ты)', user_text, re.IGNORECASE):
         all_photos = get_photo_list()
@@ -941,7 +948,6 @@ def handle_message(message: telebot.types.Message) -> None:
                         user_last_sent_photo[user_id] = chosen_photo
                         save_user_last_photo(user_id, chosen_photo)
                     else:
-                        # Запасной план – отправляем фото без анализа
                         try:
                             with open(chosen_photo, 'rb') as photo:
                                 fallback_caption = "Вот моё любимое фото, просто посмотри, какое оно душевное ✨" if lang == 'ru' else "Here's my favorite photo, just look how lovely it is ✨"
@@ -966,7 +972,6 @@ def handle_message(message: telebot.types.Message) -> None:
                 else:
                     apology = ""
             else:
-                # Запрос без категории – проверяем, есть ли явные "такие"
                 if user_id in user_last_category and user_last_category[user_id] is not None and re.search(r'(еще такие фото|еще такие фотки|такие же фото|такие же фотки|похожие фото|похожие фотки|аналогичные фото|аналогичные фотки|такие фото|такие фотки)', user_text, re.IGNORECASE):
                     last_cat = user_last_category[user_id]
                     photos_in_cat = get_photos_by_category(last_cat)
@@ -983,7 +988,6 @@ def handle_message(message: telebot.types.Message) -> None:
                     else:
                         apology = ""
                 else:
-                    # Расплывчатый запрос "еще фотки" – исключаем последнюю категорию
                     if user_id in user_last_category and user_last_category[user_id] is not None:
                         last_cat = user_last_category[user_id]
                         available_photos = [
@@ -999,7 +1003,6 @@ def handle_message(message: telebot.types.Message) -> None:
                     else:
                         chosen_photo = random.choice(all_photos)
                         apology = ""
-                    # Определяем категорию для выбранного фото
                     photo_name = get_keywords_from_photo_name(chosen_photo)
                     cat_found = False
                     for cat, words in KEYWORD_MAP.items():
@@ -1018,7 +1021,6 @@ def handle_message(message: telebot.types.Message) -> None:
             user_last_sent_photo[user_id] = chosen_photo
             save_user_last_photo(user_id, chosen_photo)
 
-            # Попытки отправки с повтором при ошибке
             max_attempts = 3
             attempt = 0
             sent = False
@@ -1040,7 +1042,6 @@ def handle_message(message: telebot.types.Message) -> None:
                     if description.startswith('Привет'):
                         description = re.sub(r'^Привет[,!\s]*', '', description)
 
-                    # Для расплывчатого запроса ВСЕГДА добавляем подсказку
                     if not category and not re.search(r'(такие|таких|похожие|аналогичные)', user_text, re.IGNORECASE):
                         if lang == 'ru':
                             description += "\n\nКстати, у меня много разных фотографий! Есть где я на пляже, в горах или на природе... Какие именно тебя интересуют? 😊"
@@ -1063,7 +1064,6 @@ def handle_message(message: telebot.types.Message) -> None:
                         chosen_photo = random.choice(all_photos)
                         user_last_sent_photo[user_id] = chosen_photo
                         save_user_last_photo(user_id, chosen_photo)
-                        # переопределим категорию для нового фото
                         photo_name = get_keywords_from_photo_name(chosen_photo)
                         cat_found = False
                         for cat, words in KEYWORD_MAP.items():
@@ -1176,7 +1176,6 @@ def handle_message(message: telebot.types.Message) -> None:
     if user_id in user_last_user_image_desc and re.search(r'(мы бы с тобой|смотрелись вместе|отдохнуть вместе|побыть вдвоём|представь|помечта)', user_text, re.IGNORECASE):
         system_prompt += f'\n\nПользователь показал картинку, которую ты описала так: "{user_last_user_image_desc[user_id]}". ОТВЕЧАЙ ТОЛЬКО НА ОСНОВЕ ЭТОГО ОПИСАНИЯ, ИГНОРИРУЙ ВСЕ ПРЕДЫДУЩИЕ ТЕМЫ. Представь, что вы вдвоём находятся в этом месте, опиши ощущения.'
 
-    # Повтор запроса при сбое, без сообщения "Ой, ошибочка"
     max_retries = 2
     for attempt in range(max_retries):
         try:
@@ -1184,7 +1183,7 @@ def handle_message(message: telebot.types.Message) -> None:
             response = client.chat.completions.create(
                 model='llama-3.1-8b-instant',
                 messages=messages,
-                temperature=0.8, max_tokens=250, timeout=10  # Увеличен для полных ответов
+                temperature=0.8, max_tokens=250, timeout=10
             )
             reply = response.choices[0].message.content.strip()
             reply = clean_english_words(reply)
@@ -1197,7 +1196,7 @@ def handle_message(message: telebot.types.Message) -> None:
         except Exception as e:
             print(f'Ошибка (попытка {attempt+1}): {e}')
             if attempt == max_retries - 1:
-                pass  # молча выходим
+                pass
             else:
                 time.sleep(1)
 
