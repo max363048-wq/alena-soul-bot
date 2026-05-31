@@ -28,8 +28,7 @@ SUPPORTED_EXTENSIONS = ('.jpg', '.jpeg', '.png', '.gif')
 VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
 MAX_BASE64_SIZE = 4 * 1024 * 1024
 
-# === ИСПРАВЛЕНИЕ 1: убрали 'птиц' из парка, чтобы пикник не находил голубей ===
-# === ИСПРАВЛЕНИЕ 2: добавили формы 'воде', 'купаюсь' и т.д. в пляж ===
+# === ИСПРАВЛЕНИЕ: убрали 'птиц' из парка, добавили формы воды и купания в пляж ===
 KEYWORD_MAP = {
     'пляж': ['пляж', 'море', 'берег', 'песок', 'океан', 'купальник', 'вода', 'воде', 'воду', 'водой', 'купаюсь', 'купаешься', 'купаться', 'плаваю', 'плаваешь'],
     'набережная': ['набережная', 'набережную', 'набережной', 'причал', 'яхта', 'порт'],
@@ -211,7 +210,6 @@ def get_motivation(lang: str = 'ru') -> str:
     except:
         return "Ты сможешь всё, что задумаешь! 💖"
 
-# === ИСПРАВЛЕНИЕ 3: добавили замену cute → милые ===
 def clean_english_words(text: str) -> str:
     if not text:
         return text
@@ -235,7 +233,7 @@ def clean_english_words(text: str) -> str:
         r'\bfeeling\b': 'чувствуя',
         r'\bdiscuss\b': 'обсудить',
         r'\bdebug\b': 'отладка',
-        r'\bcute\b': 'милые',   # <-- ВОТ ЭТА СТРОКА ДОБАВЛЕНА
+        r'\bcute\b': 'милые',
     }
     for eng, rus in reps.items():
         text = re.sub(eng, rus, text, flags=re.IGNORECASE)
@@ -779,8 +777,8 @@ def handle_message(message: telebot.types.Message) -> None:
         add_message(user_id, 'user', user_text)
         add_message(user_id, 'assistant', joke)
         return
-        
-# --- Просьба "ещё такие же фото" (приоритетнее вопросов о месте) ---
+
+    # --- Просьба "ещё такие же фото" (приоритетнее вопросов о месте) ---
     if user_id in user_last_category and user_last_category[user_id] is not None and re.search(r'(еще такие фото|еще такие фотки|такие же фото|такие же фотки|похожие фото|похожие фотки|аналогичные фото|аналогичные фотки|другие фото|другое фото|ещё такие|еще такие)', user_text, re.IGNORECASE):
         last_cat = user_last_category[user_id]
         chosen_photo = select_thematic_photo(user_id, last_cat)
@@ -804,45 +802,9 @@ def handle_message(message: telebot.types.Message) -> None:
                 print(f"Ошибка отправки ещё одного фото: {e}")
                 bot.send_message(message.chat.id, distribute_emojis("Ой, не могу показать другое фото, попробуй ещё раз 😅"))
             return
-    
-    # --- Вопросы о последнем фото (АБСОЛЮТНЫЙ ПРИОРИТЕТ) ---
-    lower_text = user_text.lower()
-    is_photo_question = any(phrase in lower_text for phrase in [
-        'где была сделана', 'какое место', 'что там за фон', 'где это', 'какой город',
-        'на каком курорте', 'какая страна', 'где ты находилась', 'где это было',
-        'расскажи про это фото', 'подробнее об этом фото', 'что там за', 'какие детали',
-        'где снято', 'а на каком пляже', 'в каком парке', 'в какой стране', 'это в россии',
-        'за границей', 'в каком городе', 'на каком море', 'какой пляж', 'как называется',
-        'поделись деталями', 'что ещё видно', 'расскажи подробнее', 'добавь деталей',
-        'опиши фон', 'что позади', 'какие люди',
-        'это фото', 'эта фотография', 'на этом фото', 'на этой фотографии'
-    ])
-    if is_photo_question:
-        if user_id in user_last_sent_photo and user_last_sent_photo[user_id]:
-            photo_path = user_last_sent_photo[user_id]
-            try:
-                if lang == 'ru':
-                    prompt = ("Посмотри на это фото и скажи, где оно сделано. Если видишь конкретные ориентиры — назови их. "
-                              "Если не можешь определить точно, скажи мягко, с душой, например: 'Мне сложно сказать точно, но это место напоминает мне...'. "
-                              "Не придумывай море или горы, если их нет. Не начинай ответ с 'Привет'.")
-                else:
-                    prompt = ("Look at this photo and tell where it was taken. If you see specific landmarks — name them. "
-                              "If you can't determine exactly, say it warmly, e.g.: 'It's hard to say for sure, but this place reminds me of...'. "
-                              "Don't invent sea or mountains if they aren't there. Don't start with 'Hello'.")
-                description = analyze_photo_with_vision(photo_path, prompt, lang)
-                if description.startswith('Привет'):
-                    description = re.sub(r'^Привет[,!\s]*', '', description)
-                bot.send_message(message.chat.id, description)
-            except Exception as e:
-                print(f"Ошибка при ответе о последнем фото: {e}")
-                bot.send_message(message.chat.id, distribute_emojis("Извини, я не могу сейчас вспомнить детали этого фото 😅"))
-            return
-        else:
-            bot.send_message(message.chat.id, distribute_emojis("Ты о каком фото? Покажи, если хочешь обсудить 😊"))
-            return
 
-    # --- Просьба показать свои фото (расширенная регулярка) ---
-    if re.search(r'(фотки|какие нибудь фото|а у тебя есть фотографии|есть фотографии|у тебя есть фото|покажи свои фото|покажи фото|покажи мне фото|покажи мне фотки|покажешь фото|покажешь мне фото|показать фото|фотоальбом|покажи себя|своё фото|свое фото|мои фото|свои фотографии|покажи альбом|покажи где ты была|покажи, где ты|покажи картинку|покажи изображение|есть фото|есть ли у тебя фото|посмотреть твои фото|покажи свои фотографии|любимые фото|любимое фото|любимых фото|есть еще фото|другие фото|покажи другое фото|ещё фото|какое твое любимое фото|покажи любимое фото|покажи другое|такие фото|такие фотки|фото где ты|фотки где ты)', user_text, re.IGNORECASE):
+    # --- Просьба показать свои фото (ОСНОВНОЙ БЛОК) ---
+    if re.search(r'(фотки|какие нибудь фото|а у тебя есть фотографии|есть фотографии|у тебя есть фото|покажи свои фото|покажи фото|покажи мне фото|покажи мне фотки|покажешь фото|покажешь мне фото|фотоальбом|покажи себя|своё фото|свое фото|мои фото|свои фотографии|покажи альбом|покажи где ты была|покажи, где ты|покажи картинку|покажи изображение|есть фото|есть ли у тебя фото|посмотреть твои фото|покажи свои фотографии|любимые фото|любимое фото|любимых фото|есть еще фото|другие фото|покажи другое фото|ещё фото|какое твое любимое фото|покажи любимое фото|покажи другое|такие фото|такие фотки|фото где ты|фотки где ты)', user_text, re.IGNORECASE):
         all_photos = get_photo_list()
         if not all_photos:
             msg = "У меня ещё нет фотоальбома, но Максик обещал скоро добавить! 😊" if lang == 'ru' else "I don't have a photo album yet, but Max promised to add it soon! 😊"
@@ -1028,6 +990,42 @@ def handle_message(message: telebot.types.Message) -> None:
                         bot.send_message(message.chat.id, distribute_emojis(error_msg))
             if sent:
                 return
+
+    # --- Вопросы о последнем фото (теперь после основного блока фото) ---
+    lower_text = user_text.lower()
+    is_photo_question = any(phrase in lower_text for phrase in [
+        'где была сделана', 'какое место', 'что там за фон', 'где это', 'какой город',
+        'на каком курорте', 'какая страна', 'где ты находилась', 'где это было',
+        'расскажи про это фото', 'подробнее об этом фото', 'что там за', 'какие детали',
+        'где снято', 'а на каком пляже', 'в каком парке', 'в какой стране', 'это в россии',
+        'за границей', 'в каком городе', 'на каком море', 'какой пляж', 'как называется',
+        'поделись деталями', 'что ещё видно', 'расскажи подробнее', 'добавь деталей',
+        'опиши фон', 'что позади', 'какие люди',
+        'это фото', 'эта фотография', 'на этом фото', 'на этой фотографии'
+    ])
+    if is_photo_question:
+        if user_id in user_last_sent_photo and user_last_sent_photo[user_id]:
+            photo_path = user_last_sent_photo[user_id]
+            try:
+                if lang == 'ru':
+                    prompt = ("Посмотри на это фото и скажи, где оно сделано. Если видишь конкретные ориентиры — назови их. "
+                              "Если не можешь определить точно, скажи мягко, с душой, например: 'Мне сложно сказать точно, но это место напоминает мне...'. "
+                              "Не придумывай море или горы, если их нет. Не начинай ответ с 'Привет'.")
+                else:
+                    prompt = ("Look at this photo and tell where it was taken. If you see specific landmarks — name them. "
+                              "If you can't determine exactly, say it warmly, e.g.: 'It's hard to say for sure, but this place reminds me of...'. "
+                              "Don't invent sea or mountains if they aren't there. Don't start with 'Hello'.")
+                description = analyze_photo_with_vision(photo_path, prompt, lang)
+                if description.startswith('Привет'):
+                    description = re.sub(r'^Привет[,!\s]*', '', description)
+                bot.send_message(message.chat.id, description)
+            except Exception as e:
+                print(f"Ошибка при ответе о последнем фото: {e}")
+                bot.send_message(message.chat.id, distribute_emojis("Извини, я не могу сейчас вспомнить детали этого фото 😅"))
+            return
+        else:
+            bot.send_message(message.chat.id, distribute_emojis("Ты о каком фото? Покажи, если хочешь обсудить 😊"))
+            return
 
     if user_has_no_photos:
         reply = (
