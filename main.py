@@ -779,7 +779,32 @@ def handle_message(message: telebot.types.Message) -> None:
         add_message(user_id, 'user', user_text)
         add_message(user_id, 'assistant', joke)
         return
-
+        
+# --- Просьба "ещё такие же фото" (приоритетнее вопросов о месте) ---
+    if user_id in user_last_category and user_last_category[user_id] is not None and re.search(r'(еще такие фото|еще такие фотки|такие же фото|такие же фотки|похожие фото|похожие фотки|аналогичные фото|аналогичные фотки|другие фото|другое фото|ещё такие|еще такие)', user_text, re.IGNORECASE):
+        last_cat = user_last_category[user_id]
+        chosen_photo = select_thematic_photo(user_id, last_cat)
+        if chosen_photo:
+            user_last_sent_photo[user_id] = chosen_photo
+            apology = ""
+            try:
+                if lang == 'ru':
+                    analysis_prompt = apology + "Начни свой ответ с душевного восклицания, например: 'Конечно, у меня есть такие фото!' или 'С удовольствием покажу!' Затем опиши фото: что ты на нём делаешь, где ты, какое у тебя настроение. Расскажи короткую историю. Обязательно добавь 2-3 эмодзи, чтобы описание было живым. Не начинай ответ с 'Привет'."
+                else:
+                    analysis_prompt = apology + "Start your answer with a warm phrase, e.g., 'I'm so glad you asked! Here's one of my photos...' Then describe the photo: what you are doing, where you are, what mood you are in. Tell a short story. Be sure to add 2-3 emojis to make the description lively. Do not start with 'Hello'."
+                description = analyze_photo_with_vision(chosen_photo, analysis_prompt, lang)
+                if description.startswith('Привет'):
+                    description = re.sub(r'^Привет[,!\s]*', '', description)
+                description = distribute_emojis(description)
+                with open(chosen_photo, 'rb') as photo:
+                    bot.send_photo(message.chat.id, photo, caption=description)
+                add_message(user_id, 'user', user_text)
+                add_message(user_id, 'assistant', description)
+            except Exception as e:
+                print(f"Ошибка отправки ещё одного фото: {e}")
+                bot.send_message(message.chat.id, distribute_emojis("Ой, не могу показать другое фото, попробуй ещё раз 😅"))
+            return
+    
     # --- Вопросы о последнем фото (АБСОЛЮТНЫЙ ПРИОРИТЕТ) ---
     lower_text = user_text.lower()
     is_photo_question = any(phrase in lower_text for phrase in [
