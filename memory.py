@@ -1,6 +1,7 @@
 # memory.py — Модуль для работы с GitHub Gist
 
 import os
+from collections import deque
 import requests
 import json
 from typing import Dict, Deque, Optional
