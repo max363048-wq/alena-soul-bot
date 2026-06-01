@@ -15,9 +15,6 @@ from typing import Dict, Deque, Optional, List, Any
 import stories
 import photos
 
-# ГАРАНТИРОВАННО перезаписываем ключи для Парижа
-photos.KEYWORD_MAP['париж'] = ['париж', 'франция', 'eiffel', 'лувр', 'парк', 'фонтан', 'мост', 'мосту', 'моста', 'мостом']
-
 BOT_TOKEN = os.getenv('BOT_TOKEN')
 GROQ_API_KEY = os.getenv('GROQ_API_KEY')
 WEATHER_API_KEY = os.getenv('WEATHER_API_KEY')
@@ -920,40 +917,7 @@ def handle_message(message: telebot.types.Message) -> None:
         save_user_history(user_id)
         return
 
-    # --- ГАРАНТИРОВАННОЕ ОПРЕДЕЛЕНИЕ КАТЕГОРИИ "ПАРИЖ" (ПРИОРИТЕТ №1) ---
-    if 'мосту' in user_text.lower() and re.search(r'(фото|фотки|фотографии)', user_text, re.IGNORECASE):
-        category = 'париж'
-        photos.user_last_category[user_id] = category
-        chosen_photo = photos.select_thematic_photo(user_id, category)
-        if chosen_photo:
-            photos.user_last_sent_photo[user_id] = chosen_photo
-            save_user_last_photo(user_id, chosen_photo)
-            try:
-                if lang == 'ru':
-                    analysis_prompt = "Начни свой ответ с душевного восклицания, например: 'Конечно, у меня есть такие фото!' или 'С удовольствием покажу!' Затем опиши фото: что ты на нём делаешь, где ты, какое у тебя настроение. Расскажи короткую историю. Обязательно добавь 2-3 эмодзи, чтобы описание было живым. Не начинай ответ с 'Привет'."
-                else:
-                    analysis_prompt = "Start your answer with a warm phrase, e.g., 'I'm so glad you asked! Here's one of my photos...' Then describe the photo: what you are doing, where you are, what mood you are in. Tell a short story. Be sure to add 2-3 emojis to make the description lively. Do not start with 'Hello'."
-                description = photos.analyze_photo_with_vision(chosen_photo, analysis_prompt, client, lang)
-                if description.startswith('Привет'):
-                    description = re.sub(r'^Привет[,!\s]*', '', description)
-                description = distribute_emojis(description)
-                with open(chosen_photo, 'rb') as photo:
-                    bot.send_photo(message.chat.id, photo, caption=description)
-                add_message(user_id, 'user', user_text)
-                add_message(user_id, 'assistant', description)
-                save_user_history(user_id)
-                if re.search(r'(любимые фото|любимое фото|любимых фото|какое твое любимое фото|покажи любимое фото)', user_text, re.IGNORECASE):
-                    user_last_photo_request[user_id] = {
-                        'question': user_text.strip().lower(),
-                        'photo_path': chosen_photo,
-                        'description': description
-                    }
-            except Exception as e:
-                print(f"Ошибка отправки фото моста: {e}")
-                bot.send_message(message.chat.id, distribute_emojis("Ой, не могу показать фото моста, попробуй ещё раз 😅"))
-            return
-
-    # --- Просьба "ещё такие же фото" ---
+    # --- Просьба "ещё такие же фото" (приоритетнее вопросов о месте) ---
     if user_id in photos.user_last_category and photos.user_last_category[user_id] is not None and re.search(r'(еще такие фото|еще такие фотки|такие же фото|такие же фотки|похожие фото|похожие фотки|аналогичные фото|аналогичные фотки|другие фото|другое фото|ещё такие|еще такие)', user_text, re.IGNORECASE):
         last_cat = photos.user_last_category[user_id]
         photos_in_cat = photos.get_photos_by_category(last_cat)
@@ -1022,6 +986,12 @@ def handle_message(message: telebot.types.Message) -> None:
         if re.search(r'(красавица|красивая|умница|прекрасна|великолепна|шикарна|обалденная|потрясающая|чудесная|восхитительная|симпатичная|милашка|хорошенькая|обворожительная|божественно|как красиво|какая ты красивая|какая ты классная|какая ты хорошая)', user_text, re.IGNORECASE):
             compliment = True
 
+        # --- ПРИНУДИТЕЛЬНЫЙ ПАРИЖ (внутри основного блока) ---
+        if 'мосту' in user_text.lower() and re.search(r'(фото|фотки|фотографии)', user_text, re.IGNORECASE):
+            category = 'париж'
+        else:
+            category = photos.search_category_by_query(user_text)
+
         # Любимое фото
         if re.search(r'(любимые фото|любимое фото|любимых фото|какое твое любимое фото|покажи любимое фото)', user_text, re.IGNORECASE):
             chosen_photo = random.choice(all_photos)
@@ -1081,7 +1051,6 @@ def handle_message(message: telebot.types.Message) -> None:
                 }
                 return
         else:
-            category = photos.search_category_by_query(user_text)
             if category:
                 photos.user_last_category[user_id] = category
                 chosen_photo = photos.select_thematic_photo(user_id, category)
@@ -1378,5 +1347,5 @@ def run_web():
 threading.Thread(target=run_web, daemon=True).start()
 
 if __name__ == '__main__':
-    print('✅ Алёна — Париж гарантирован, погода "в ближайшие три дня", гороскоп без приветствий')
+    print('✅ Алёна — возвращена стабильная логика фотоальбома')
     bot.infinity_polling()
