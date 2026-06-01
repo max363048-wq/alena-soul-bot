@@ -465,15 +465,51 @@ def handle_message(message: telebot.types.Message) -> None:
     # --- Просьба "ещё такие же фото" (включая единственное число) ---
     if user_id in photos.user_last_category and photos.user_last_category[user_id] is not None and re.search(r'(еще такие фото|еще такие фотки|такие же фото|такие же фотки|похожие фото|похожие фотки|аналогичные фото|аналогичные фотки|другие фото|другое фото|ещё такие|еще такие|еще такое фото|ещё такое фото|такое же фото)', user_text, re.IGNORECASE):
         last_cat = photos.user_last_category[user_id]
-        photos_in_cat = photos.get_photos_by_category(last_cat)
-        if user_id in photos.user_thematic_history and last_cat in photos.user_thematic_history[user_id]:
-            shown = photos.user_thematic_history[user_id][last_cat]
-            available = [p for p in photos_in_cat if p not in shown]
-            if not available:
-                msg = f"У меня пока только это фото на тему «{last_cat}». Хочешь, покажу что-нибудь из другого альбома? 😊"
-                bot.send_message(message.chat.id, msg)
+        # Принудительный поиск для Парижа
+        if last_cat == 'париж':
+            all_photos = photos.get_photo_list()
+            paris_photos = [p for p in all_photos if 'мост' in photos.get_keywords_from_photo_name(p) and 'париж' in photos.get_keywords_from_photo_name(p)]
+            if not paris_photos:
+                paris_photos = [p for p in all_photos if 'мост' in photos.get_keywords_from_photo_name(p)]
+            if paris_photos:
+                # Убираем уже показанные
+                if user_id in photos.user_thematic_history and last_cat in photos.user_thematic_history[user_id]:
+                    shown = photos.user_thematic_history[user_id][last_cat]
+                    available = [p for p in paris_photos if p not in shown]
+                else:
+                    available = paris_photos
+                if available:
+                    chosen_photo = random.choice(available)
+                    # Добавляем в историю
+                    if user_id not in photos.user_thematic_history:
+                        photos.user_thematic_history[user_id] = {}
+                    if last_cat not in photos.user_thematic_history[user_id]:
+                        photos.user_thematic_history[user_id][last_cat] = set()
+                    photos.user_thematic_history[user_id][last_cat].add(chosen_photo)
+                else:
+                    bot.send_message(message.chat.id, "У меня пока только это фото на тему «Париж». Хочешь, покажу что-нибудь из другого альбома? 😊")
+                    return
+            else:
+                bot.send_message(message.chat.id, "Ой, не могу найти парижские фото, попробуй ещё раз 😅")
                 return
-        chosen_photo = photos.select_thematic_photo(user_id, last_cat)
+        else:
+            photos_in_cat = photos.get_photos_by_category(last_cat)
+            if user_id in photos.user_thematic_history and last_cat in photos.user_thematic_history[user_id]:
+                shown = photos.user_thematic_history[user_id][last_cat]
+                available = [p for p in photos_in_cat if p not in shown]
+                if not available:
+                    msg = f"У меня пока только это фото на тему «{last_cat}». Хочешь, покажу что-нибудь из другого альбома? 😊"
+                    bot.send_message(message.chat.id, msg)
+                    return
+                chosen_photo = random.choice(available)
+                photos.user_thematic_history[user_id][last_cat].add(chosen_photo)
+            else:
+                chosen_photo = random.choice(photos_in_cat)
+                if user_id not in photos.user_thematic_history:
+                    photos.user_thematic_history[user_id] = {}
+                photos.user_thematic_history[user_id][last_cat] = {chosen_photo}
+            # chosen_photo уже определён
+
         if chosen_photo:
             photos.user_last_sent_photo[user_id] = chosen_photo
             save_user_last_photo(user_id, chosen_photo)
@@ -881,5 +917,5 @@ def run_web():
 threading.Thread(target=run_web, daemon=True).start()
 
 if __name__ == '__main__':
-    print('✅ Алёна — модульная архитектура с гарантированным Парижем')
+    print('✅ Алёна — Париж финальный, история сохраняется')
     bot.infinity_polling()
