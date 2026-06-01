@@ -53,7 +53,8 @@ def generate_story(prompt: str, user_id: int, lang: str, client, gist_id: str) -
     system_prompt = (
         'Ты Алёна — добрая, весёлая, обаятельная девушка. Напиши короткую, душевную историю '
         'на заданную тему. История должна быть на 4-7 предложений, с эмодзи, без английских слов. '
-        'Не обрывай мысль на полуслове — доводи историю до логического завершения.'
+        'Не обрывай мысль на полуслове — доводи историю до логического завершения. '
+        'Используй правильные глаголы: не «закурили фейерверки», а «запустили фейерверки».'
     )
     try:
         resp = client.chat.completions.create(
@@ -63,14 +64,13 @@ def generate_story(prompt: str, user_id: int, lang: str, client, gist_id: str) -
                 {'role': 'user', 'content': prompt}
             ],
             temperature=0.9,
-            max_tokens=400,  # увеличено для длинных историй
+            max_tokens=400,
             timeout=10
         )
         story = resp.choices[0].message.content.strip()
         if not story:
             return 'Ой, у меня не получилось придумать историю... Попробуй ещё раз! 😅'
         
-        # Сохраняем в Gist
         gist_id = gist_id or ''
         all_stories = _load_stories(gist_id)
         user_stories = all_stories.get(str(user_id), [])
@@ -92,8 +92,9 @@ def generate_story(prompt: str, user_id: int, lang: str, client, gist_id: str) -
 def creative_prompt(user_id: int, lang: str, client, gist_id: str) -> str:
     system_prompt = (
         'Ты Алёна — вдохновляющая, творческая девушка. Придумай одну короткую, конкретную идею для творчества '
-        '(например: "нарисуй закат на море акварелью" или "напиши стих о летнем дожде"). '
-        'Пиши с эмодзи, без английских слов, не предлагай создавать ботов или проекты — только идеи для рисования, стихов, поделок.'
+        '(например: «нарисуй закат на море акварелью» или «напиши стих о летнем дожде»). '
+        'Пиши с эмодзи, без английских слов, не предлагай создавать ботов или проекты — только идеи для рисования, стихов, поделок. '
+        'Сразу выдай идею, не спрашивай пользователя о его планах.'
     )
     try:
         resp = client.chat.completions.create(
@@ -103,14 +104,13 @@ def creative_prompt(user_id: int, lang: str, client, gist_id: str) -> str:
                 {'role': 'user', 'content': 'Дай мне творческую подсказку на сегодня'}
             ],
             temperature=0.95,
-            max_tokens=300,  # увеличено
+            max_tokens=300,
             timeout=10
         )
         idea = resp.choices[0].message.content.strip()
         if not idea:
             return 'Ой, муза сегодня капризничает... Давай попробуем ещё раз? 😊'
         
-        # Сохраняем в Gist
         gist_id = gist_id or ''
         all_stories = _load_stories(gist_id)
         user_stories = all_stories.get(str(user_id), [])
