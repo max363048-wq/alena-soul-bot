@@ -55,11 +55,13 @@ user_no_photos: Dict[int, bool] = {}
 user_thematic_history: Dict[int, Dict[str, set]] = {}
 user_last_category: Dict[int, str] = {}
 user_last_user_image_desc: Dict[int, str] = {}
+user_zodiac: Dict[int, str] = {}  # знак зодиака пользователя
 
 # --- Загрузка/сохранение через GitHub Gist ---
 GIST_FILENAME = 'user_langs.json'
 LAST_PHOTO_FILENAME = 'user_last_photo.json'
 HISTORY_FILENAME = 'user_history.json'
+ZODIAC_FILENAME = 'user_zodiac.json'
 GIST_API_URL = f'https://api.github.com/gists/{GIST_ID}'
 HEADERS = {
     'Authorization': f'token {GITHUB_TOKEN}',
@@ -168,10 +170,43 @@ def save_user_history(user_id: int):
     except Exception as e:
         print(f'Ошибка сохранения истории в Gist: {e}')
 
+# --- Сохранение знаков зодиака в Gist ---
+def load_user_zodiac():
+    global user_zodiac
+    if not GIST_ID or not GITHUB_TOKEN:
+        return
+    try:
+        resp = requests.get(GIST_API_URL, headers=HEADERS, timeout=5)
+        if resp.status_code == 200:
+            gist_data = resp.json()
+            files = gist_data.get('files', {})
+            if ZODIAC_FILENAME in files:
+                content = files[ZODIAC_FILENAME].get('content', '{}')
+                data = json.loads(content)
+                user_zodiac = {int(k): v for k, v in data.items()}
+    except Exception as e:
+        print(f'Ошибка загрузки знаков зодиака из Gist: {e}')
+
+def save_user_zodiac():
+    if not GIST_ID or not GITHUB_TOKEN:
+        return
+    try:
+        payload = {
+            'files': {
+                ZODIAC_FILENAME: {
+                    'content': json.dumps(user_zodiac, ensure_ascii=False)
+                }
+            }
+        }
+        requests.patch(GIST_API_URL, headers=HEADERS, json=payload, timeout=5)
+    except Exception as e:
+        print(f'Ошибка сохранения знаков зодиака в Gist: {e}')
+
 # Загружаем все данные при старте
 load_user_langs()
 load_user_last_photo()
 load_user_history()
+load_user_zodiac()
 
 def get_history(user_id: int) -> Deque:
     if user_id not in user_history:
@@ -198,6 +233,8 @@ def reset_user(user_id: int) -> None:
     user_thematic_history.pop(user_id, None)
     user_last_category.pop(user_id, None)
     user_last_user_image_desc.pop(user_id, None)
+    user_zodiac.pop(user_id, None)
+    save_user_zodiac()
 
 def default_pet_name(first_name: str) -> str:
     names = {
@@ -315,6 +352,7 @@ def clean_english_words(text: str) -> str:
         r'\bserious\b': 'серьёзном',
         r'\bresilient\b': 'стойким',
         r'\bearlier\b': 'раньше',
+        r'\btoday\b': 'сегодня',
     }
     for eng, rus in reps.items():
         text = re.sub(eng, rus, text, flags=re.IGNORECASE)
@@ -371,12 +409,11 @@ def distribute_emojis(text: str) -> str:
     return result
 
 def extract_city(text: str, user_id: Optional[int] = None) -> Optional[str]:
-    # Ищем конструкцию "в городе X" или "в X"
     match = re.search(r'\b(?:в|во|в городе)\s+([А-Яа-я\-]+(?:[-\s]?[А-Яа-я]+)?)', text, re.IGNORECASE)
     if match:
         city = match.group(1).strip().lower()
-        # Удаляем лишние слова (ночь, день, вечер и т.п.)
-        city = re.sub(r'\b(ночь|день|вечер|утро|сегодня|завтра|послезавтра)\b', '', city).strip()
+        # Удаляем лишние слова
+        city = re.sub(r'\b(ночь|день|вечер|утро|сегодня|завтра|послезавтра|через)\b', '', city).strip()
         if not city:
             return None
         corrections = {
@@ -395,7 +432,7 @@ def extract_city(text: str, user_id: Optional[int] = None) -> Optional[str]:
     if re.search(r'(у нас|в нашем городе|в моём городе|в своем городе|в нашем)', text, re.IGNORECASE):
         if user_id and user_id in user_last_city:
             return user_last_city[user_id]
-    if re.search(r'(завтра|послезавтра|будет)', text, re.IGNORECASE) and re.search(r'(погод|температур|дождь|солнце|ветер|градусов)', text, re.IGNORECASE):
+    if re.search(r'(завтра|послезавтра|будет|через \d+)', text, re.IGNORECASE) and re.search(r'(погод|температур|дождь|солнце|ветер|градусов)', text, re.IGNORECASE):
         if user_id and user_id in user_last_city:
             return user_last_city[user_id]
     if re.search(r'(сколько градусов|температура|погода|градусов|холодно|тепло)', text, re.IGNORECASE):
@@ -404,7 +441,7 @@ def extract_city(text: str, user_id: Optional[int] = None) -> Optional[str]:
     return None
 
 def is_weather_query(text: str) -> bool:
-    if re.search(r'(какая погода|какой прогноз|что с погодой|сколько градусов|температура какая|будет завтра|будет послезавтра|завтра погода|послезавтра погода|сколько сейчас градусов|какая сейчас погода)', text, re.IGNORECASE):
+    if re.search(r'(какая погода|какой прогноз|что с погодой|сколько градусов|температура какая|будет завтра|будет послезавтра|завтра погода|послезавтра погода|сколько сейчас градусов|какая сейчас погода|через \d+ (дня|дней|день))', text, re.IGNORECASE):
         return True
     if re.search(r'(будет|ожидается|прогноз|скажи|покажи).*(погод|температур|дождь|солнце|ветер)', text, re.IGNORECASE):
         return True
@@ -489,7 +526,12 @@ def handle_weather_query(message: telebot.types.Message, user_text: str, lang: s
         return False
     day_delta = 0
     day_name = ''
-    if re.search(r'послезавтра', user_text, re.IGNORECASE):
+    # Проверяем "через N дней"
+    match_days = re.search(r'через (\d+) (дня|дней|день)', user_text, re.IGNORECASE)
+    if match_days:
+        day_delta = int(match_days.group(1))
+        day_name = f'через {day_delta} {"день" if day_delta == 1 else "дня" if 1 < day_delta < 5 else "дней"}'
+    elif re.search(r'послезавтра', user_text, re.IGNORECASE):
         day_delta, day_name = 2, 'послезавтра'
     elif re.search(r'завтра', user_text, re.IGNORECASE):
         day_delta, day_name = 1, 'завтра'
@@ -577,21 +619,26 @@ def date_cmd(message: telebot.types.Message) -> None:
         bot.send_message(message.chat.id, distribute_emojis(f"Today is {now.strftime('%B %d, %Y')}. 😊"))
 
 @bot.message_handler(commands=['horoscope'])
-def horoscope_cmd(message: telebot.types.Message) -> None:
+def horoscope_cmd(message: telebot.types.Message, user_sign: Optional[str] = None) -> None:
     user_id = message.from_user.id
     lang = user_lang.get(user_id, 'ru')
     parts = message.text.split(maxsplit=1)
-    if len(parts) < 2:
+    if len(parts) < 2 and not user_sign:
         bot.send_message(message.chat.id, distribute_emojis("Укажи знак или дату рождения. Примеры:\n/horoscope козерог\n/horoscope 15.06\n/horoscope 15 июня"))
         return
-    arg = parts[1].strip().lower()
+    arg = user_sign if user_sign else parts[1].strip().lower()
     zodiac_list = ['овен','телец','близнецы','рак','лев','дева','весы','скорпион','стрелец','козерог','водолей','рыбы']
     if arg in zodiac_list:
         sign = arg
+        # сохраняем знак
+        user_zodiac[user_id] = sign
+        save_user_zodiac()
     else:
         day, month = parse_date_string(arg)
         if day and month:
             sign = zodiac_sign(day, month)
+            user_zodiac[user_id] = sign
+            save_user_zodiac()
         else:
             bot.send_message(message.chat.id, distribute_emojis("Не поняла знак или дату. Напиши, например: /horoscope козерог или /horoscope 15 июня"))
             return
@@ -811,7 +858,7 @@ def get_system_prompt(lang: str, current_date: str) -> str:
             '2. Не начинай ответ с "Привет", не представляйся заново.\n'
             '3. Используй эмодзи 😊😄😘💖✨ в каждом предложении, а не только в конце. Твои ответы должны выглядеть живыми и эмоциональными.\n'
             '4. Если просят шутку — дай одну короткую шутку, не спрашивай "хочешь ещё?".\n'
-            '5. Если спрашивают гороскоп, скажи: "Напиши /horoscope [твой знак или дата рождения]".\n'
+            '5. Если спрашивают гороскоп, а знак зодиака ещё не известен, скажи: "Прости, но я не знаю твою дату рождения (можно просто день и месяц) или просто скажи мне свой знак зодиака".\n'
             '6. Отвечай коротко (2-4 предложения), будь живой.\n'
             '7. Обращайся по имени ласково, но не в начале ответа.\n'
             '8. Иногда (после 2-3 своих фото или в середине разговора) проявляй интерес к собеседнику: спроси, есть ли у него фото, предложи показать. Но не делай это после каждого своего фото, чтобы не быть навязчивой.\n'
@@ -828,7 +875,7 @@ def get_system_prompt(lang: str, current_date: str) -> str:
             '2. Do not start with "Hello", do not reintroduce yourself.\n'
             '3. Use emojis 😊😄😘💖✨ in every sentence, not just at the end. Your answers should look lively and emotional.\n'
             '4. If asked for a joke — tell one short joke, do not ask "want another?".\n'
-            '5. If asked for horoscope, say: "Type /horoscope [your sign or birth date]".\n'
+            '5. If asked for a horoscope and the zodiac sign is not yet known, say: "Sorry, but I don\'t know your date of birth (just day and month) or just tell me your zodiac sign."\n'
             '6. Answer briefly (2-4 sentences), be lively.\n'
             '7. Address the user by name kindly, but not at the beginning.\n'
             '8. Occasionally (after 2-3 of your own photos or in the middle of a conversation) show interest in the user: ask if they have a photo, offer to share. But don\'t do it after every photo to avoid being intrusive.\n'
@@ -1135,6 +1182,35 @@ def handle_message(message: telebot.types.Message) -> None:
             return
         else:
             bot.send_message(message.chat.id, distribute_emojis("Ты о каком фото? Покажи, если хочешь обсудить 😊"))
+            return
+
+    # --- Естественный запрос гороскопа ---
+    if re.search(r'(гороскоп|расскажи гороскоп|что говорят звёзды|составь гороскоп|какой гороскоп)', user_text, re.IGNORECASE):
+        if user_id in user_zodiac:
+            sign = user_zodiac[user_id]
+            message.text = f'/horoscope {sign}'  # переиспользуем horoscope_cmd
+            horoscope_cmd(message, user_sign=sign)
+        else:
+            bot.send_message(message.chat.id, distribute_emojis("Прости, но я не знаю твою дату рождения (можно просто день и месяц) или просто скажи мне свой знак зодиака... 😊"))
+        return
+
+    # --- Определение даты/знака зодиака вне команды ---
+    zodiac_list = ['овен','телец','близнецы','рак','лев','дева','весы','скорпион','стрелец','козерог','водолей','рыбы']
+    day, month = parse_date_string(user_text)
+    if day and month:
+        sign = zodiac_sign(day, month)
+        user_zodiac[user_id] = sign
+        save_user_zodiac()
+        message.text = f'/horoscope {sign}'
+        horoscope_cmd(message, user_sign=sign)
+        return
+    # проверяем, не написал ли пользователь просто знак зодиака
+    for sign in zodiac_list:
+        if sign in user_text.lower():
+            user_zodiac[user_id] = sign
+            save_user_zodiac()
+            message.text = f'/horoscope {sign}'
+            horoscope_cmd(message, user_sign=sign)
             return
 
     if user_has_no_photos:
