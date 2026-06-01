@@ -34,6 +34,8 @@ user_zodiac: Dict[int, str] = {}
 user_timezone: Dict[int, int] = {}
 
 user_last_photo_request: Dict[int, Dict[str, str]] = {}
+# Флаг: бот предложил показать фото, ждёт ответа пользователя
+user_pending_photo_offer: Dict[int, bool] = {}
 
 # ---------- ФУНКЦИИ-ОБЁРТКИ ДЛЯ GIST ----------
 def save_user_history():
@@ -86,6 +88,7 @@ def reset_user(user_id: int) -> None:
     user_timezone.pop(user_id, None)
     memory.save_user_timezone(user_timezone)
     user_last_photo_request.pop(user_id, None)
+    user_pending_photo_offer.pop(user_id, None)
 
 def default_pet_name(first_name: str) -> str:
     names = {
@@ -352,6 +355,55 @@ def handle_message(message: telebot.types.Message) -> None:
 
     if user_text.startswith('/'):
         return
+
+    # Проверка: если бот только что предложил показать фото, а пользователь соглашается
+    if user_pending_photo_offer.get(user_id) and re.search(r'(давай|покажи|показывай|хочу|конечно|ага|да|yes|ok|ок)', user_text, re.IGNORECASE):
+        # Принудительно показываем случайное фото
+        all_photos = photos.get_photo_list()
+        if all_photos:
+            chosen_photo = random.choice(all_photos)
+            photos.user_last_sent_photo[user_id] = chosen_photo
+            save_user_last_photo(user_id, chosen_photo)
+            # Определяем категорию
+            photo_name = photos.get_keywords_from_photo_name(chosen_photo)
+            cat_found = False
+            for cat, words in photos.KEYWORD_MAP.items():
+                if any(syn in photo_name for syn in words):
+                    photos.user_last_category[user_id] = cat
+                    if user_id not in photos.user_thematic_history:
+                        photos.user_thematic_history[user_id] = {}
+                    if cat not in photos.user_thematic_history[user_id]:
+                        photos.user_thematic_history[user_id][cat] = set()
+                    photos.user_thematic_history[user_id][cat].add(chosen_photo)
+                    cat_found = True
+                    break
+            if not cat_found:
+                photos.user_last_category[user_id] = None
+            try:
+                if lang == 'ru':
+                    analysis_prompt = "Начни свой ответ с душевного восклицания, например: 'С удовольствием покажу!' Затем опиши фото: что ты на нём делаешь, где ты, какое у тебя настроение. Расскажи короткую историю. Обязательно добавь 2-3 эмодзи, чтобы описание было живым. Не начинай ответ с 'Привет'."
+                else:
+                    analysis_prompt = "Start your answer with a warm phrase, e.g., 'I'd love to show you!' Then describe the photo: what you are doing, where you are, what mood you are in. Tell a short story. Be sure to add 2-3 emojis to make the description lively. Do not start with 'Hello'."
+                description = photos.analyze_photo_with_vision(chosen_photo, analysis_prompt, client, lang)
+                if description.startswith('Привет'):
+                    description = re.sub(r'^Привет[,!\s]*', '', description)
+                description = distribute_emojis(description)
+                with open(chosen_photo, 'rb') as photo:
+                    bot.send_photo(message.chat.id, photo, caption=description)
+                add_message(user_id, 'user', user_text)
+                add_message(user_id, 'assistant', description)
+                save_user_history()
+                user_pending_photo_offer[user_id] = False
+                return
+            except Exception as e:
+                print(f"Ошибка отправки фото по предложению: {e}")
+                bot.send_message(message.chat.id, "Ой, не получилось показать фото 😅 Давай попробуем позже?")
+                user_pending_photo_offer[user_id] = False
+                return
+        else:
+            bot.send_message(message.chat.id, "У меня пока нет фотоальбома, но Максик обещал скоро добавить! 😊")
+            user_pending_photo_offer[user_id] = False
+            return
 
     user_has_no_photos = False
     if re.search(r'(нет фото|нет своих фото|не снимаюсь|не люблю фоткаться|нет моих фото|не фотографируюсь)', user_text, re.IGNORECASE):
@@ -834,6 +886,11 @@ def handle_message(message: telebot.types.Message) -> None:
             reply = distribute_emojis(reply)
             bot.send_message(message.chat.id, reply)
             add_message(user_id, 'assistant', reply)
+            # Проверяем, предложила ли Алёна показать фото
+            if re.search(r'(показать|посмотреть|покажу|фотографий|фотоальбом|фото|фотки|фотографию|снимки|снимок)', reply, re.IGNORECASE):
+                user_pending_photo_offer[user_id] = True
+            else:
+                user_pending_photo_offer[user_id] = False
             save_user_history()
             break
         except Exception as e:
