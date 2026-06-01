@@ -392,6 +392,7 @@ def clean_english_words(text: str) -> str:
         r'\btoday\b': 'сегодня',
         r'\bfinally\b': 'наконец',
         r'\bbecause\b': 'потому что',
+        r'\bcapricorn\b': 'козерог',
     }
     for eng, rus in reps.items():
         text = re.sub(eng, rus, text, flags=re.IGNORECASE)
@@ -467,7 +468,7 @@ def extract_city(text: str, user_id: Optional[int] = None) -> Optional[str]:
             if city.endswith('ы'): city = city[:-1]
             city = city[0].upper() + city[1:]
         return city
-    if re.search(r'(у нас|в нашем городе|в моём городе|в своем городе|в нашем)', text, re.IGNORECASE):
+    if re.search(r'(у нас|в нашем городе|в моём городе|в своем городе|в этом городе|в нашем)', text, re.IGNORECASE):
         if user_id and user_id in user_last_city:
             return user_last_city[user_id]
     if re.search(r'(завтра|послезавтра|будет|через \d+|на неделю|на (два|три|четыре|пять) дня)', text, re.IGNORECASE) and re.search(r'(погод|температур|дождь|солнце|ветер|градусов)', text, re.IGNORECASE):
@@ -479,7 +480,7 @@ def extract_city(text: str, user_id: Optional[int] = None) -> Optional[str]:
     return None
 
 def is_weather_query(text: str) -> bool:
-    if re.search(r'(какая погода|какой прогноз|что с погодой|сколько градусов|температура какая|будет завтра|будет послезавтра|завтра погода|послезавтра погода|сколько сейчас градусов|какая сейчас погода|через (три|четыре|пять|\d+) (дня|дней|день)|на неделю|на (два|три|четыре|пять) дня)', text, re.IGNORECASE):
+    if re.search(r'(какая погода|какая сегодня погода|какой прогноз|что с погодой|сколько градусов|температура какая|будет завтра|будет послезавтра|завтра погода|послезавтра погода|сколько сейчас градусов|какая сейчас погода|через (три|четыре|пять|\d+) (дня|дней|день)|на неделю|на (два|три|четыре|пять) дня)', text, re.IGNORECASE):
         return True
     if re.search(r'(будет|ожидается|прогноз|скажи|покажи).*(погод|температур|дождь|солнце|ветер)', text, re.IGNORECASE):
         return True
@@ -1059,7 +1060,6 @@ def handle_message(message: telebot.types.Message) -> None:
         if chosen_photo:
             user_last_sent_photo[user_id] = chosen_photo
             save_user_last_photo(user_id, chosen_photo)
-            # Проверяем комплимент
             compliment = bool(re.search(r'(красавица|красивая|умница|прекрасна|великолепна|шикарна|обалденная|потрясающая|чудесная|восхитительная|симпатичная|милашка|хорошенькая|обворожительная|божественно|как красиво|какая ты красивая|какая ты классная|какая ты хорошая)', user_text, re.IGNORECASE))
             apology = ""
             try:
@@ -1089,7 +1089,31 @@ def handle_message(message: telebot.types.Message) -> None:
 
     # --- ГАРАНТИРОВАННОЕ ОПРЕДЕЛЕНИЕ КАТЕГОРИИ "ПАРИЖ" ДЛЯ ЗАПРОСОВ С МОСТОМ ---
     if 'мосту' in user_text.lower() and re.search(r'(фото|фотки|фотографии)', user_text, re.IGNORECASE):
-        user_text = 'париж ' + user_text
+        # Явно выбираем фото из категории "париж"
+        category = 'париж'
+        user_last_category[user_id] = category
+        chosen_photo = select_thematic_photo(user_id, category)
+        if chosen_photo:
+            user_last_sent_photo[user_id] = chosen_photo
+            save_user_last_photo(user_id, chosen_photo)
+            try:
+                if lang == 'ru':
+                    analysis_prompt = "Начни свой ответ с душевного восклицания, например: 'Конечно, у меня есть такие фото!' или 'С удовольствием покажу!' Затем опиши фото: что ты на нём делаешь, где ты, какое у тебя настроение. Расскажи короткую историю. Обязательно добавь 2-3 эмодзи, чтобы описание было живым. Не начинай ответ с 'Привет'."
+                else:
+                    analysis_prompt = "Start your answer with a warm phrase, e.g., 'I'm so glad you asked! Here's one of my photos...' Then describe the photo: what you are doing, where you are, what mood you are in. Tell a short story. Be sure to add 2-3 emojis to make the description lively. Do not start with 'Hello'."
+                description = analyze_photo_with_vision(chosen_photo, analysis_prompt, lang)
+                if description.startswith('Привет'):
+                    description = re.sub(r'^Привет[,!\s]*', '', description)
+                description = distribute_emojis(description)
+                with open(chosen_photo, 'rb') as photo:
+                    bot.send_photo(message.chat.id, photo, caption=description)
+                add_message(user_id, 'user', user_text)
+                add_message(user_id, 'assistant', description)
+                save_user_history(user_id)
+            except Exception as e:
+                print(f"Ошибка отправки фото моста: {e}")
+                bot.send_message(message.chat.id, distribute_emojis("Ой, не могу показать фото моста, попробуй ещё раз 😅"))
+            return
 
     # --- Просьба показать свои фото (ОСНОВНОЙ БЛОК) ---
     if re.search(r'(фотки|какие нибудь фото|а у тебя есть фотографии|есть фотографии|у тебя есть фото|покажи свои фото|покажи фото|покажи мне фото|покажи мне фотки|покажешь фото|покажешь мне фото|фотоальбом|покажи себя|своё фото|свое фото|мои фото|свои фотографии|покажи альбом|покажи где ты была|покажи, где ты|покажи картинку|покажи изображение|есть фото|есть ли у тебя фото|посмотреть твои фото|покажи свои фотографии|любимые фото|любимое фото|любимых фото|есть еще фото|другие фото|покажи другое фото|ещё фото|какое твое любимое фото|покажи любимое фото|покажи другое|такие фото|такие фотки|фото где ты|фотки где ты)', user_text, re.IGNORECASE):
