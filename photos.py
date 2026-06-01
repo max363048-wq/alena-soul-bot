@@ -6,6 +6,7 @@ import base64
 import re
 import time
 from typing import Dict, Optional, List
+from text_utils import clean_english_words, remove_non_russian, distribute_emojis, SAFE_EMOJIS
 
 PHOTO_FOLDER = 'images'
 SUPPORTED_EXTENSIONS = ('.jpg', '.jpeg', '.png', '.gif')
@@ -33,103 +34,6 @@ user_no_photos: Dict[int, bool] = {}
 user_thematic_history: Dict[int, Dict[str, set]] = {}
 user_last_category: Dict[int, str] = {}
 user_last_user_image_desc: Dict[int, str] = {}
-
-def _clean_english(text: str) -> str:
-    if not text:
-        return text
-    reps = {
-        r'\balmost\b': 'почти', r'\btemperature\b': 'температура', r'\bdegrees?\b': 'градусов',
-        r'\bso\b': 'так что', r'\bbut\b': 'но', r'\band\b': 'и', r'\bok\b': 'хорошо',
-        r'\bplease\b': 'пожалуйста', r'\bsorry\b': 'извини', r'\bthanks\b': 'спасибо',
-        r'\bhello\b': 'привет', r'\bhi\b': 'привет', r'\bgreat\b': 'отлично', r'\bgood\b': 'хороший',
-        r'\bvery\b': 'очень', r'\blike\b': 'как', r'\breally\b': 'действительно',
-        r'\bwhat\b': 'что', r'\bwhy\b': 'почему', r'\byes\b': 'да', r'\bno\b': 'нет',
-        r'\bI\b': 'я', r'\byou\b': 'ты', r'\bwe\b': 'мы', r'\bthey\b': 'они',
-        r'\bfor\b': 'для', r'\bwith\b': 'с', r'\bfrom\b': 'из', r'\bto\b': 'в',
-        r'\bof\b': '', r'\bthe\b': '', r'\ba\b': '', r'\ban\b': '', r'\bnot\b': 'не',
-        r'\blater\b': 'позже', r'\bmaybe\b': 'возможно', r'\bjust\b': 'просто',
-        r'\bnow\b': 'сейчас', r'\bwell\b': 'ну', r'\bthen\b': 'затем', r'\beven\b': 'даже',
-        r'\bsome\b': 'некоторые', r'\bany\b': 'любые', r'\bhere\b': 'здесь', r'\bthere\b': 'там',
-        r'\bmy\b': 'мой', r'\byour\b': 'твой', r'\bhis\b': 'его', r'\bher\b': 'её',
-        r'\babsolutely\b': 'конечно', r'\blounge\b': 'шезлонг', r'\bromantic\b': 'романтично',
-        r'\binteres\w*\b': 'интересн',
-        r'\brefreshed\b': 'посвежевшей',
-        r'\bfeeling\b': 'чувствуя',
-        r'\bdiscuss\b': 'обсудить',
-        r'\bdebug\b': 'отладка',
-        r'\bcute\b': 'милые',
-        r'\btranquil\b': 'спокойного',
-        r'\bserious\b': 'серьёзном',
-        r'\bresilient\b': 'стойким',
-        r'\bearlier\b': 'раньше',
-        r'\btoday\b': 'сегодня',
-        r'\bfinally\b': 'наконец',
-        r'\bbecause\b': 'потому что',
-        r'\bcapricorn\b': 'козерог',
-        r'\bmoi\b': 'мной',
-        r'\bagree\b': 'согласна',
-        r'\bspectacle\b': 'зрелище',
-        r'\bpatterns\b': 'узоры',
-        r'\boverlooking\b': 'с видом на',
-        r'\btouched\b': 'тронули',
-        r'\bmagical\b': 'волшебные',
-        r'\bfound\b': 'нашла',
-        r'\bfeels\b': 'ощущается',
-        r'\bthy\b': 'твоё',
-    }
-    for eng, rus in reps.items():
-        text = re.sub(eng, rus, text, flags=re.IGNORECASE)
-    text = re.sub(r'\s+', ' ', text).strip()
-    return text
-
-def _remove_non_russian(text: str) -> str:
-    cleaned = re.sub(r'[^А-Яа-яЁё\s\d\.,!?:;…\-–—""\'«»()/#@\*\+—\u2700-\u27BF\u1F600-\u1F64F\u1F300-\u1F5FF\u1F680-\u1F6FF\u1F1E0-\u1F1FF\u2600-\u26FF\u2700-\u27BF]', '', text)
-    cleaned = re.sub(r'\s+', ' ', cleaned).strip()
-    return cleaned
-
-SAFE_EMOJIS = ['😊', '💖', '✨', '😄', '😘', '🥰', '💕', '🤗']
-
-def _filter_emojis(text: str) -> str:
-    allowed = set(SAFE_EMOJIS)
-    result = []
-    for ch in text:
-        if '\U0001F000' <= ch <= '\U0001FFFF' or '\u2600' <= ch <= '\u27BF':
-            if ch in allowed:
-                result.append(ch)
-        else:
-            result.append(ch)
-    return ''.join(result)
-
-def _distribute_emojis(text: str) -> str:
-    text = _filter_emojis(text)
-    sentences = re.split(r'(?<=[.!?…]) +', text)
-    new_sentences = []
-    used_safe_emojis = []
-    total_emojis = 0
-    for s in sentences:
-        emojis_in_s = re.findall(r'[\U0001F600-\U0001F64F\U0001F300-\U0001F5FF\U0001F680-\U0001F6FF\U0001F1E0-\U0001F1FF\u2600-\u26FF\u2700-\u27BF]', s)
-        if not emojis_in_s:
-            available = [e for e in SAFE_EMOJIS if e not in used_safe_emojis]
-            if not available:
-                available = SAFE_EMOJIS
-                used_safe_emojis = []
-            chosen = random.choice(available)
-            s += ' ' + chosen
-            used_safe_emojis.append(chosen)
-            total_emojis += 1
-        else:
-            total_emojis += len(emojis_in_s)
-        new_sentences.append(s)
-    result = ' '.join(new_sentences)
-    if total_emojis < 2:
-        available = [e for e in SAFE_EMOJIS if e not in used_safe_emojis]
-        if not available:
-            available = SAFE_EMOJIS
-        for _ in range(2 - total_emojis):
-            chosen = random.choice(available)
-            result += ' ' + chosen
-            used_safe_emojis.append(chosen)
-    return result
 
 def get_photo_list() -> List[str]:
     if not os.path.exists(PHOTO_FOLDER):
@@ -213,9 +117,9 @@ def analyze_photo_with_vision(image_path: str, prompt: str, client, lang: str = 
         )
         description = response.choices[0].message.content.strip()
         if lang == 'ru':
-            description = _clean_english(description)
-            description = _remove_non_russian(description)
-            description = _distribute_emojis(description)
+            description = clean_english_words(description)
+            description = remove_non_russian(description)
+            description = distribute_emojis(description)
         return description
     except Exception as e:
         print(f"Ошибка vision-анализа: {e}")
@@ -248,15 +152,12 @@ def analyze_user_photo(message, bot, client, lang: str) -> bool:
             bot.send_message(message.chat.id, "Something's wrong with the photo, maybe try another one? 😊")
         return False
 
-# --- НАДЁЖНЫЙ БЛОК ПАРИЖА ---
 def try_paris_photo(user_id: int, user_text: str, lang: str, bot, message, client, add_message, save_user_history, save_user_last_photo):
-    """Пытается показать фото парижского моста. Возвращает True, если фото было отправлено."""
     if 'мосту' not in user_text.lower():
         return False
     if not re.search(r'(фото|фотки|фотографии)', user_text, re.IGNORECASE):
         return False
 
-    # Принудительно ищем фото с "мост" и "париж" в имени
     all_photos = get_photo_list()
     paris_photos = [p for p in all_photos if 'мост' in get_keywords_from_photo_name(p) and 'париж' in get_keywords_from_photo_name(p)]
     if not paris_photos:
@@ -265,20 +166,17 @@ def try_paris_photo(user_id: int, user_text: str, lang: str, bot, message, clien
     if paris_photos:
         category = 'париж'
         user_last_category[user_id] = category
-        # Убираем уже показанные, чтобы не повторяться
         if user_id in user_thematic_history and category in user_thematic_history[user_id]:
             shown = user_thematic_history[user_id][category]
             available = [p for p in paris_photos if p not in shown]
             if available:
                 chosen_photo = random.choice(available)
             else:
-                # Все показаны, начинаем заново
                 shown.clear()
                 chosen_photo = random.choice(paris_photos)
         else:
             chosen_photo = random.choice(paris_photos)
 
-        # Обновляем историю
         if user_id not in user_thematic_history:
             user_thematic_history[user_id] = {}
         if category not in user_thematic_history[user_id]:
@@ -295,7 +193,7 @@ def try_paris_photo(user_id: int, user_text: str, lang: str, bot, message, clien
             description = analyze_photo_with_vision(chosen_photo, analysis_prompt, client, lang)
             if description.startswith('Привет'):
                 description = re.sub(r'^Привет[,!\s]*', '', description)
-            description = _distribute_emojis(description)
+            description = distribute_emojis(description)
             with open(chosen_photo, 'rb') as photo:
                 bot.send_photo(message.chat.id, photo, caption=description)
             add_message(user_id, 'user', user_text)
@@ -305,5 +203,5 @@ def try_paris_photo(user_id: int, user_text: str, lang: str, bot, message, clien
         except Exception as e:
             print(f"Ошибка отправки фото моста: {e}")
             bot.send_message(message.chat.id, "Ой, не могу показать фото моста, попробуй ещё раз 😅")
-            return True  # Считаем, что обработали, чтобы не идти дальше
+            return True
     return False
