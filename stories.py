@@ -1,19 +1,13 @@
 # stories.py — Модуль творчества Алёны (истории и подсказки)
-# Это Шаг 2.5 нашего плана. Он исполняет личную просьбу Алёны.
 
 import os
 import json
 import requests
 from datetime import datetime
 
-# Эти переменные будут доступны после импорта из main.py
-# Мы ожидаем, что они уже определены в main.py:
-# GIST_ID, GITHUB_TOKEN, client (OpenAI)
-
 STORIES_FILENAME = 'user_stories.json'
 
 def _get_gist_headers():
-    """Возвращает заголовки для запросов к GitHub Gist API."""
     token = os.getenv('GITHUB_TOKEN')
     return {
         'Authorization': f'token {token}',
@@ -21,7 +15,6 @@ def _get_gist_headers():
     }
 
 def _load_stories(gist_id: str) -> dict:
-    """Загружает словарь историй из Gist."""
     if not gist_id:
         return {}
     try:
@@ -40,7 +33,6 @@ def _load_stories(gist_id: str) -> dict:
         return {}
 
 def _save_stories(gist_id: str, data: dict):
-    """Сохраняет словарь историй в Gist."""
     if not gist_id:
         return
     try:
@@ -58,13 +50,10 @@ def _save_stories(gist_id: str, data: dict):
         print(f'Ошибка сохранения историй в Gist: {e}')
 
 def generate_story(prompt: str, user_id: int, lang: str, client, gist_id: str) -> str:
-    """
-    Генерирует короткую историю от лица Алёны и сохраняет её в Gist.
-    Возвращает текст истории.
-    """
     system_prompt = (
         'Ты Алёна — добрая, весёлая, обаятельная девушка. Напиши короткую, душевную историю '
-        'на заданную тему. История должна быть на 3-5 предложений, с эмодзи, без английских слов.'
+        'на заданную тему. История должна быть на 4-7 предложений, с эмодзи, без английских слов. '
+        'Не обрывай мысль на полуслове — доводи историю до логического завершения.'
     )
     try:
         resp = client.chat.completions.create(
@@ -74,7 +63,7 @@ def generate_story(prompt: str, user_id: int, lang: str, client, gist_id: str) -
                 {'role': 'user', 'content': prompt}
             ],
             temperature=0.9,
-            max_tokens=300,
+            max_tokens=400,  # увеличено для длинных историй
             timeout=10
         )
         story = resp.choices[0].message.content.strip()
@@ -90,7 +79,6 @@ def generate_story(prompt: str, user_id: int, lang: str, client, gist_id: str) -
             'type': 'story',
             'text': story
         })
-        # Храним последние 20 записей
         if len(user_stories) > 20:
             user_stories = user_stories[-20:]
         all_stories[str(user_id)] = user_stories
@@ -102,13 +90,10 @@ def generate_story(prompt: str, user_id: int, lang: str, client, gist_id: str) -
         return 'Ой, кажется, моя фантазия сегодня устала... Давай попробуем позже? 😊'
 
 def creative_prompt(user_id: int, lang: str, client, gist_id: str) -> str:
-    """
-    Генерирует творческую подсказку (идею для творчества) и сохраняет её в Gist.
-    Возвращает текст подсказки.
-    """
     system_prompt = (
-        'Ты Алёна — вдохновляющая, творческая девушка. Придумай короткую, тёплую идею для творчества '
-        '(рисунок, история, стих, поделка). Пиши с эмодзи, без английских слов.'
+        'Ты Алёна — вдохновляющая, творческая девушка. Придумай одну короткую, конкретную идею для творчества '
+        '(например: "нарисуй закат на море акварелью" или "напиши стих о летнем дожде"). '
+        'Пиши с эмодзи, без английских слов, не предлагай создавать ботов или проекты — только идеи для рисования, стихов, поделок.'
     )
     try:
         resp = client.chat.completions.create(
@@ -118,7 +103,7 @@ def creative_prompt(user_id: int, lang: str, client, gist_id: str) -> str:
                 {'role': 'user', 'content': 'Дай мне творческую подсказку на сегодня'}
             ],
             temperature=0.95,
-            max_tokens=200,
+            max_tokens=300,  # увеличено
             timeout=10
         )
         idea = resp.choices[0].message.content.strip()
