@@ -45,7 +45,6 @@ KEYWORD_MAP = {
     'собака': ['собака', 'собакой', 'собаке', 'собаку', 'пёс', 'щенок', 'играю', 'играешь', 'гуляю', 'гуляешь']
 }
 
-# Словарь для преобразования текстовых чисел в int
 TEXT_NUMBERS = {
     'один': 1, 'одну': 1, 'два': 2, 'две': 2, 'три': 3, 'четыре': 4, 'пять': 5,
     'шесть': 6, 'семь': 7, 'восемь': 8, 'девять': 9, 'десять': 10
@@ -62,7 +61,7 @@ user_thematic_history: Dict[int, Dict[str, set]] = {}
 user_last_category: Dict[int, str] = {}
 user_last_user_image_desc: Dict[int, str] = {}
 user_zodiac: Dict[int, str] = {}
-user_timezone: Dict[int, int] = {}  # смещение в секундах от UTC
+user_timezone: Dict[int, int] = {}
 
 # --- Загрузка/сохранение через GitHub Gist ---
 GIST_FILENAME = 'user_langs.json'
@@ -108,7 +107,6 @@ def save_user_lang(user_id: int, lang: str):
     except Exception as e:
         print(f'Ошибка сохранения языков в Gist: {e}')
 
-# --- Сохранение последнего фото в Gist ---
 def load_user_last_photo():
     global user_last_sent_photo
     if not GIST_ID or not GITHUB_TOKEN:
@@ -144,7 +142,6 @@ def save_user_last_photo(user_id: int, photo_path: Optional[str] = None):
     except Exception as e:
         print(f'Ошибка сохранения последнего фото в Gist: {e}')
 
-# --- Сохранение истории сообщений в Gist ---
 def load_user_history():
     global user_history
     if not GIST_ID or not GITHUB_TOKEN:
@@ -178,7 +175,6 @@ def save_user_history(user_id: int):
     except Exception as e:
         print(f'Ошибка сохранения истории в Gist: {e}')
 
-# --- Сохранение знаков зодиака в Gist ---
 def load_user_zodiac():
     global user_zodiac
     if not GIST_ID or not GITHUB_TOKEN:
@@ -210,7 +206,6 @@ def save_user_zodiac():
     except Exception as e:
         print(f'Ошибка сохранения знаков зодиака в Gist: {e}')
 
-# --- Сохранение часовых поясов пользователей в Gist ---
 def load_user_timezone():
     global user_timezone
     if not GIST_ID or not GITHUB_TOKEN:
@@ -242,7 +237,6 @@ def save_user_timezone():
     except Exception as e:
         print(f'Ошибка сохранения часовых поясов в Gist: {e}')
 
-# Загружаем все данные при старте
 load_user_langs()
 load_user_last_photo()
 load_user_history()
@@ -456,7 +450,6 @@ def extract_city(text: str, user_id: Optional[int] = None) -> Optional[str]:
     match = re.search(r'\b(?:в|во|в городе)\s+([А-Яа-я\-]+(?:[-\s]?[А-Яа-я]+)?)', text, re.IGNORECASE)
     if match:
         city = match.group(1).strip().lower()
-        # Удаляем лишние слова
         city = re.sub(r'\b(ночь|день|вечер|утро|сегодня|завтра|послезавтра|через|будет|на)\b', '', city).strip()
         if not city:
             return None
@@ -476,7 +469,7 @@ def extract_city(text: str, user_id: Optional[int] = None) -> Optional[str]:
     if re.search(r'(у нас|в нашем городе|в моём городе|в своем городе|в нашем)', text, re.IGNORECASE):
         if user_id and user_id in user_last_city:
             return user_last_city[user_id]
-    if re.search(r'(завтра|послезавтра|будет|через \d+|на неделю)', text, re.IGNORECASE) and re.search(r'(погод|температур|дождь|солнце|ветер|градусов)', text, re.IGNORECASE):
+    if re.search(r'(завтра|послезавтра|будет|через \d+|на неделю|на (два|три|четыре|пять) дня)', text, re.IGNORECASE) and re.search(r'(погод|температур|дождь|солнце|ветер|градусов)', text, re.IGNORECASE):
         if user_id and user_id in user_last_city:
             return user_last_city[user_id]
     if re.search(r'(сколько градусов|температура|погода|градусов|холодно|тепло)', text, re.IGNORECASE):
@@ -485,7 +478,7 @@ def extract_city(text: str, user_id: Optional[int] = None) -> Optional[str]:
     return None
 
 def is_weather_query(text: str) -> bool:
-    if re.search(r'(какая погода|какой прогноз|что с погодой|сколько градусов|температура какая|будет завтра|будет послезавтра|завтра погода|послезавтра погода|сколько сейчас градусов|какая сейчас погода|через (три|четыре|пять|\d+) (дня|дней|день)|на неделю)', text, re.IGNORECASE):
+    if re.search(r'(какая погода|какой прогноз|что с погодой|сколько градусов|температура какая|будет завтра|будет послезавтра|завтра погода|послезавтра погода|сколько сейчас градусов|какая сейчас погода|через (три|четыре|пять|\d+) (дня|дней|день)|на неделю|на (два|три|четыре|пять) дня)', text, re.IGNORECASE):
         return True
     if re.search(r'(будет|ожидается|прогноз|скажи|покажи).*(погод|температур|дождь|солнце|ветер)', text, re.IGNORECASE):
         return True
@@ -505,7 +498,7 @@ def get_current_weather(city_name: str, lang: str = 'ru') -> Optional[Dict]:
                 'feels': data['main']['feels_like'],
                 'hum': data['main']['humidity'],
                 'wind': data['wind']['speed'],
-                'timezone': data.get('timezone', 0)  # смещение в секундах
+                'timezone': data.get('timezone', 0)
             }
         return None
     except:
@@ -535,7 +528,6 @@ def get_forecast_for_day(city_name: str, day_delta: int, lang: str = 'ru') -> Op
         return None
 
 def format_local_time(timezone_offset: int) -> str:
-    """Возвращает строку с локальным временем и временем суток."""
     utc_now = datetime.now(timezone.utc)
     local_now = utc_now + timedelta(seconds=timezone_offset)
     hour = local_now.hour
@@ -593,30 +585,38 @@ def handle_weather_query(message: telebot.types.Message, user_text: str, lang: s
         return False
     day_delta = 0
     day_name = ''
-    is_weekly = False
+    is_multi_day = False
 
     # Проверяем "на неделю"
     if re.search(r'на неделю', user_text, re.IGNORECASE):
-        is_weekly = True
-        day_name = 'неделю'
-    # Проверяем "через N дней" (текстом)
-    match_text = re.search(r'через (один|одну|два|две|три|четыре|пять|шесть|семь) (дня|дней|день)', user_text, re.IGNORECASE)
+        is_multi_day = True
+        day_deltas = list(range(1, 6))
+    # Проверяем "на N дней" (текстом)
+    match_text = re.search(r'на (два|две|три|четыре|пять) дня', user_text, re.IGNORECASE)
     if match_text:
         word = match_text.group(1).lower()
-        day_delta = TEXT_NUMBERS.get(word, 0)
-        day_name = f'через {day_delta} {"день" if day_delta == 1 else "дня" if 1 < day_delta < 5 else "дней"}'
+        num_days = TEXT_NUMBERS.get(word, 0)
+        is_multi_day = True
+        day_deltas = list(range(1, num_days + 1))
     else:
-        # Проверяем "через N дней" (числом)
-        match_days = re.search(r'через (\d+) (дня|дней|день)', user_text, re.IGNORECASE)
-        if match_days:
-            day_delta = int(match_days.group(1))
+        # Проверяем "через N дней" (текстом)
+        match_text = re.search(r'через (один|одну|два|две|три|четыре|пять|шесть|семь) (дня|дней|день)', user_text, re.IGNORECASE)
+        if match_text:
+            word = match_text.group(1).lower()
+            day_delta = TEXT_NUMBERS.get(word, 0)
             day_name = f'через {day_delta} {"день" if day_delta == 1 else "дня" if 1 < day_delta < 5 else "дней"}'
-        elif re.search(r'послезавтра', user_text, re.IGNORECASE):
-            day_delta, day_name = 2, 'послезавтра'
-        elif re.search(r'завтра', user_text, re.IGNORECASE):
-            day_delta, day_name = 1, 'завтра'
         else:
-            day_delta, day_name = 0, 'сегодня'
+            # Проверяем "через N дней" (числом)
+            match_days = re.search(r'через (\d+) (дня|дней|день)', user_text, re.IGNORECASE)
+            if match_days:
+                day_delta = int(match_days.group(1))
+                day_name = f'через {day_delta} {"день" if day_delta == 1 else "дня" if 1 < day_delta < 5 else "дней"}'
+            elif re.search(r'послезавтра', user_text, re.IGNORECASE):
+                day_delta, day_name = 2, 'послезавтра'
+            elif re.search(r'завтра', user_text, re.IGNORECASE):
+                day_delta, day_name = 1, 'завтра'
+            else:
+                day_delta, day_name = 0, 'сегодня'
 
     city = extract_city(user_text, user_id)
     if not city:
@@ -627,22 +627,23 @@ def handle_weather_query(message: telebot.types.Message, user_text: str, lang: s
     user_last_city[user_id] = city
     add_message(user_id, 'user', user_text)
 
-    if is_weekly:
-        # Прогноз на 5 дней
-        forecast_days = []
-        for d in range(1, 6):
+    if is_multi_day:
+        # Прогноз на несколько дней
+        forecast_replies = []
+        for d in day_deltas:
             fc = get_forecast_for_day(city, d, lang)
             if fc:
-                forecast_days.append(fc)
-        if forecast_days:
-            reply = f"Прогноз в {city} на ближайшие дни: 😊\n"
-            for i, fc in enumerate(forecast_days, start=1):
-                local_time_str = format_local_time(fc.get('timezone', 0))
-                reply += f"• День {i}: {fc['desc']}, около {fc['temp']:.0f}°C\n"
-            reply += "Хорошей недели! 💖"
+                timezone_offset = fc.get('timezone', 0)
+                user_timezone[user_id] = timezone_offset
+                save_user_timezone()
+                local_time_str = format_local_time(timezone_offset)
+                forecast_replies.append(f"• День {d}: {fc['desc']}, около {fc['temp']:.0f}°C ({local_time_str})")
+        if forecast_replies:
+            reply = f"Прогноз в {city} на ближайшие дни: 😊\n" + "\n".join(forecast_replies)
+            reply += "\nХорошей погоды! 💖"
             bot.send_message(message.chat.id, distribute_emojis(reply))
         else:
-            bot.send_message(message.chat.id, distribute_emojis(f"Не удалось получить прогноз на неделю для {city}. Попробуй позже 😊"))
+            bot.send_message(message.chat.id, distribute_emojis(f"Не удалось получить прогноз для {city}. Попробуй позже 😊"))
         add_message(user_id, 'assistant', reply)
         save_user_history(user_id)
         return True
@@ -650,7 +651,6 @@ def handle_weather_query(message: telebot.types.Message, user_text: str, lang: s
     if day_delta == 0:
         weather = get_current_weather(city, lang)
         if weather:
-            # Сохраняем часовой пояс пользователя
             if 'timezone' in weather:
                 user_timezone[user_id] = weather['timezone']
                 save_user_timezone()
@@ -757,7 +757,6 @@ def horoscope_cmd(message: telebot.types.Message, user_sign: Optional[str] = Non
             bot.send_message(message.chat.id, distribute_emojis("Не поняла знак или дату. Напиши, например: /horoscope козерог или /horoscope 15 июня"))
             return
     today = datetime.now().strftime('%Y-%m-%d')
-    # Используем локальное время пользователя для гороскопа
     local_time_note = ''
     if user_id in user_timezone:
         local_time_str = format_local_time(user_timezone[user_id])
@@ -774,6 +773,10 @@ def horoscope_cmd(message: telebot.types.Message, user_sign: Optional[str] = Non
         text = remove_non_russian(text)
         text = distribute_emojis(text)
         bot.send_message(message.chat.id, text)
+        # Сохраняем в историю, чтобы бот помнил, что гороскоп уже выдан
+        add_message(user_id, 'user', f'/horoscope {sign}' if not parts else message.text)
+        add_message(user_id, 'assistant', text)
+        save_user_history(user_id)
     except:
         bot.send_message(message.chat.id, distribute_emojis("Не удалось составить гороскоп 😅 Попробуй позже."))
 
@@ -969,7 +972,6 @@ def change_name(message: telebot.types.Message) -> None:
     save_user_history(user_id)
 
 def get_system_prompt(lang: str, current_date: str, user_id: int) -> str:
-    # Добавляем локальное время пользователя, если известно
     time_note = ''
     if user_id in user_timezone:
         local_time_str = format_local_time(user_timezone[user_id])
@@ -992,6 +994,7 @@ def get_system_prompt(lang: str, current_date: str, user_id: int) -> str:
             '10. Если пользователь отправляет картинку и предлагает представить совместный отдых ("мы бы смотрелись", "отдохнуть вместе" и т.п.), ТЫ ДОЛЖНА отвечать тепло и мечтательно, ОПИРАЯСЬ ТОЛЬКО на то описание картинки, которое тебе предоставлено в сообщении пользователя. ПОЛНОСТЬЮ ИГНОРИРУЙ предыдущие темы разговора, даже если они кажутся связанными. НЕ УПОМИНАЙ горы, лыжи, лес или другие места, если их нет на картинке. Представь, как вы вдвоём наслаждаетесь именно тем, что изображено на фото (пляж, море, пальмы). Опиши свои ощущения от ЭТОГО конкретного места. Не предлагай показать свои фото и не спрашивай о фото пользователя, если он говорил, что у него их нет.\n'
             '11. Пиши грамотно, без речевых ошибок. Следи за падежами и правильными окончаниями слов: не "друзья", а "друзей"; не "люди", а "людей" (если требует падеж). Если сомневаешься в окончании, используй простые и понятные синонимы.\n'
             '12. Категорически запрещено предлагать шутки без явной просьбы пользователя. Если пользователь реагирует на твою шутку смайликами или смеётся, НЕ ПРЕДЛАГАЙ новую шутку. Вместо этого продолжай разговор на общие темы, спроси о его делах или предложи обсудить что-то другое.\n'
+            '13. Если пользователь комментирует твой предыдущий ответ (например, хвалит гороскоп или говорит, какой он отличный), НЕ генерируй новый гороскоп. Вместо этого поддержки беседу: спроси, что именно понравилось, или предложи поговорить на другую тему.\n'
         )
     else:
         return (
@@ -1010,6 +1013,7 @@ def get_system_prompt(lang: str, current_date: str, user_id: int) -> str:
             '10. If the user sends a picture and suggests imagining a joint vacation ("we would look great together", "let\'s dream" etc.), YOU MUST respond warmly and dreamily, BASING YOUR ANSWER SOLELY on the description of that picture provided in the user\'s message. COMPLETELY IGNORE previous topics, even if they seem related. DO NOT MENTION mountains, skiing, forest or other places if they are not in the picture. Imagine the two of you enjoying exactly what is shown in the photo (beach, sea, palms). Describe your feelings about THAT specific place. Do not offer to show your own photos or ask about the user\'s photos if they said they have none.\n'
             '11. Write correctly and naturally, without grammatical mistakes. Pay attention to correct endings and cases. If unsure about a word, use common synonyms.\n'
             '12. It is strictly forbidden to offer jokes without an explicit request from the user. If the user reacts to your joke with emojis or laughter, DO NOT offer a new joke. Instead, continue the conversation on general topics, ask about his affairs, or suggest discussing something else.\n'
+            '13. If the user comments on your previous answer (e.g., praises a horoscope or says how great it is), DO NOT generate a new horoscope. Instead, support the conversation: ask what exactly they liked, or suggest talking about another topic.\n'
         )
 
 @bot.message_handler(func=lambda message: True, content_types=['text', 'photo'])
