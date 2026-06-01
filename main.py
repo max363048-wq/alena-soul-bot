@@ -3,7 +3,7 @@ import telebot
 import re
 import random
 import time
-import threading  # Важно!
+import threading
 from flask import Flask
 from openai import OpenAI
 from collections import deque
@@ -34,7 +34,7 @@ user_timezone: Dict[int, int] = {}
 
 user_last_photo_request: Dict[int, Dict[str, str]] = {}
 
-# ---------- ФУНКЦИИ-ОБЁРТКИ ДЛЯ GIST (чтобы модули могли сохранять) ----------
+# ---------- ФУНКЦИИ-ОБЁРТКИ ДЛЯ GIST ----------
 def save_user_history():
     memory.save_user_history(user_history)
 
@@ -181,6 +181,11 @@ def clean_english_words(text: str) -> str:
         r'\bspectacle\b': 'зрелище',
         r'\bpatterns\b': 'узоры',
         r'\boverlooking\b': 'с видом на',
+        r'\btouched\b': 'тронули',
+        r'\bmagical\b': 'волшебные',
+        r'\bfound\b': 'нашла',
+        r'\bfeels\b': 'ощущается',
+        r'\bthy\b': 'твоё',
     }
     for eng, rus in reps.items():
         text = re.sub(eng, rus, text, flags=re.IGNORECASE)
@@ -917,5 +922,5 @@ def run_web():
 threading.Thread(target=run_web, daemon=True).start()
 
 if __name__ == '__main__':
-    print('✅ Алёна — Париж финальный, история сохраняется')
+    print('✅ Алёна — финальная, язык в Gist, шутки без повторов, Render-ready, история в Gist')
     bot.infinity_polling()
