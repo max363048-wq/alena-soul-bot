@@ -935,28 +935,10 @@ def handle_message(message: telebot.types.Message) -> None:
         save_user_history(user_id)
         return
 
-    # --- Творческие функции Алёны (истории и подсказки) ---
-    if re.search(r'(расскажи историю|придумай историю|напиши рассказ|какие нибудь истории|знаешь истории)', user_text, re.IGNORECASE):
-        prompt = user_text
-        story = stories.generate_story(prompt, user_id, lang, client, GIST_ID)
-        bot.send_message(message.chat.id, distribute_emojis(story))
-        add_message(user_id, 'user', user_text)
-        add_message(user_id, 'assistant', story)
-        save_user_history(user_id)
-        return
-
-    if re.search(r'(дай идею для творчества|подскажи тему|что нарисовать|вдохнови на творчество|творческие идеи|творческую идею|идеи для творчества)', user_text, re.IGNORECASE):
-        idea = stories.creative_prompt(user_id, lang, client, GIST_ID)
-        bot.send_message(message.chat.id, distribute_emojis(idea))
-        add_message(user_id, 'user', user_text)
-        add_message(user_id, 'assistant', idea)
-        save_user_history(user_id)
-        return
-
     # --- ГАРАНТИРОВАННОЕ ОПРЕДЕЛЕНИЕ КАТЕГОРИИ "ПАРИЖ" (ПРИОРИТЕТ №1) ---
     if 'мосту' in user_text.lower() and re.search(r'(фото|фотки|фотографии)', user_text, re.IGNORECASE):
         category = 'париж'
-        photos.user_last_category[user_id] = category  # Запоминаем категорию
+        photos.user_last_category[user_id] = category
         chosen_photo = photos.select_thematic_photo(user_id, category)
         if chosen_photo:
             photos.user_last_sent_photo[user_id] = chosen_photo
@@ -979,10 +961,9 @@ def handle_message(message: telebot.types.Message) -> None:
                 print(f"Ошибка отправки фото моста: {e}")
                 bot.send_message(message.chat.id, distribute_emojis("Ой, не могу показать фото моста, попробуй ещё раз 😅"))
             return
-        # Если фото не нашлись, идём дальше (но такого быть не должно)
 
-    # --- Просьба "ещё такие же фото" ---
-    if user_id in photos.user_last_category and photos.user_last_category[user_id] is not None and re.search(r'(еще такие фото|еще такие фотки|такие же фото|такие же фотки|похожие фото|похожие фотки|аналогичные фото|аналогичные фотки|другие фото|другое фото|ещё такие|еще такие)', user_text, re.IGNORECASE):
+    # --- Просьба "ещё такие же фото" (включая "еще такое") ---
+    if user_id in photos.user_last_category and photos.user_last_category[user_id] is not None and re.search(r'(еще такие фото|еще такие фотки|такие же фото|такие же фотки|похожие фото|похожие фотки|аналогичные фото|аналогичные фотки|другие фото|другое фото|ещё такие|еще такие|еще такое фото|ещё такое фото|такое же фото)', user_text, re.IGNORECASE):
         last_cat = photos.user_last_category[user_id]
         photos_in_cat = photos.get_photos_by_category(last_cat)
         if user_id in photos.user_thematic_history and last_cat in photos.user_thematic_history[user_id]:
@@ -1022,6 +1003,24 @@ def handle_message(message: telebot.types.Message) -> None:
                 print(f"Ошибка отправки ещё одного фото: {e}")
                 bot.send_message(message.chat.id, distribute_emojis("Ой, не могу показать другое фото, попробуй ещё раз 😅"))
             return
+
+    # --- Творческие функции Алёны (истории и подсказки) ---
+    if re.search(r'(расскажи историю|придумай историю|напиши рассказ|какие нибудь истории|знаешь истории)', user_text, re.IGNORECASE):
+        prompt = user_text
+        story = stories.generate_story(prompt, user_id, lang, client, GIST_ID)
+        bot.send_message(message.chat.id, distribute_emojis(story))
+        add_message(user_id, 'user', user_text)
+        add_message(user_id, 'assistant', story)
+        save_user_history(user_id)
+        return
+
+    if re.search(r'(дай идею для творчества|подскажи тему|что нарисовать|вдохнови на творчество|творческие идеи|творческую идею|идеи для творчества)', user_text, re.IGNORECASE):
+        idea = stories.creative_prompt(user_id, lang, client, GIST_ID)
+        bot.send_message(message.chat.id, distribute_emojis(idea))
+        add_message(user_id, 'user', user_text)
+        add_message(user_id, 'assistant', idea)
+        save_user_history(user_id)
+        return
 
     # --- Просьба показать свои фото (ОСНОВНОЙ БЛОК) ---
     if re.search(r'(фотки|какие нибудь фото|а у тебя есть фотографии|есть фотографии|у тебя есть фото|покажи свои фото|покажи фото|покажи мне фото|покажи мне фотки|покажешь фото|покажешь мне фото|фотоальбом|покажи себя|своё фото|свое фото|мои фото|свои фотографии|покажи альбом|покажи где ты была|покажи, где ты|покажи картинку|покажи изображение|есть фото|есть ли у тебя фото|посмотреть твои фото|покажи свои фотографии|любимые фото|любимое фото|любимых фото|есть еще фото|другие фото|покажи другое фото|ещё фото|какое твое любимое фото|покажи любимое фото|покажи другое|такие фото|такие фотки|фото где ты|фотки где ты)', user_text, re.IGNORECASE):
@@ -1117,7 +1116,7 @@ def handle_message(message: telebot.types.Message) -> None:
                 else:
                     apology = ""
             else:
-                if user_id in photos.user_last_category and photos.user_last_category[user_id] is not None and re.search(r'(еще такие фото|еще такие фотки|такие же фото|такие же фотки|похожие фото|похожие фотки|аналогичные фото|аналогичные фотки|такие фото|такие фотки)', user_text, re.IGNORECASE):
+                if user_id in photos.user_last_category and photos.user_last_category[user_id] is not None and re.search(r'(еще такие фото|еще такие фотки|такие же фото|такие же фотки|похожие фото|похожие фотки|аналогичные фото|аналогичные фотки|такие фото|такие фотки|еще такое фото)', user_text, re.IGNORECASE):
                     last_cat = photos.user_last_category[user_id]
                     photos_in_cat = photos.get_photos_by_category(last_cat)
                     if len(photos_in_cat) == 1 and user_id in photos.user_thematic_history and last_cat in photos.user_thematic_history[user_id]:
@@ -1386,5 +1385,5 @@ def run_web():
 threading.Thread(target=run_web, daemon=True).start()
 
 if __name__ == '__main__':
-    print('✅ Алёна — Париж финальный, истории отдельно, overlooking исправлено')
+    print('✅ Алёна — Париж первый, "ещё такое" распознаётся')
     bot.infinity_polling()
