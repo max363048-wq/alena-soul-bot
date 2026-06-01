@@ -71,6 +71,11 @@ def _clean_english(text: str) -> str:
         r'\bspectacle\b': 'зрелище',
         r'\bpatterns\b': 'узоры',
         r'\boverlooking\b': 'с видом на',
+        r'\btouched\b': 'тронули',
+        r'\bmagical\b': 'волшебные',
+        r'\bfound\b': 'нашла',
+        r'\bfeels\b': 'ощущается',
+        r'\bthy\b': 'твоё',
     }
     for eng, rus in reps.items():
         text = re.sub(eng, rus, text, flags=re.IGNORECASE)
@@ -243,7 +248,7 @@ def analyze_user_photo(message, bot, client, lang: str) -> bool:
             bot.send_message(message.chat.id, "Something's wrong with the photo, maybe try another one? 😊")
         return False
 
-# --- НАДЁЖНЫЙ БЛОК ПАРИЖА (ИСПРАВЛЕННЫЙ) ---
+# --- НАДЁЖНЫЙ БЛОК ПАРИЖА ---
 def try_paris_photo(user_id: int, user_text: str, lang: str, bot, message, client, add_message, save_user_history, save_user_last_photo):
     """Пытается показать фото парижского моста. Возвращает True, если фото было отправлено."""
     if 'мосту' not in user_text.lower():
