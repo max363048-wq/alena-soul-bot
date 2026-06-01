@@ -15,9 +15,6 @@ from typing import Dict, Deque, Optional, List, Any
 import stories
 import photos
 
-# ГАРАНТИРОВАННО перезаписываем ключи для Парижа
-photos.KEYWORD_MAP['париж'] = ['париж', 'франция', 'eiffel', 'лувр', 'парк', 'фонтан', 'мост', 'мосту', 'моста', 'мостом']
-
 BOT_TOKEN = os.getenv('BOT_TOKEN')
 GROQ_API_KEY = os.getenv('GROQ_API_KEY')
 WEATHER_API_KEY = os.getenv('WEATHER_API_KEY')
@@ -938,16 +935,30 @@ def handle_message(message: telebot.types.Message) -> None:
         save_user_history(user_id)
         return
 
+    # --- Творческие функции Алёны (истории и подсказки) ---
+    if re.search(r'(расскажи историю|придумай историю|напиши рассказ|какие нибудь истории|знаешь истории)', user_text, re.IGNORECASE):
+        prompt = user_text
+        story = stories.generate_story(prompt, user_id, lang, client, GIST_ID)
+        bot.send_message(message.chat.id, distribute_emojis(story))
+        add_message(user_id, 'user', user_text)
+        add_message(user_id, 'assistant', story)
+        save_user_history(user_id)
+        return
+
+    if re.search(r'(дай идею для творчества|подскажи тему|что нарисовать|вдохнови на творчество|творческие идеи|творческую идею|идеи для творчества)', user_text, re.IGNORECASE):
+        idea = stories.creative_prompt(user_id, lang, client, GIST_ID)
+        bot.send_message(message.chat.id, distribute_emojis(idea))
+        add_message(user_id, 'user', user_text)
+        add_message(user_id, 'assistant', idea)
+        save_user_history(user_id)
+        return
+
     # --- ГАРАНТИРОВАННОЕ ОПРЕДЕЛЕНИЕ КАТЕГОРИИ "ПАРИЖ" (ПРИОРИТЕТ №1) ---
     if 'мосту' in user_text.lower() and re.search(r'(фото|фотки|фотографии)', user_text, re.IGNORECASE):
-        # Принудительный поиск фото с "париж" и "мост" в имени
-        all_photos = photos.get_photo_list()
-        paris_photos = [p for p in all_photos if 'мост' in photos.get_keywords_from_photo_name(p) and 'париж' in photos.get_keywords_from_photo_name(p)]
-        if not paris_photos:
-            # Запасной вариант: ищем только "мост"
-            paris_photos = [p for p in all_photos if 'мост' in photos.get_keywords_from_photo_name(p)]
-        if paris_photos:
-            chosen_photo = random.choice(paris_photos)
+        category = 'париж'
+        photos.user_last_category[user_id] = category  # Запоминаем категорию
+        chosen_photo = photos.select_thematic_photo(user_id, category)
+        if chosen_photo:
             photos.user_last_sent_photo[user_id] = chosen_photo
             save_user_last_photo(user_id, chosen_photo)
             try:
@@ -1284,24 +1295,6 @@ def handle_message(message: telebot.types.Message) -> None:
             horoscope_cmd(message, user_sign=sign)
             return
 
-    # --- Творческие функции Алёны (истории и подсказки) ---
-    if re.search(r'(расскажи историю|придумай историю|напиши рассказ|какие нибудь истории|знаешь истории)', user_text, re.IGNORECASE):
-        prompt = user_text
-        story = stories.generate_story(prompt, user_id, lang, client, GIST_ID)
-        bot.send_message(message.chat.id, distribute_emojis(story))
-        add_message(user_id, 'user', user_text)
-        add_message(user_id, 'assistant', story)
-        save_user_history(user_id)
-        return
-
-    if re.search(r'(дай идею для творчества|подскажи тему|что нарисовать|вдохнови на творчество|творческие идеи|творческую идею|идеи для творчества)', user_text, re.IGNORECASE):
-        idea = stories.creative_prompt(user_id, lang, client, GIST_ID)
-        bot.send_message(message.chat.id, distribute_emojis(idea))
-        add_message(user_id, 'user', user_text)
-        add_message(user_id, 'assistant', idea)
-        save_user_history(user_id)
-        return
-
     if user_has_no_photos:
         reply = (
             "Как жаль, а я бы с удовольствием посмотрела на тебя! 😊 Но ничего страшного, мне и так хорошо с тобой. "
@@ -1393,5 +1386,5 @@ def run_web():
 threading.Thread(target=run_web, daemon=True).start()
 
 if __name__ == '__main__':
-    print('✅ Алёна — Париж показан, overlooking исправлено')
+    print('✅ Алёна — Париж финальный, истории отдельно, overlooking исправлено')
     bot.infinity_polling()
