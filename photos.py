@@ -260,7 +260,10 @@ def try_paris_photo(user_id: int, user_text: str, lang: str, bot, message, clien
     if paris_photos:
         category = 'париж'
         user_last_category[user_id] = category
-        chosen_photo = random.choice(paris_photos)
+        # Выбираем фото, не показывая дважды одно и то же
+        chosen_photo = select_thematic_photo(user_id, category)
+        if chosen_photo is None:
+            chosen_photo = random.choice(paris_photos)
         user_last_sent_photo[user_id] = chosen_photo
         save_user_last_photo(user_id, chosen_photo)
         try:
