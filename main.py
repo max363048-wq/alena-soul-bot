@@ -379,6 +379,7 @@ def clean_english_words(text: str) -> str:
         r'\bagree\b': 'согласна',
         r'\bspectacle\b': 'зрелище',
         r'\bpatterns\b': 'узоры',
+        r'\boverlooking\b': 'с видом на',
     }
     for eng, rus in reps.items():
         text = re.sub(eng, rus, text, flags=re.IGNORECASE)
@@ -1392,5 +1393,5 @@ def run_web():
 threading.Thread(target=run_web, daemon=True).start()
 
 if __name__ == '__main__':
-    print('✅ Алёна — Париж теперь ищется напрямую по именам файлов')
+    print('✅ Алёна — Париж показан, overlooking исправлено')
     bot.infinity_polling()
