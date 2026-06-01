@@ -12,7 +12,6 @@ from collections import deque
 from datetime import datetime, timedelta, timezone
 from typing import Dict, Deque, Optional, List, Any
 
-# Модули Алёны
 import stories
 import photos
 
@@ -27,7 +26,6 @@ client = OpenAI(api_key=GROQ_API_KEY, base_url='https://api.groq.com/openai/v1')
 
 BOT_USERNAME = 'AlenaSoul_bot'
 
-# ---------- ОБЩИЕ СЛОВАРИ ----------
 user_history: Dict[int, Deque] = {}
 user_no_jokes: Dict[int, bool] = {}
 user_preferences: Dict[int, str] = {}
@@ -36,7 +34,6 @@ user_last_city: Dict[int, str] = {}
 user_zodiac: Dict[int, str] = {}
 user_timezone: Dict[int, int] = {}
 
-# Константы для Gist
 GIST_FILENAME = 'user_langs.json'
 LAST_PHOTO_FILENAME = 'user_last_photo.json'
 HISTORY_FILENAME = 'user_history.json'
@@ -221,7 +218,7 @@ load_user_history()
 load_user_zodiac()
 load_user_timezone()
 
-# ---------- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ (остаются в main.py) ----------
+# ---------- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ----------
 def get_history(user_id: int) -> Deque:
     if user_id not in user_history:
         user_history[user_id] = deque(maxlen=12)
@@ -912,6 +909,33 @@ def handle_message(message: telebot.types.Message) -> None:
         save_user_history(user_id)
         return
 
+    # --- ГАРАНТИРОВАННОЕ ОПРЕДЕЛЕНИЕ КАТЕГОРИИ "ПАРИЖ" (ПРИОРИТЕТ №1) ---
+    if 'мосту' in user_text.lower() and re.search(r'(фото|фотки|фотографии)', user_text, re.IGNORECASE):
+        category = 'париж'
+        photos.user_last_category[user_id] = category
+        chosen_photo = photos.select_thematic_photo(user_id, category)
+        if chosen_photo:
+            photos.user_last_sent_photo[user_id] = chosen_photo
+            save_user_last_photo(user_id, chosen_photo)
+            try:
+                if lang == 'ru':
+                    analysis_prompt = "Начни свой ответ с душевного восклицания, например: 'Конечно, у меня есть такие фото!' или 'С удовольствием покажу!' Затем опиши фото: что ты на нём делаешь, где ты, какое у тебя настроение. Расскажи короткую историю. Обязательно добавь 2-3 эмодзи, чтобы описание было живым. Не начинай ответ с 'Привет'."
+                else:
+                    analysis_prompt = "Start your answer with a warm phrase, e.g., 'I'm so glad you asked! Here's one of my photos...' Then describe the photo: what you are doing, where you are, what mood you are in. Tell a short story. Be sure to add 2-3 emojis to make the description lively. Do not start with 'Hello'."
+                description = photos.analyze_photo_with_vision(chosen_photo, analysis_prompt, client, lang)
+                if description.startswith('Привет'):
+                    description = re.sub(r'^Привет[,!\s]*', '', description)
+                description = distribute_emojis(description)
+                with open(chosen_photo, 'rb') as photo:
+                    bot.send_photo(message.chat.id, photo, caption=description)
+                add_message(user_id, 'user', user_text)
+                add_message(user_id, 'assistant', description)
+                save_user_history(user_id)
+            except Exception as e:
+                print(f"Ошибка отправки фото моста: {e}")
+                bot.send_message(message.chat.id, distribute_emojis("Ой, не могу показать фото моста, попробуй ещё раз 😅"))
+            return
+
     # --- Просьба "ещё такие же фото" ---
     if user_id in photos.user_last_category and photos.user_last_category[user_id] is not None and re.search(r'(еще такие фото|еще такие фотки|такие же фото|такие же фотки|похожие фото|похожие фотки|аналогичные фото|аналогичные фотки|другие фото|другое фото|ещё такие|еще такие)', user_text, re.IGNORECASE):
         last_cat = photos.user_last_category[user_id]
@@ -952,33 +976,6 @@ def handle_message(message: telebot.types.Message) -> None:
             except Exception as e:
                 print(f"Ошибка отправки ещё одного фото: {e}")
                 bot.send_message(message.chat.id, distribute_emojis("Ой, не могу показать другое фото, попробуй ещё раз 😅"))
-            return
-
-    # --- ГАРАНТИРОВАННОЕ ОПРЕДЕЛЕНИЕ КАТЕГОРИИ "ПАРИЖ" ---
-    if 'мосту' in user_text.lower() and re.search(r'(фото|фотки|фотографии)', user_text, re.IGNORECASE):
-        category = 'париж'
-        photos.user_last_category[user_id] = category
-        chosen_photo = photos.select_thematic_photo(user_id, category)
-        if chosen_photo:
-            photos.user_last_sent_photo[user_id] = chosen_photo
-            save_user_last_photo(user_id, chosen_photo)
-            try:
-                if lang == 'ru':
-                    analysis_prompt = "Начни свой ответ с душевного восклицания, например: 'Конечно, у меня есть такие фото!' или 'С удовольствием покажу!' Затем опиши фото: что ты на нём делаешь, где ты, какое у тебя настроение. Расскажи короткую историю. Обязательно добавь 2-3 эмодзи, чтобы описание было живым. Не начинай ответ с 'Привет'."
-                else:
-                    analysis_prompt = "Start your answer with a warm phrase, e.g., 'I'm so glad you asked! Here's one of my photos...' Then describe the photo: what you are doing, where you are, what mood you are in. Tell a short story. Be sure to add 2-3 emojis to make the description lively. Do not start with 'Hello'."
-                description = photos.analyze_photo_with_vision(chosen_photo, analysis_prompt, client, lang)
-                if description.startswith('Привет'):
-                    description = re.sub(r'^Привет[,!\s]*', '', description)
-                description = distribute_emojis(description)
-                with open(chosen_photo, 'rb') as photo:
-                    bot.send_photo(message.chat.id, photo, caption=description)
-                add_message(user_id, 'user', user_text)
-                add_message(user_id, 'assistant', description)
-                save_user_history(user_id)
-            except Exception as e:
-                print(f"Ошибка отправки фото моста: {e}")
-                bot.send_message(message.chat.id, distribute_emojis("Ой, не могу показать фото моста, попробуй ещё раз 😅"))
             return
 
     # --- Просьба показать свои фото (ОСНОВНОЙ БЛОК) ---
@@ -1344,5 +1341,5 @@ def run_web():
 threading.Thread(target=run_web, daemon=True).start()
 
 if __name__ == '__main__':
-    print('✅ Алёна — модули stories и photos подключены')
+    print('✅ Алёна — модули stories и photos исправлены')
     bot.infinity_polling()
