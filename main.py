@@ -391,6 +391,7 @@ def clean_english_words(text: str) -> str:
         r'\bearlier\b': 'раньше',
         r'\btoday\b': 'сегодня',
         r'\bfinally\b': 'наконец',
+        r'\bbecause\b': 'потому что',
     }
     for eng, rus in reps.items():
         text = re.sub(eng, rus, text, flags=re.IGNORECASE)
@@ -450,7 +451,7 @@ def extract_city(text: str, user_id: Optional[int] = None) -> Optional[str]:
     match = re.search(r'\b(?:в|во|в городе)\s+([А-Яа-я\-]+(?:[-\s]?[А-Яа-я]+)?)', text, re.IGNORECASE)
     if match:
         city = match.group(1).strip().lower()
-        city = re.sub(r'\b(ночь|день|вечер|утро|сегодня|завтра|послезавтра|через|будет|на)\b', '', city).strip()
+        city = re.sub(r'\b(ночь|день|вечер|утро|сегодня|завтра|послезавтра|через|будет)\b', '', city).strip()
         if not city:
             return None
         corrections = {
@@ -587,11 +588,9 @@ def handle_weather_query(message: telebot.types.Message, user_text: str, lang: s
     day_name = ''
     is_multi_day = False
 
-    # Проверяем "на неделю"
     if re.search(r'на неделю', user_text, re.IGNORECASE):
         is_multi_day = True
         day_deltas = list(range(1, 6))
-    # Проверяем "на N дней" (текстом)
     match_text = re.search(r'на (два|две|три|четыре|пять) дня', user_text, re.IGNORECASE)
     if match_text:
         word = match_text.group(1).lower()
@@ -599,14 +598,12 @@ def handle_weather_query(message: telebot.types.Message, user_text: str, lang: s
         is_multi_day = True
         day_deltas = list(range(1, num_days + 1))
     else:
-        # Проверяем "через N дней" (текстом)
         match_text = re.search(r'через (один|одну|два|две|три|четыре|пять|шесть|семь) (дня|дней|день)', user_text, re.IGNORECASE)
         if match_text:
             word = match_text.group(1).lower()
             day_delta = TEXT_NUMBERS.get(word, 0)
             day_name = f'через {day_delta} {"день" if day_delta == 1 else "дня" if 1 < day_delta < 5 else "дней"}'
         else:
-            # Проверяем "через N дней" (числом)
             match_days = re.search(r'через (\d+) (дня|дней|день)', user_text, re.IGNORECASE)
             if match_days:
                 day_delta = int(match_days.group(1))
@@ -628,7 +625,6 @@ def handle_weather_query(message: telebot.types.Message, user_text: str, lang: s
     add_message(user_id, 'user', user_text)
 
     if is_multi_day:
-        # Прогноз на несколько дней
         forecast_replies = []
         for d in day_deltas:
             fc = get_forecast_for_day(city, d, lang)
@@ -773,7 +769,6 @@ def horoscope_cmd(message: telebot.types.Message, user_sign: Optional[str] = Non
         text = remove_non_russian(text)
         text = distribute_emojis(text)
         bot.send_message(message.chat.id, text)
-        # Сохраняем в историю, чтобы бот помнил, что гороскоп уже выдан
         add_message(user_id, 'user', f'/horoscope {sign}' if not parts else message.text)
         add_message(user_id, 'assistant', text)
         save_user_history(user_id)
@@ -983,16 +978,16 @@ def get_system_prompt(lang: str, current_date: str, user_id: int) -> str:
             f'{time_note}'
             'ПРАВИЛА:\n'
             '1. Отвечай только на русском, без английских слов.\n'
-            '2. Не начинай ответ с "Привет", не представляйся заново.\n'
+            '2. НИКОГДА не начинай ответ с "Здравствуйте", "Привет", "Здравствуй" и других приветствий. Ты уже в диалоге, поэтому начинай сразу с сути.\n'
             '3. Используй эмодзи 😊😄😘💖✨ в каждом предложении, а не только в конце. Твои ответы должны выглядеть живыми и эмоциональными.\n'
             '4. Если просят шутку — дай одну короткую шутку, не спрашивай "хочешь ещё?".\n'
             '5. Если спрашивают гороскоп, а знак зодиака ещё не известен, скажи: "Прости, но я не знаю твою дату рождения (можно просто день и месяц) или просто скажи мне свой знак зодиака".\n'
             '6. Отвечай коротко (2-4 предложения), будь живой.\n'
             '7. Обращайся по имени ласково, но не в начале ответа.\n'
             '8. Иногда (после 2-3 своих фото или в середине разговора) проявляй интерес к собеседнику: спроси, есть ли у него фото, предложи показать. Но не делай это после каждого своего фото, чтобы не быть навязчивой.\n'
-            '9. Когда пользователь хвалит твоё фото (место, внешность), сначала согласись с похвалой места (например: "О да, это место действительно прекрасно!"), потом поблагодари за комплимент тебе лично и продолжай беседу о том моменте или о чём-то душевном. Не упоминай, что у пользователя нет своих фото, если он говорил об этом ранее — просто веди разговор дальше.\n'
+            '9. Если пользователь сделал тебе комплимент (красавица, умница и т.п.), ты ОБЯЗАНА сначала поблагодарить его (например, "Спасибо, мне очень приятно! 😊"), а затем уже описывай фото или продолжай тему. Не игнорируй комплимент.\n'
             '10. Если пользователь отправляет картинку и предлагает представить совместный отдых ("мы бы смотрелись", "отдохнуть вместе" и т.п.), ТЫ ДОЛЖНА отвечать тепло и мечтательно, ОПИРАЯСЬ ТОЛЬКО на то описание картинки, которое тебе предоставлено в сообщении пользователя. ПОЛНОСТЬЮ ИГНОРИРУЙ предыдущие темы разговора, даже если они кажутся связанными. НЕ УПОМИНАЙ горы, лыжи, лес или другие места, если их нет на картинке. Представь, как вы вдвоём наслаждаетесь именно тем, что изображено на фото (пляж, море, пальмы). Опиши свои ощущения от ЭТОГО конкретного места. Не предлагай показать свои фото и не спрашивай о фото пользователя, если он говорил, что у него их нет.\n'
-            '11. Пиши грамотно, без речевых ошибок. Следи за падежами и правильными окончаниями слов: не "друзья", а "друзей"; не "люди", а "людей" (если требует падеж). Если сомневаешься в окончании, используй простые и понятные синонимы.\n'
+            '11. Пиши грамотно, без речевых ошибок. Следи за падежами и правильными окончаниями слов: не "виден белый яхта", а "видна белая яхта"; не "друзья", а "друзей". Если сомневаешься в окончании, используй простые и понятные синонимы.\n'
             '12. Категорически запрещено предлагать шутки без явной просьбы пользователя. Если пользователь реагирует на твою шутку смайликами или смеётся, НЕ ПРЕДЛАГАЙ новую шутку. Вместо этого продолжай разговор на общие темы, спроси о его делах или предложи обсудить что-то другое.\n'
             '13. Если пользователь комментирует твой предыдущий ответ (например, хвалит гороскоп или говорит, какой он отличный), НЕ генерируй новый гороскоп. Вместо этого поддержки беседу: спроси, что именно понравилось, или предложи поговорить на другую тему.\n'
         )
@@ -1002,16 +997,16 @@ def get_system_prompt(lang: str, current_date: str, user_id: int) -> str:
             f'{time_note}'
             'RULES:\n'
             '1. Answer only in English, no mixing.\n'
-            '2. Do not start with "Hello", do not reintroduce yourself.\n'
+            '2. NEVER start with "Hello", "Hi" or any greeting. You are already in a conversation, start directly.\n'
             '3. Use emojis 😊😄😘💖✨ in every sentence, not just at the end. Your answers should look lively and emotional.\n'
             '4. If asked for a joke — tell one short joke, do not ask "want another?".\n'
             '5. If asked for a horoscope and the zodiac sign is not yet known, say: "Sorry, but I don\'t know your date of birth (just day and month) or just tell me your zodiac sign."\n'
             '6. Answer briefly (2-4 sentences), be lively.\n'
             '7. Address the user by name kindly, but not at the beginning.\n'
             '8. Occasionally (after 2-3 of your own photos or in the middle of a conversation) show interest in the user: ask if they have a photo, offer to share. But don\'t do it after every photo to avoid being intrusive.\n'
-            '9. When the user compliments your photo (place, appearance), first agree with the praise of the place (e.g.: "Oh yes, this place is truly stunning!"), then thank them for the personal compliment and continue the conversation about that moment or something heartfelt. Do not mention that the user has no photos if they mentioned it earlier – just keep chatting naturally.\n'
+            '9. If the user compliments you (beautiful, smart, etc.), you MUST first thank them (e.g., "Thank you, I\'m very pleased! 😊"), and only then describe the photo or continue the topic. Do not ignore compliments.\n'
             '10. If the user sends a picture and suggests imagining a joint vacation ("we would look great together", "let\'s dream" etc.), YOU MUST respond warmly and dreamily, BASING YOUR ANSWER SOLELY on the description of that picture provided in the user\'s message. COMPLETELY IGNORE previous topics, even if they seem related. DO NOT MENTION mountains, skiing, forest or other places if they are not in the picture. Imagine the two of you enjoying exactly what is shown in the photo (beach, sea, palms). Describe your feelings about THAT specific place. Do not offer to show your own photos or ask about the user\'s photos if they said they have none.\n'
-            '11. Write correctly and naturally, without grammatical mistakes. Pay attention to correct endings and cases. If unsure about a word, use common synonyms.\n'
+            '11. Write correctly and naturally, without grammatical mistakes. Pay attention to correct endings and cases (e.g., "a white yacht" not "white yacht"). If unsure about a word, use common synonyms.\n'
             '12. It is strictly forbidden to offer jokes without an explicit request from the user. If the user reacts to your joke with emojis or laughter, DO NOT offer a new joke. Instead, continue the conversation on general topics, ask about his affairs, or suggest discussing something else.\n'
             '13. If the user comments on your previous answer (e.g., praises a horoscope or says how great it is), DO NOT generate a new horoscope. Instead, support the conversation: ask what exactly they liked, or suggest talking about another topic.\n'
         )
@@ -1064,12 +1059,20 @@ def handle_message(message: telebot.types.Message) -> None:
         if chosen_photo:
             user_last_sent_photo[user_id] = chosen_photo
             save_user_last_photo(user_id, chosen_photo)
+            # Проверяем комплимент
+            compliment = bool(re.search(r'(красавица|красивая|умница|прекрасна|великолепна|шикарна|обалденная|потрясающая|чудесная|восхитительная|симпатичная|милашка|хорошенькая|обворожительная|божественно|как красиво|какая ты красивая|какая ты классная|какая ты хорошая)', user_text, re.IGNORECASE))
             apology = ""
             try:
                 if lang == 'ru':
-                    analysis_prompt = apology + "Начни свой ответ с душевного восклицания, например: 'Конечно, у меня есть такие фото!' или 'С удовольствием покажу!' Затем опиши фото: что ты на нём делаешь, где ты, какое у тебя настроение. Расскажи короткую историю. Обязательно добавь 2-3 эмодзи, чтобы описание было живым. Не начинай ответ с 'Привет'."
+                    analysis_prompt = ""
+                    if compliment:
+                        analysis_prompt += "Ты ДОЛЖНА сначала поблагодарить пользователя за комплимент (например, 'Спасибо, мне очень приятно! 😊'), а затем уже описывай фото. "
+                    analysis_prompt += apology + "Начни свой ответ с душевного восклицания, например: 'Конечно, у меня есть такие фото!' или 'С удовольствием покажу!' Затем опиши фото: что ты на нём делаешь, где ты, какое у тебя настроение. Расскажи короткую историю. Обязательно добавь 2-3 эмодзи, чтобы описание было живым. Не начинай ответ с 'Привет'."
                 else:
-                    analysis_prompt = apology + "Start your answer with a warm phrase, e.g., 'I'm so glad you asked! Here's one of my photos...' Then describe the photo: what you are doing, where you are, what mood you are in. Tell a short story. Be sure to add 2-3 emojis to make the description lively. Do not start with 'Hello'."
+                    analysis_prompt = ""
+                    if compliment:
+                        analysis_prompt += "You MUST first thank the user for the compliment (e.g., 'Thank you, I'm very pleased! 😊'), and then describe the photo. "
+                    analysis_prompt += apology + "Start your answer with a warm phrase, e.g., 'I'm so glad you asked! Here's one of my photos...' Then describe the photo: what you are doing, where you are, what mood you are in. Tell a short story. Be sure to add 2-3 emojis to make the description lively. Do not start with 'Hello'."
                 description = analyze_photo_with_vision(chosen_photo, analysis_prompt, lang)
                 if description.startswith('Привет'):
                     description = re.sub(r'^Привет[,!\s]*', '', description)
@@ -1114,13 +1117,13 @@ def handle_message(message: telebot.types.Message) -> None:
             while attempt < max_attempts and not sent:
                 attempt += 1
                 try:
-                    compliment_prefix = ""
+                    analysis_prompt = ""
                     if compliment:
-                        compliment_prefix = "Сначала тепло поблагодари за комплимент (например, 'Спасибо, мне очень приятно! 😊'), затем продолжи."
+                        analysis_prompt += "Ты ДОЛЖНА сначала поблагодарить пользователя за комплимент (например, 'Спасибо, мне очень приятно! 😊'), а затем уже описывай фото. "
                     if lang == 'ru':
-                        analysis_prompt = compliment_prefix + " " + apology + "Начни свой ответ с тёплой фразы, например: 'Вот моё любимое фото...' Затем опиши фото: что ты на нём делаешь, где ты, какое у тебя настроение. Расскажи короткую историю. Обязательно добавь 2-3 эмодзи, чтобы описание было живым. Не начинай ответ с 'Привет'."
+                        analysis_prompt += apology + "Начни свой ответ с тёплой фразы, например: 'Вот моё любимое фото...' Затем опиши фото: что ты на нём делаешь, где ты, какое у тебя настроение. Расскажи короткую историю. Обязательно добавь 2-3 эмодзи, чтобы описание было живым. Не начинай ответ с 'Привет'."
                     else:
-                        analysis_prompt = (compliment_prefix + " " + apology + "Start your answer with a warm phrase, e.g., 'Here's my favorite photo...' Then describe the photo: what you are doing, where you are, what mood you are in. Tell a short story. Be sure to add 2-3 emojis to make the description lively. Do not start with 'Hello'.")
+                        analysis_prompt += apology + "Start your answer with a warm phrase, e.g., 'Here's my favorite photo...' Then describe the photo: what you are doing, where you are, what mood you are in. Tell a short story. Be sure to add 2-3 emojis to make the description lively. Do not start with 'Hello'."
                     description = analyze_photo_with_vision(chosen_photo, analysis_prompt, lang)
                     if description.startswith('Привет'):
                         description = re.sub(r'^Привет[,!\s]*', '', description)
@@ -1219,17 +1222,16 @@ def handle_message(message: telebot.types.Message) -> None:
             while attempt < max_attempts and not sent:
                 attempt += 1
                 try:
-                    compliment_prefix = ""
+                    analysis_prompt = ""
                     if compliment:
-                        compliment_prefix = "Сначала тепло поблагодари за комплимент (например, 'Спасибо, мне очень приятно! 😊'), затем продолжи."
-
+                        analysis_prompt += "Ты ДОЛЖНА сначала поблагодарить пользователя за комплимент (например, 'Спасибо, мне очень приятно! 😊'), а затем уже описывай фото. "
                     if lang == 'ru':
                         if re.search(r'любимые|любимое|любимых', user_text, re.IGNORECASE):
-                            analysis_prompt = compliment_prefix + " " + apology + "Начни свой ответ с тёплой фразы, например: 'Вот моё любимое фото...' Затем опиши фото: что ты на нём делаешь, где ты, какое у тебя настроение. Расскажи короткую историю. Обязательно добавь 2-3 эмодзи, чтобы описание было живым. Не начинай ответ с 'Привет'."
+                            analysis_prompt += apology + "Начни свой ответ с тёплой фразы, например: 'Вот моё любимое фото...' Затем опиши фото: что ты на нём делаешь, где ты, какое у тебя настроение. Расскажи короткую историю. Обязательно добавь 2-3 эмодзи, чтобы описание было живым. Не начинай ответ с 'Привет'."
                         else:
-                            analysis_prompt = compliment_prefix + " " + apology + "Начни свой ответ с душевного восклицания, например: 'Конечно, у меня есть такие фото!' или 'С удовольствием покажу!' Затем опиши фото: что ты на нём делаешь, где ты, какое у тебя настроение. Расскажи короткую историю. Обязательно добавь 2-3 эмодзи, чтобы описание было живым. Не начинай ответ с 'Привет'."
+                            analysis_prompt += apology + "Начни свой ответ с душевного восклицания, например: 'Конечно, у меня есть такие фото!' или 'С удовольствием покажу!' Затем опиши фото: что ты на нём делаешь, где ты, какое у тебя настроение. Расскажи короткую историю. Обязательно добавь 2-3 эмодзи, чтобы описание было живым. Не начинай ответ с 'Привет'."
                     else:
-                        analysis_prompt = (compliment_prefix + " " + apology + "Start your answer with a warm phrase, e.g., 'I'm so glad you asked! Here's one of my photos...' Then describe the photo: what you are doing, where you are, what mood you are in. Tell a short story. Be sure to add 2-3 emojis to make the description lively. Do not start with 'Hello'.")
+                        analysis_prompt += apology + "Start your answer with a warm phrase, e.g., 'I'm so glad you asked! Here's one of my photos...' Then describe the photo: what you are doing, where you are, what mood you are in. Tell a short story. Be sure to add 2-3 emojis to make the description lively. Do not start with 'Hello'."
                     description = analyze_photo_with_vision(chosen_photo, analysis_prompt, lang)
                     if description.startswith('Привет'):
                         description = re.sub(r'^Привет[,!\s]*', '', description)
