@@ -10,7 +10,7 @@ import threading
 from flask import Flask
 from openai import OpenAI
 from collections import deque
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, Deque, Optional, List, Any
 
 BOT_TOKEN = os.getenv('BOT_TOKEN')
@@ -45,6 +45,12 @@ KEYWORD_MAP = {
     'собака': ['собака', 'собакой', 'собаке', 'собаку', 'пёс', 'щенок', 'играю', 'играешь', 'гуляю', 'гуляешь']
 }
 
+# Словарь для преобразования текстовых чисел в int
+TEXT_NUMBERS = {
+    'один': 1, 'одну': 1, 'два': 2, 'две': 2, 'три': 3, 'четыре': 4, 'пять': 5,
+    'шесть': 6, 'семь': 7, 'восемь': 8, 'девять': 9, 'десять': 10
+}
+
 user_history: Dict[int, Deque] = {}
 user_no_jokes: Dict[int, bool] = {}
 user_preferences: Dict[int, str] = {}
@@ -55,13 +61,15 @@ user_no_photos: Dict[int, bool] = {}
 user_thematic_history: Dict[int, Dict[str, set]] = {}
 user_last_category: Dict[int, str] = {}
 user_last_user_image_desc: Dict[int, str] = {}
-user_zodiac: Dict[int, str] = {}  # знак зодиака пользователя
+user_zodiac: Dict[int, str] = {}
+user_timezone: Dict[int, int] = {}  # смещение в секундах от UTC
 
 # --- Загрузка/сохранение через GitHub Gist ---
 GIST_FILENAME = 'user_langs.json'
 LAST_PHOTO_FILENAME = 'user_last_photo.json'
 HISTORY_FILENAME = 'user_history.json'
 ZODIAC_FILENAME = 'user_zodiac.json'
+TIMEZONE_FILENAME = 'user_timezone.json'
 GIST_API_URL = f'https://api.github.com/gists/{GIST_ID}'
 HEADERS = {
     'Authorization': f'token {GITHUB_TOKEN}',
@@ -202,11 +210,44 @@ def save_user_zodiac():
     except Exception as e:
         print(f'Ошибка сохранения знаков зодиака в Gist: {e}')
 
+# --- Сохранение часовых поясов пользователей в Gist ---
+def load_user_timezone():
+    global user_timezone
+    if not GIST_ID or not GITHUB_TOKEN:
+        return
+    try:
+        resp = requests.get(GIST_API_URL, headers=HEADERS, timeout=5)
+        if resp.status_code == 200:
+            gist_data = resp.json()
+            files = gist_data.get('files', {})
+            if TIMEZONE_FILENAME in files:
+                content = files[TIMEZONE_FILENAME].get('content', '{}')
+                data = json.loads(content)
+                user_timezone = {int(k): v for k, v in data.items()}
+    except Exception as e:
+        print(f'Ошибка загрузки часовых поясов из Gist: {e}')
+
+def save_user_timezone():
+    if not GIST_ID or not GITHUB_TOKEN:
+        return
+    try:
+        payload = {
+            'files': {
+                TIMEZONE_FILENAME: {
+                    'content': json.dumps(user_timezone, ensure_ascii=False)
+                }
+            }
+        }
+        requests.patch(GIST_API_URL, headers=HEADERS, json=payload, timeout=5)
+    except Exception as e:
+        print(f'Ошибка сохранения часовых поясов в Gist: {e}')
+
 # Загружаем все данные при старте
 load_user_langs()
 load_user_last_photo()
 load_user_history()
 load_user_zodiac()
+load_user_timezone()
 
 def get_history(user_id: int) -> Deque:
     if user_id not in user_history:
@@ -235,6 +276,8 @@ def reset_user(user_id: int) -> None:
     user_last_user_image_desc.pop(user_id, None)
     user_zodiac.pop(user_id, None)
     save_user_zodiac()
+    user_timezone.pop(user_id, None)
+    save_user_timezone()
 
 def default_pet_name(first_name: str) -> str:
     names = {
@@ -353,6 +396,7 @@ def clean_english_words(text: str) -> str:
         r'\bresilient\b': 'стойким',
         r'\bearlier\b': 'раньше',
         r'\btoday\b': 'сегодня',
+        r'\bfinally\b': 'наконец',
     }
     for eng, rus in reps.items():
         text = re.sub(eng, rus, text, flags=re.IGNORECASE)
@@ -413,7 +457,7 @@ def extract_city(text: str, user_id: Optional[int] = None) -> Optional[str]:
     if match:
         city = match.group(1).strip().lower()
         # Удаляем лишние слова
-        city = re.sub(r'\b(ночь|день|вечер|утро|сегодня|завтра|послезавтра|через)\b', '', city).strip()
+        city = re.sub(r'\b(ночь|день|вечер|утро|сегодня|завтра|послезавтра|через|будет|на)\b', '', city).strip()
         if not city:
             return None
         corrections = {
@@ -432,7 +476,7 @@ def extract_city(text: str, user_id: Optional[int] = None) -> Optional[str]:
     if re.search(r'(у нас|в нашем городе|в моём городе|в своем городе|в нашем)', text, re.IGNORECASE):
         if user_id and user_id in user_last_city:
             return user_last_city[user_id]
-    if re.search(r'(завтра|послезавтра|будет|через \d+)', text, re.IGNORECASE) and re.search(r'(погод|температур|дождь|солнце|ветер|градусов)', text, re.IGNORECASE):
+    if re.search(r'(завтра|послезавтра|будет|через \d+|на неделю)', text, re.IGNORECASE) and re.search(r'(погод|температур|дождь|солнце|ветер|градусов)', text, re.IGNORECASE):
         if user_id and user_id in user_last_city:
             return user_last_city[user_id]
     if re.search(r'(сколько градусов|температура|погода|градусов|холодно|тепло)', text, re.IGNORECASE):
@@ -441,7 +485,7 @@ def extract_city(text: str, user_id: Optional[int] = None) -> Optional[str]:
     return None
 
 def is_weather_query(text: str) -> bool:
-    if re.search(r'(какая погода|какой прогноз|что с погодой|сколько градусов|температура какая|будет завтра|будет послезавтра|завтра погода|послезавтра погода|сколько сейчас градусов|какая сейчас погода|через \d+ (дня|дней|день))', text, re.IGNORECASE):
+    if re.search(r'(какая погода|какой прогноз|что с погодой|сколько градусов|температура какая|будет завтра|будет послезавтра|завтра погода|послезавтра погода|сколько сейчас градусов|какая сейчас погода|через (три|четыре|пять|\d+) (дня|дней|день)|на неделю)', text, re.IGNORECASE):
         return True
     if re.search(r'(будет|ожидается|прогноз|скажи|покажи).*(погод|температур|дождь|солнце|ветер)', text, re.IGNORECASE):
         return True
@@ -460,7 +504,8 @@ def get_current_weather(city_name: str, lang: str = 'ru') -> Optional[Dict]:
                 'temp': data['main']['temp'],
                 'feels': data['main']['feels_like'],
                 'hum': data['main']['humidity'],
-                'wind': data['wind']['speed']
+                'wind': data['wind']['speed'],
+                'timezone': data.get('timezone', 0)  # смещение в секундах
             }
         return None
     except:
@@ -477,25 +522,47 @@ def get_forecast_for_day(city_name: str, day_delta: int, lang: str = 'ru') -> Op
             return None
         target_date = (datetime.now() + timedelta(days=day_delta)).strftime('%Y-%m-%d')
         temps, descs = [], []
+        timezone_offset = data.get('city', {}).get('timezone', 0)
         for item in data['list']:
             dt = datetime.fromtimestamp(item['dt'])
             if dt.strftime('%Y-%m-%d') == target_date:
                 temps.append(item['main']['temp'])
                 descs.append(item['weather'][0]['description'])
         if temps:
-            return {'desc': max(set(descs), key=descs.count), 'temp': sum(temps)/len(temps)}
+            return {'desc': max(set(descs), key=descs.count), 'temp': sum(temps)/len(temps), 'timezone': timezone_offset}
         return None
     except:
         return None
 
+def format_local_time(timezone_offset: int) -> str:
+    """Возвращает строку с локальным временем и временем суток."""
+    utc_now = datetime.now(timezone.utc)
+    local_now = utc_now + timedelta(seconds=timezone_offset)
+    hour = local_now.hour
+    if 5 <= hour < 12:
+        time_of_day = 'утро'
+    elif 12 <= hour < 17:
+        time_of_day = 'день'
+    elif 17 <= hour < 22:
+        time_of_day = 'вечер'
+    else:
+        time_of_day = 'ночь'
+    weekdays = ['понедельник', 'вторник', 'среду', 'четверг', 'пятницу', 'субботу', 'воскресенье']
+    wd = weekdays[local_now.weekday()]
+    return f'{wd}, {local_now.strftime("%d.%m.%Y")} года, {local_now.strftime("%H:%M")} ({time_of_day})'
+
 def generate_natural_weather_response(city: str, weather_data: Dict, lang: str = 'ru', is_forecast: bool = False, day_name: str = '') -> str:
     if not weather_data:
         return distribute_emojis(f"Не удалось получить данные о погоде для {city}. Проверь название города 😊")
+    
+    timezone_offset = weather_data.get('timezone', 0)
+    local_time_str = format_local_time(timezone_offset)
+    
     if is_forecast:
         temp = weather_data['temp']
         desc = weather_data['desc']
         fallback = f"На {day_name} в {city} ожидается {desc}, около {temp:.0f} градусов. Уютного дня! 😊"
-        prompt = f"Ты Алёна. Пользователь спросил погоду на {day_name} в {city}. Реальные данные: {desc}, температура {temp:.0f}°C. Ответь тепло, коротко (2-3 предложения). НИ В КОЕМ СЛУЧАЕ не упоминай осень, сентябрь, зиму или холодные сезоны, если это не зима. Используй только точные цифры: {temp:.0f}°C и описание {desc}. Без английских слов."
+        prompt = f"Ты Алёна. Пользователь спросил погоду на {day_name} в {city}. Реальные данные: {desc}, температура {temp:.0f}°C. Сейчас в городе {local_time_str}. Ответь тепло, коротко (2-3 предложения). НИ В КОЕМ СЛУЧАЕ не упоминай осень, сентябрь, зиму или холодные сезоны, если это не зима. Используй только точные цифры: {temp:.0f}°C и описание {desc}. Без английских слов."
     else:
         desc = weather_data['desc']
         temp = weather_data['temp']
@@ -503,7 +570,7 @@ def generate_natural_weather_response(city: str, weather_data: Dict, lang: str =
         hum = weather_data['hum']
         wind = weather_data['wind']
         fallback = f"Сейчас в {city} {desc}, температура около {temp:.0f} градусов (ощущается как {feels:.0f}). Влажность {hum}%, ветер {wind} м/с. Хорошего дня! 😊"
-        prompt = f"Ты Алёна. Пользователь спросил о погоде в {city}. Реальные данные: сейчас {desc}, температура {temp:.0f}°C, ощущается как {feels:.0f}°C, влажность {hum}%, ветер {wind} м/с. Ответь тепло, коротко (2-3 предложения). НИ В КОЕМ СЛУЧАЕ не упоминай осень, сентябрь, зиму или холодные сезоны, если на улице не зима. Используй только точные цифры: {temp:.0f}°C, {desc}. Не пиши 'мне нужно проверить' или 'я не знаю' – ты уже знаешь данные. Без английских слов."
+        prompt = f"Ты Алёна. Пользователь спросил о погоде в {city}. Реальные данные: сейчас {desc}, температура {temp:.0f}°C, ощущается как {feels:.0f}°C, влажность {hum}%, ветер {wind} м/с. Сейчас в городе {local_time_str}. Ответь тепло, коротко (2-3 предложения). НИ В КОЕМ СЛУЧАЕ не упоминай осень, сентябрь, зиму или холодные сезоны, если на улице не зима. Используй только точные цифры: {temp:.0f}°C, {desc}. Не пиши 'мне нужно проверить' или 'я не знаю' – ты уже знаешь данные. Без английских слов."
     try:
         resp = client.chat.completions.create(
             model='llama-3.1-8b-instant',
@@ -526,17 +593,31 @@ def handle_weather_query(message: telebot.types.Message, user_text: str, lang: s
         return False
     day_delta = 0
     day_name = ''
-    # Проверяем "через N дней"
-    match_days = re.search(r'через (\d+) (дня|дней|день)', user_text, re.IGNORECASE)
-    if match_days:
-        day_delta = int(match_days.group(1))
+    is_weekly = False
+
+    # Проверяем "на неделю"
+    if re.search(r'на неделю', user_text, re.IGNORECASE):
+        is_weekly = True
+        day_name = 'неделю'
+    # Проверяем "через N дней" (текстом)
+    match_text = re.search(r'через (один|одну|два|две|три|четыре|пять|шесть|семь) (дня|дней|день)', user_text, re.IGNORECASE)
+    if match_text:
+        word = match_text.group(1).lower()
+        day_delta = TEXT_NUMBERS.get(word, 0)
         day_name = f'через {day_delta} {"день" if day_delta == 1 else "дня" if 1 < day_delta < 5 else "дней"}'
-    elif re.search(r'послезавтра', user_text, re.IGNORECASE):
-        day_delta, day_name = 2, 'послезавтра'
-    elif re.search(r'завтра', user_text, re.IGNORECASE):
-        day_delta, day_name = 1, 'завтра'
     else:
-        day_delta, day_name = 0, 'сегодня'
+        # Проверяем "через N дней" (числом)
+        match_days = re.search(r'через (\d+) (дня|дней|день)', user_text, re.IGNORECASE)
+        if match_days:
+            day_delta = int(match_days.group(1))
+            day_name = f'через {day_delta} {"день" if day_delta == 1 else "дня" if 1 < day_delta < 5 else "дней"}'
+        elif re.search(r'послезавтра', user_text, re.IGNORECASE):
+            day_delta, day_name = 2, 'послезавтра'
+        elif re.search(r'завтра', user_text, re.IGNORECASE):
+            day_delta, day_name = 1, 'завтра'
+        else:
+            day_delta, day_name = 0, 'сегодня'
+
     city = extract_city(user_text, user_id)
     if not city:
         bot.send_message(message.chat.id, distribute_emojis("В каком городе тебя интересует погода? Напиши название, например: Санкт-Петербург 😊"))
@@ -545,15 +626,43 @@ def handle_weather_query(message: telebot.types.Message, user_text: str, lang: s
         return True
     user_last_city[user_id] = city
     add_message(user_id, 'user', user_text)
+
+    if is_weekly:
+        # Прогноз на 5 дней
+        forecast_days = []
+        for d in range(1, 6):
+            fc = get_forecast_for_day(city, d, lang)
+            if fc:
+                forecast_days.append(fc)
+        if forecast_days:
+            reply = f"Прогноз в {city} на ближайшие дни: 😊\n"
+            for i, fc in enumerate(forecast_days, start=1):
+                local_time_str = format_local_time(fc.get('timezone', 0))
+                reply += f"• День {i}: {fc['desc']}, около {fc['temp']:.0f}°C\n"
+            reply += "Хорошей недели! 💖"
+            bot.send_message(message.chat.id, distribute_emojis(reply))
+        else:
+            bot.send_message(message.chat.id, distribute_emojis(f"Не удалось получить прогноз на неделю для {city}. Попробуй позже 😊"))
+        add_message(user_id, 'assistant', reply)
+        save_user_history(user_id)
+        return True
+
     if day_delta == 0:
         weather = get_current_weather(city, lang)
         if weather:
+            # Сохраняем часовой пояс пользователя
+            if 'timezone' in weather:
+                user_timezone[user_id] = weather['timezone']
+                save_user_timezone()
             reply = generate_natural_weather_response(city, weather, lang, is_forecast=False)
         else:
             reply = distribute_emojis(f"Не удалось получить текущую погоду для {city}. Проверь название города 😊")
     else:
         forecast = get_forecast_for_day(city, day_delta, lang)
         if forecast:
+            if 'timezone' in forecast:
+                user_timezone[user_id] = forecast['timezone']
+                save_user_timezone()
             reply = generate_natural_weather_response(city, forecast, lang, is_forecast=True, day_name=day_name)
         else:
             reply = distribute_emojis(f"Не удалось получить прогноз на {day_name} для {city}. Попробуй позже 😊")
@@ -573,6 +682,9 @@ def weather_cmd(message: telebot.types.Message) -> None:
     city = parts[1].strip()
     weather = get_current_weather(city, lang)
     if weather:
+        if 'timezone' in weather:
+            user_timezone[user_id] = weather['timezone']
+            save_user_timezone()
         reply = generate_natural_weather_response(city, weather, lang, is_forecast=False)
     else:
         reply = distribute_emojis(f"Не удалось получить погоду для {city}.")
@@ -601,6 +713,9 @@ def forecast_cmd(message: telebot.types.Message) -> None:
         return
     forecast = get_forecast_for_day(city, day_delta, lang)
     if forecast:
+        if 'timezone' in forecast:
+            user_timezone[user_id] = forecast['timezone']
+            save_user_timezone()
         reply = generate_natural_weather_response(city, forecast, lang, is_forecast=True, day_name=day_name)
     else:
         reply = distribute_emojis(f"Не удалось получить прогноз на {day_name} для {city}.")
@@ -630,7 +745,6 @@ def horoscope_cmd(message: telebot.types.Message, user_sign: Optional[str] = Non
     zodiac_list = ['овен','телец','близнецы','рак','лев','дева','весы','скорпион','стрелец','козерог','водолей','рыбы']
     if arg in zodiac_list:
         sign = arg
-        # сохраняем знак
         user_zodiac[user_id] = sign
         save_user_zodiac()
     else:
@@ -643,8 +757,13 @@ def horoscope_cmd(message: telebot.types.Message, user_sign: Optional[str] = Non
             bot.send_message(message.chat.id, distribute_emojis("Не поняла знак или дату. Напиши, например: /horoscope козерог или /horoscope 15 июня"))
             return
     today = datetime.now().strftime('%Y-%m-%d')
+    # Используем локальное время пользователя для гороскопа
+    local_time_note = ''
+    if user_id in user_timezone:
+        local_time_str = format_local_time(user_timezone[user_id])
+        local_time_note = f' Сейчас у пользователя {local_time_str}.'
     try:
-        prompt = f"Ты астролог. Составь короткое доброе предсказание для знака {sign.capitalize()} на {today}. Обращайся к пользователю на 'ты'. Пиши на русском, без английских слов."
+        prompt = f"Ты астролог. Составь короткое доброе предсказание для знака {sign.capitalize()} на {today}.{local_time_note} Обращайся к пользователю на 'ты'. Пиши на русском, без английских слов."
         resp = client.chat.completions.create(
             model='llama-3.1-8b-instant',
             messages=[{'role': 'user', 'content': prompt}],
@@ -849,10 +968,17 @@ def change_name(message: telebot.types.Message) -> None:
     add_message(user_id, 'assistant', reply)
     save_user_history(user_id)
 
-def get_system_prompt(lang: str, current_date: str) -> str:
+def get_system_prompt(lang: str, current_date: str, user_id: int) -> str:
+    # Добавляем локальное время пользователя, если известно
+    time_note = ''
+    if user_id in user_timezone:
+        local_time_str = format_local_time(user_timezone[user_id])
+        time_note = f'Текущее время пользователя: {local_time_str}. Используй это, чтобы выбирать приветствия (доброе утро, день, вечер) и не путать время суток.\n'
+    
     if lang == 'ru':
         return (
             f'Ты Алёна — добрая, весёлая, обаятельная девушка. Сегодня {current_date}.\n'
+            f'{time_note}'
             'ПРАВИЛА:\n'
             '1. Отвечай только на русском, без английских слов.\n'
             '2. Не начинай ответ с "Привет", не представляйся заново.\n'
@@ -870,6 +996,7 @@ def get_system_prompt(lang: str, current_date: str) -> str:
     else:
         return (
             f'You are Alena — a kind, cheerful, charming girl. Today is {current_date}.\n'
+            f'{time_note}'
             'RULES:\n'
             '1. Answer only in English, no mixing.\n'
             '2. Do not start with "Hello", do not reintroduce yourself.\n'
@@ -1184,11 +1311,11 @@ def handle_message(message: telebot.types.Message) -> None:
             bot.send_message(message.chat.id, distribute_emojis("Ты о каком фото? Покажи, если хочешь обсудить 😊"))
             return
 
-    # --- Естественный запрос гороскопа ---
-    if re.search(r'(гороскоп|расскажи гороскоп|что говорят звёзды|составь гороскоп|какой гороскоп)', user_text, re.IGNORECASE):
+    # --- Естественный запрос гороскопа (без повторов на слово "гороскоп") ---
+    if re.search(r'(расскажи гороскоп|составь гороскоп|какой гороскоп|что говорят звёзды|предскажи гороскоп)', user_text, re.IGNORECASE):
         if user_id in user_zodiac:
             sign = user_zodiac[user_id]
-            message.text = f'/horoscope {sign}'  # переиспользуем horoscope_cmd
+            message.text = f'/horoscope {sign}'
             horoscope_cmd(message, user_sign=sign)
         else:
             bot.send_message(message.chat.id, distribute_emojis("Прости, но я не знаю твою дату рождения (можно просто день и месяц) или просто скажи мне свой знак зодиака... 😊"))
@@ -1204,7 +1331,6 @@ def handle_message(message: telebot.types.Message) -> None:
         message.text = f'/horoscope {sign}'
         horoscope_cmd(message, user_sign=sign)
         return
-    # проверяем, не написал ли пользователь просто знак зодиака
     for sign in zodiac_list:
         if sign in user_text.lower():
             user_zodiac[user_id] = sign
@@ -1261,7 +1387,7 @@ def handle_message(message: telebot.types.Message) -> None:
     else:
         current_date = now.strftime("%A, %B %d, %Y")
 
-    system_prompt = get_system_prompt(lang, current_date) + no_jokes_note + no_photos_note + f' Имя пользователя (ласково): {pet_name}.'
+    system_prompt = get_system_prompt(lang, current_date, user_id) + no_jokes_note + no_photos_note + f' Имя пользователя (ласково): {pet_name}.'
 
     if user_id in user_last_user_image_desc and re.search(r'(мы бы с тобой|смотрелись вместе|отдохнуть вместе|побыть вдвоём|представь|помечта)', user_text, re.IGNORECASE):
         system_prompt += f'\n\nПользователь показал картинку, которую ты описала так: "{user_last_user_image_desc[user_id]}". ОТВЕЧАЙ ТОЛЬКО НА ОСНОВЕ ЭТОГО ОПИСАНИЯ, ИГНОРИРУЙ ВСЕ ПРЕДЫДУЩИЕ ТЕМЫ. Представь, что вы вдвоём находятся в этом месте, опиши ощущения.'
@@ -1304,5 +1430,5 @@ def run_web():
 threading.Thread(target=run_web, daemon=True).start()
 
 if __name__ == '__main__':
-    print('✅ Алёна — финальная, язык в Gist, шутки без повторов, Render-ready, история в Gist')
+    print('✅ Алёна — финальная, язык в Gist, шутки без повторов, Render-ready, история в Gist, знает время')
     bot.infinity_polling()
