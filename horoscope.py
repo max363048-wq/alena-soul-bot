@@ -4,6 +4,7 @@ import re
 from datetime import datetime
 from typing import Dict, Optional
 import telebot
+from text_utils import clean_english_words, remove_non_russian
 
 def zodiac_sign(day: int, month: int) -> str:
     if (month == 1 and day >= 20) or (month == 2 and day <= 18): return 'водолей'
@@ -74,8 +75,8 @@ def horoscope_cmd(message: telebot.types.Message, bot, client, user_lang, user_z
             temperature=0.7, max_tokens=300, timeout=5
         )
         text = resp.choices[0].message.content.strip()
-        # Простейшая очистка
-        text = re.sub(r'[^А-Яа-яЁё\s\d\.,!?:;…\-–—""\'«»()/#@\*\+—\u2700-\u27BF\u1F600-\u1F64F\u1F300-\u1F5FF\u1F680-\u1F6FF\u1F1E0-\u1F1FF\u2600-\u26FF\u2700-\u27BF]', '', text)
+        text = clean_english_words(text)
+        text = remove_non_russian(text)
         bot.send_message(message.chat.id, text)
         add_message(user_id, 'user', f'/horoscope {sign}' if not parts else message.text)
         add_message(user_id, 'assistant', text)
