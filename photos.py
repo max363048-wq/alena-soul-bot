@@ -70,6 +70,7 @@ def _clean_english(text: str) -> str:
         r'\bagree\b': 'согласна',
         r'\bspectacle\b': 'зрелище',
         r'\bpatterns\b': 'узоры',
+        r'\boverlooking\b': 'с видом на',
     }
     for eng, rus in reps.items():
         text = re.sub(eng, rus, text, flags=re.IGNORECASE)
