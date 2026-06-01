@@ -7,13 +7,11 @@ import re
 import time
 from typing import Dict, Optional, List
 
-# ---------- КОНСТАНТЫ ----------
 PHOTO_FOLDER = 'images'
 SUPPORTED_EXTENSIONS = ('.jpg', '.jpeg', '.png', '.gif')
 VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
 MAX_BASE64_SIZE = 4 * 1024 * 1024
 
-# ---------- КАТЕГОРИИ ФОТО ----------
 KEYWORD_MAP = {
     'пляж': ['пляж', 'море', 'берег', 'песок', 'океан', 'купальник', 'вода', 'воде', 'воду', 'водой', 'купаюсь', 'купаешься', 'купаться', 'плаваю', 'плаваешь'],
     'набережная': ['набережная', 'набережную', 'набережной', 'причал', 'яхта', 'порт'],
@@ -30,14 +28,12 @@ KEYWORD_MAP = {
     'собака': ['собака', 'собакой', 'собаке', 'собаку', 'пёс', 'щенок', 'играю', 'играешь', 'гуляю', 'гуляешь']
 }
 
-# ---------- ГЛОБАЛЬНЫЕ СЛОВАРИ ФОТОАЛЬБОМА ----------
 user_last_sent_photo: Dict[int, str] = {}
 user_no_photos: Dict[int, bool] = {}
 user_thematic_history: Dict[int, Dict[str, set]] = {}
 user_last_category: Dict[int, str] = {}
 user_last_user_image_desc: Dict[int, str] = {}
 
-# ---------- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ----------
 def _clean_english(text: str) -> str:
     if not text:
         return text
@@ -71,6 +67,9 @@ def _clean_english(text: str) -> str:
         r'\bbecause\b': 'потому что',
         r'\bcapricorn\b': 'козерог',
         r'\bmoi\b': 'мной',
+        r'\bagree\b': 'согласна',
+        r'\bspectacle\b': 'зрелище',
+        r'\bpatterns\b': 'узоры',
     }
     for eng, rus in reps.items():
         text = re.sub(eng, rus, text, flags=re.IGNORECASE)
@@ -126,7 +125,6 @@ def _distribute_emojis(text: str) -> str:
             used_safe_emojis.append(chosen)
     return result
 
-# ---------- ОСНОВНЫЕ ФУНКЦИИ ФОТОАЛЬБОМА ----------
 def get_photo_list() -> List[str]:
     if not os.path.exists(PHOTO_FOLDER):
         os.makedirs(PHOTO_FOLDER, exist_ok=True)
