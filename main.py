@@ -15,6 +15,9 @@ from typing import Dict, Deque, Optional, List, Any
 import stories
 import photos
 
+# ГАРАНТИРОВАННО перезаписываем ключи для Парижа, чтобы избежать потерь при импорте
+photos.KEYWORD_MAP['париж'] = ['париж', 'франция', 'eiffel', 'лувр', 'парк', 'фонтан', 'мост', 'мосту', 'моста', 'мостом']
+
 BOT_TOKEN = os.getenv('BOT_TOKEN')
 GROQ_API_KEY = os.getenv('GROQ_API_KEY')
 WEATHER_API_KEY = os.getenv('WEATHER_API_KEY')
@@ -855,7 +858,7 @@ def get_system_prompt(lang: str, current_date: str, user_id: int) -> str:
             '8. Иногда (после 2-3 своих фото или в середине разговора) проявляй интерес к собеседнику: спроси, есть ли у него фото, предложи показать. Но не делай это после каждого своего фото, чтобы не быть навязчивой.\n'
             '9. Если пользователь сделал тебе комплимент (красавица, умница и т.п.), ты ОБЯЗАНА сначала поблагодарить его (например, "Спасибо, мне очень приятно! 😊"), а затем уже описывай фото или продолжай тему. Не игнорируй комплимент.\n'
             '10. Если пользователь отправляет картинку и предлагает представить совместный отдых ("мы бы смотрелись", "отдохнуть вместе" и т.п.), ТЫ ДОЛЖНА отвечать тепло и мечтательно, ОПИРАЯСЬ ТОЛЬКО на то описание картинки, которое тебе предоставлено в сообщении пользователя. ПОЛНОСТЬЮ ИГНОРИРУЙ предыдущие темы разговора, даже если они кажутся связанными. НЕ УПОМИНАЙ горы, лыжи, лес или другие места, если их нет на картинке. Представь, как вы вдвоём наслаждаетесь именно тем, что изображено на фото (пляж, море, пальмы). Опиши свои ощущения от ЭТОГО конкретного места. Не предлагай показать свои фото и не спрашивай о фото пользователя, если он говорил, что у него их нет.\n'
-            '11. Пиши грамотно, без речевых ошибок. Следи за падежами и правильными окончаниями слов: не "виден белый яхта", а "видна белая яхта"; не "друзья", а "друзей". Если сомневаешься в окончании, используй простые и понятные синонимы.\n'
+            '11. Пиши грамотно, без речевых ошибок. Следи за падежами и правильными окончаниями слов: не "виден белый яхта", а "видна белая яхта"; не "друзья", а "друзей"; не "найдешь меня смешной", а "находишь меня смешной". Не упоминай пирсинг, татуировки и другие изменения внешности. Если сомневаешься в окончании, используй простые и понятные синонимы.\n'
             '12. Категорически запрещено предлагать шутки без явной просьбы пользователя. Если пользователь реагирует на твою шутку смайликами или смеётся, НЕ ПРЕДЛАГАЙ новую шутку. Вместо этого продолжай разговор на общие темы, спроси о его делах или предложи обсудить что-то другое.\n'
             '13. Если пользователь комментирует твой предыдущий ответ (например, хвалит гороскоп или говорит, какой он отличный), НЕ генерируй новый гороскоп. Вместо этого поддержки беседу: спроси, что именно понравилось, или предложи поговорить на другую тему.\n'
         )
@@ -874,7 +877,7 @@ def get_system_prompt(lang: str, current_date: str, user_id: int) -> str:
             '8. Occasionally (after 2-3 of your own photos or in the middle of a conversation) show interest in the user: ask if they have a photo, offer to share. But don\'t do it after every photo to avoid being intrusive.\n'
             '9. If the user compliments you (beautiful, smart, etc.), you MUST first thank them (e.g., "Thank you, I\'m very pleased! 😊"), and only then describe the photo or continue the topic. Do not ignore compliments.\n'
             '10. If the user sends a picture and suggests imagining a joint vacation ("we would look great together", "let\'s dream" etc.), YOU MUST respond warmly and dreamily, BASING YOUR ANSWER SOLELY on the description of that picture provided in the user\'s message. COMPLETELY IGNORE previous topics, even if they seem related. DO NOT MENTION mountains, skiing, forest or other places if they are not in the picture. Imagine the two of you enjoying exactly what is shown in the photo (beach, sea, palms). Describe your feelings about THAT specific place. Do not offer to show your own photos or ask about the user\'s photos if they said they have none.\n'
-            '11. Write correctly and naturally, without grammatical mistakes. Pay attention to correct endings and cases (e.g., "a white yacht" not "white yacht"). If unsure about a word, use common synonyms.\n'
+            '11. Write correctly and naturally, without grammatical mistakes. Pay attention to correct endings and cases (e.g., "a white yacht" not "white yacht"; "you find me funny" not "you finds me funny"). Do not mention piercings, tattoos or other body modifications. If unsure about a word, use common synonyms.\n'
             '12. It is strictly forbidden to offer jokes without an explicit request from the user. If the user reacts to your joke with emojis or laughter, DO NOT offer a new joke. Instead, continue the conversation on general topics, ask about his affairs, or suggest discussing something else.\n'
             '13. If the user comments on your previous answer (e.g., praises a horoscope or says how great it is), DO NOT generate a new horoscope. Instead, support the conversation: ask what exactly they liked, or suggest talking about another topic.\n'
         )
@@ -934,11 +937,13 @@ def handle_message(message: telebot.types.Message) -> None:
                 add_message(user_id, 'user', user_text)
                 add_message(user_id, 'assistant', description)
                 save_user_history(user_id)
-                user_last_photo_request[user_id] = {
-                    'question': user_text.strip().lower(),
-                    'photo_path': chosen_photo,
-                    'description': description
-                }
+                # Запоминаем для любимого фото (только если это был запрос "любимое")
+                if re.search(r'(любимые фото|любимое фото|любимых фото|какое твое любимое фото|покажи любимое фото)', user_text, re.IGNORECASE):
+                    user_last_photo_request[user_id] = {
+                        'question': user_text.strip().lower(),
+                        'photo_path': chosen_photo,
+                        'description': description
+                    }
             except Exception as e:
                 print(f"Ошибка отправки фото моста: {e}")
                 bot.send_message(message.chat.id, distribute_emojis("Ой, не могу показать фото моста, попробуй ещё раз 😅"))
@@ -981,11 +986,6 @@ def handle_message(message: telebot.types.Message) -> None:
                 add_message(user_id, 'user', user_text)
                 add_message(user_id, 'assistant', description)
                 save_user_history(user_id)
-                user_last_photo_request[user_id] = {
-                    'question': user_text.strip().lower(),
-                    'photo_path': chosen_photo,
-                    'description': description
-                }
             except Exception as e:
                 print(f"Ошибка отправки ещё одного фото: {e}")
                 bot.send_message(message.chat.id, distribute_emojis("Ой, не могу показать другое фото, попробуй ещё раз 😅"))
@@ -993,19 +993,20 @@ def handle_message(message: telebot.types.Message) -> None:
 
     # --- Просьба показать свои фото (ОСНОВНОЙ БЛОК) ---
     if re.search(r'(фотки|какие нибудь фото|а у тебя есть фотографии|есть фотографии|у тебя есть фото|покажи свои фото|покажи фото|покажи мне фото|покажи мне фотки|покажешь фото|покажешь мне фото|фотоальбом|покажи себя|своё фото|свое фото|мои фото|свои фотографии|покажи альбом|покажи где ты была|покажи, где ты|покажи картинку|покажи изображение|есть фото|есть ли у тебя фото|посмотреть твои фото|покажи свои фотографии|любимые фото|любимое фото|любимых фото|есть еще фото|другие фото|покажи другое фото|ещё фото|какое твое любимое фото|покажи любимое фото|покажи другое|такие фото|такие фотки|фото где ты|фотки где ты)', user_text, re.IGNORECASE):
-        # Проверяем, был ли точно такой же вопрос
-        if user_id in user_last_photo_request:
-            last_q = user_last_photo_request[user_id]['question']
-            if last_q == user_text.strip().lower():
-                prev_data = user_last_photo_request[user_id]
-                reply_text = f"Я уже отвечала на этот вопрос, но если хочешь, покажу тебе ещё раз... {prev_data['description']}"
-                bot.send_message(message.chat.id, distribute_emojis(reply_text))
-                with open(prev_data['photo_path'], 'rb') as photo:
-                    bot.send_photo(message.chat.id, photo)
-                add_message(user_id, 'user', user_text)
-                add_message(user_id, 'assistant', reply_text)
-                save_user_history(user_id)
-                return
+        # Проверяем повтор только для "любимое фото"
+        if re.search(r'(любимые фото|любимое фото|любимых фото|какое твое любимое фото|покажи любимое фото)', user_text, re.IGNORECASE):
+            if user_id in user_last_photo_request:
+                last_q = user_last_photo_request[user_id]['question']
+                if last_q == user_text.strip().lower():
+                    prev_data = user_last_photo_request[user_id]
+                    reply_text = f"Я уже отвечала на этот вопрос, но если хочешь, покажу тебе ещё раз... {prev_data['description']}"
+                    bot.send_message(message.chat.id, distribute_emojis(reply_text))
+                    with open(prev_data['photo_path'], 'rb') as photo:
+                        bot.send_photo(message.chat.id, photo)
+                    add_message(user_id, 'user', user_text)
+                    add_message(user_id, 'assistant', reply_text)
+                    save_user_history(user_id)
+                    return
 
         all_photos = photos.get_photo_list()
         if not all_photos:
@@ -1198,11 +1199,6 @@ def handle_message(message: telebot.types.Message) -> None:
                 add_message(user_id, 'user', user_text)
                 add_message(user_id, 'assistant', description)
                 save_user_history(user_id)
-                user_last_photo_request[user_id] = {
-                    'question': user_text.strip().lower(),
-                    'photo_path': chosen_photo,
-                    'description': description
-                }
                 return
 
     # --- Вопросы о последнем фото ---
@@ -1340,6 +1336,7 @@ def handle_message(message: telebot.types.Message) -> None:
     if user_id in photos.user_last_user_image_desc and re.search(r'(мы бы с тобой|смотрелись вместе|отдохнуть вместе|побыть вдвоём|представь|помечта)', user_text, re.IGNORECASE):
         system_prompt += f'\n\nПользователь показал картинку, которую ты описала так: "{photos.user_last_user_image_desc[user_id]}". ОТВЕЧАЙ ТОЛЬКО НА ОСНОВЕ ЭТОГО ОПИСАНИЯ, ИГНОРИРУЙ ВСЕ ПРЕДЫДУЩИЕ ТЕМЫ. Представь, что вы вдвоём находятся в этом месте, опиши ощущения.'
 
+    # Увеличенный max_tokens для историй и общих ответов
     max_retries = 2
     for attempt in range(max_retries):
         try:
@@ -1347,7 +1344,7 @@ def handle_message(message: telebot.types.Message) -> None:
             response = client.chat.completions.create(
                 model='llama-3.1-8b-instant',
                 messages=messages,
-                temperature=0.8, max_tokens=250, timeout=10
+                temperature=0.8, max_tokens=400, timeout=10  # было 250
             )
             reply = response.choices[0].message.content.strip()
             reply = clean_english_words(reply)
@@ -1378,5 +1375,5 @@ def run_web():
 threading.Thread(target=run_web, daemon=True).start()
 
 if __name__ == '__main__':
-    print('✅ Алёна — восстановленная логика фото и историй')
+    print('✅ Алёна — Париж гарантирован, история без обрывов, грамматика усилена')
     bot.infinity_polling()
