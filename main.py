@@ -377,6 +377,8 @@ def clean_english_words(text: str) -> str:
         r'\bcapricorn\b': 'козерог',
         r'\bmoi\b': 'мной',
         r'\bagree\b': 'согласна',
+        r'\bspectacle\b': 'зрелище',
+        r'\bpatterns\b': 'узоры',
     }
     for eng, rus in reps.items():
         text = re.sub(eng, rus, text, flags=re.IGNORECASE)
@@ -452,10 +454,10 @@ def extract_city(text: str, user_id: Optional[int] = None) -> Optional[str]:
             if city.endswith('ы'): city = city[:-1]
             city = city[0].upper() + city[1:]
         return city
-    if re.search(r'(у нас|в нашем городе|в моём городе|в своем городе|в этом городе|в нашем)', text, re.IGNORECASE):
+    if re.search(r'(у нас|в нашем городе|в моём городе|в своем городе|в этом городе|в нашем|здесь)', text, re.IGNORECASE):
         if user_id and user_id in user_last_city:
             return user_last_city[user_id]
-    if re.search(r'(завтра|послезавтра|будет|через \d+|на неделю|на (два|три|четыре|пять) дня)', text, re.IGNORECASE) and re.search(r'(погод|температур|дождь|солнце|ветер|градусов)', text, re.IGNORECASE):
+    if re.search(r'(завтра|послезавтра|будет|через \d+|на неделю|на (два|три|четыре|пять) дня|в ближайшие (два|три|четыре|пять) дня)', text, re.IGNORECASE) and re.search(r'(погод|температур|дождь|солнце|ветер|градусов)', text, re.IGNORECASE):
         if user_id and user_id in user_last_city:
             return user_last_city[user_id]
     if re.search(r'(сколько градусов|температура|погода|градусов|холодно|тепло)', text, re.IGNORECASE):
@@ -464,7 +466,7 @@ def extract_city(text: str, user_id: Optional[int] = None) -> Optional[str]:
     return None
 
 def is_weather_query(text: str) -> bool:
-    if re.search(r'(какая погода|какая сегодня погода|какой прогноз|что с погодой|сколько градусов|температура какая|будет завтра|будет послезавтра|завтра погода|послезавтра погода|сколько сейчас градусов|какая сейчас погода|через (три|четыре|пять|\d+) (дня|дней|день)|на неделю|на (два|три|четыре|пять) дня)', text, re.IGNORECASE):
+    if re.search(r'(какая погода|какая сегодня погода|какой прогноз|что с погодой|сколько градусов|температура какая|будет завтра|будет послезавтра|завтра погода|послезавтра погода|сколько сейчас градусов|какая сейчас погода|через (три|четыре|пять|\d+) (дня|дней|день)|на неделю|на (два|три|четыре|пять) дня|в ближайшие (два|три|четыре|пять) дня|здесь в ближайшие)', text, re.IGNORECASE):
         return True
     if re.search(r'(будет|ожидается|прогноз|скажи|покажи).*(погод|температур|дождь|солнце|ветер)', text, re.IGNORECASE):
         return True
@@ -576,9 +578,11 @@ def handle_weather_query(message: telebot.types.Message, user_text: str, lang: s
     if re.search(r'на неделю', user_text, re.IGNORECASE):
         is_multi_day = True
         day_deltas = list(range(1, 6))
-    match_text = re.search(r'на (два|две|три|четыре|пять) дня', user_text, re.IGNORECASE)
+    match_text = re.search(r'на (два|две|три|четыре|пять) дня|в ближайшие (два|три|четыре|пять) дня', user_text, re.IGNORECASE)
     if match_text:
-        word = match_text.group(1).lower()
+        word = match_text.group(1).lower() if match_text.group(1) else match_text.group(2).lower()
+        if not word:
+            word = match_text.group(2).lower()
         num_days = TEXT_NUMBERS.get(word, 0)
         is_multi_day = True
         day_deltas = list(range(1, num_days + 1))
@@ -743,7 +747,7 @@ def horoscope_cmd(message: telebot.types.Message, user_sign: Optional[str] = Non
         local_time_str = format_local_time(user_timezone[user_id])
         local_time_note = f' Сейчас у пользователя {local_time_str}.'
     try:
-        prompt = f"Ты астролог. Составь короткое доброе предсказание для знака {sign.capitalize()} на {today}.{local_time_note} Обращайся к пользователю на 'ты'. Пиши на русском, без английских слов."
+        prompt = f"Ты астролог. Составь короткое доброе предсказание для знака {sign.capitalize()} на {today}.{local_time_note} Обращайся к пользователю на 'ты'. Пиши на русском, без английских слов. НЕ начинай ответ с 'Здравствуй' или 'Привет'."
         resp = client.chat.completions.create(
             model='llama-3.1-8b-instant',
             messages=[{'role': 'user', 'content': prompt}],
@@ -1238,7 +1242,7 @@ def handle_message(message: telebot.types.Message) -> None:
             return
 
     # --- Естественный запрос гороскопа ---
-    if re.search(r'(расскажи гороскоп|составь гороскоп|какой гороскоп|что говорят звёзды|предскажи гороскоп)', user_text, re.IGNORECASE):
+    if re.search(r'(расскажи гороскоп|составь гороскоп|какой гороскоп|что говорят звёзды|предскажи гороскоп|расскажи мне гороскоп)', user_text, re.IGNORECASE):
         if user_id in user_zodiac:
             sign = user_zodiac[user_id]
             message.text = f'/horoscope {sign}'
@@ -1275,7 +1279,7 @@ def handle_message(message: telebot.types.Message) -> None:
         save_user_history(user_id)
         return
 
-    if re.search(r'(дай идею для творчества|подскажи тему|что нарисовать|вдохнови на творчество|творческие идеи|творческую идею)', user_text, re.IGNORECASE):
+    if re.search(r'(дай идею для творчества|подскажи тему|что нарисовать|вдохнови на творчество|творческие идеи|творческую идею|идеи для творчества)', user_text, re.IGNORECASE):
         idea = stories.creative_prompt(user_id, lang, client, GIST_ID)
         bot.send_message(message.chat.id, distribute_emojis(idea))
         add_message(user_id, 'user', user_text)
@@ -1374,5 +1378,5 @@ def run_web():
 threading.Thread(target=run_web, daemon=True).start()
 
 if __name__ == '__main__':
-    print('✅ Алёна — Париж гарантирован, agree фильтруется, творческие идеи работают')
+    print('✅ Алёна — Париж гарантирован, погода "в ближайшие три дня", гороскоп без приветствий')
     bot.infinity_polling()
