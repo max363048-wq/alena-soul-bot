@@ -15,6 +15,9 @@ from typing import Dict, Deque, Optional, List, Any
 import stories
 import photos
 
+# ГАРАНТИРОВАННО перезаписываем ключи для Парижа
+photos.KEYWORD_MAP['париж'] = ['париж', 'франция', 'eiffel', 'лувр', 'парк', 'фонтан', 'мост', 'мосту', 'моста', 'мостом']
+
 BOT_TOKEN = os.getenv('BOT_TOKEN')
 GROQ_API_KEY = os.getenv('GROQ_API_KEY')
 WEATHER_API_KEY = os.getenv('WEATHER_API_KEY')
@@ -435,7 +438,6 @@ def extract_city(text: str, user_id: Optional[int] = None) -> Optional[str]:
     match = re.search(r'\b(?:в|во|в городе)\s+([А-Яа-я\-]+(?:[-\s]?[А-Яа-я]+)?)', text, re.IGNORECASE)
     if match:
         city = match.group(1).strip().lower()
-        # Удаляем лишние слова, включая "самом", "начале" и т.п.
         city = re.sub(r'\b(ночь|день|вечер|утро|сегодня|завтра|послезавтра|через|будет|самом|начале|начало|начал)\b', '', city).strip()
         if not city:
             return None
@@ -937,10 +939,14 @@ def handle_message(message: telebot.types.Message) -> None:
 
     # --- ГАРАНТИРОВАННОЕ ОПРЕДЕЛЕНИЕ КАТЕГОРИИ "ПАРИЖ" (ПРИОРИТЕТ №1) ---
     if 'мосту' in user_text.lower() and re.search(r'(фото|фотки|фотографии)', user_text, re.IGNORECASE):
-        category = 'париж'
-        photos.user_last_category[user_id] = category
-        chosen_photo = photos.select_thematic_photo(user_id, category)
-        if chosen_photo:
+        # Принудительный поиск фото с "париж" и "мост" в имени
+        all_photos = photos.get_photo_list()
+        paris_photos = [p for p in all_photos if 'мост' in photos.get_keywords_from_photo_name(p) and 'париж' in photos.get_keywords_from_photo_name(p)]
+        if not paris_photos:
+            # Запасной вариант: ищем только "мост"
+            paris_photos = [p for p in all_photos if 'мост' in photos.get_keywords_from_photo_name(p)]
+        if paris_photos:
+            chosen_photo = random.choice(paris_photos)
             photos.user_last_sent_photo[user_id] = chosen_photo
             save_user_last_photo(user_id, chosen_photo)
             try:
@@ -961,6 +967,7 @@ def handle_message(message: telebot.types.Message) -> None:
                 print(f"Ошибка отправки фото моста: {e}")
                 bot.send_message(message.chat.id, distribute_emojis("Ой, не могу показать фото моста, попробуй ещё раз 😅"))
             return
+        # Если фото не нашлись, идём дальше (но такого быть не должно)
 
     # --- Просьба "ещё такие же фото" ---
     if user_id in photos.user_last_category and photos.user_last_category[user_id] is not None and re.search(r'(еще такие фото|еще такие фотки|такие же фото|такие же фотки|похожие фото|похожие фотки|аналогичные фото|аналогичные фотки|другие фото|другое фото|ещё такие|еще такие)', user_text, re.IGNORECASE):
@@ -1385,5 +1392,5 @@ def run_web():
 threading.Thread(target=run_web, daemon=True).start()
 
 if __name__ == '__main__':
-    print('✅ Алёна — Париж гарантирован перед всеми блоками')
+    print('✅ Алёна — Париж теперь ищется напрямую по именам файлов')
     bot.infinity_polling()
