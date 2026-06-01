@@ -34,6 +34,9 @@ user_last_city: Dict[int, str] = {}
 user_zodiac: Dict[int, str] = {}
 user_timezone: Dict[int, int] = {}
 
+# Новый словарь: помнит последний фото-вопрос, путь к фото и описание
+user_last_photo_request: Dict[int, Dict[str, str]] = {}
+
 GIST_FILENAME = 'user_langs.json'
 LAST_PHOTO_FILENAME = 'user_last_photo.json'
 HISTORY_FILENAME = 'user_history.json'
@@ -248,6 +251,7 @@ def reset_user(user_id: int) -> None:
     save_user_zodiac()
     user_timezone.pop(user_id, None)
     save_user_timezone()
+    user_last_photo_request.pop(user_id, None)
 
 def default_pet_name(first_name: str) -> str:
     names = {
@@ -931,6 +935,12 @@ def handle_message(message: telebot.types.Message) -> None:
                 add_message(user_id, 'user', user_text)
                 add_message(user_id, 'assistant', description)
                 save_user_history(user_id)
+                # Запоминаем вопрос и ответ
+                user_last_photo_request[user_id] = {
+                    'question': user_text.strip().lower(),
+                    'photo_path': chosen_photo,
+                    'description': description
+                }
             except Exception as e:
                 print(f"Ошибка отправки фото моста: {e}")
                 bot.send_message(message.chat.id, distribute_emojis("Ой, не могу показать фото моста, попробуй ещё раз 😅"))
@@ -973,6 +983,12 @@ def handle_message(message: telebot.types.Message) -> None:
                 add_message(user_id, 'user', user_text)
                 add_message(user_id, 'assistant', description)
                 save_user_history(user_id)
+                # Запоминаем вопрос и ответ
+                user_last_photo_request[user_id] = {
+                    'question': user_text.strip().lower(),
+                    'photo_path': chosen_photo,
+                    'description': description
+                }
             except Exception as e:
                 print(f"Ошибка отправки ещё одного фото: {e}")
                 bot.send_message(message.chat.id, distribute_emojis("Ой, не могу показать другое фото, попробуй ещё раз 😅"))
@@ -980,6 +996,21 @@ def handle_message(message: telebot.types.Message) -> None:
 
     # --- Просьба показать свои фото (ОСНОВНОЙ БЛОК) ---
     if re.search(r'(фотки|какие нибудь фото|а у тебя есть фотографии|есть фотографии|у тебя есть фото|покажи свои фото|покажи фото|покажи мне фото|покажи мне фотки|покажешь фото|покажешь мне фото|фотоальбом|покажи себя|своё фото|свое фото|мои фото|свои фотографии|покажи альбом|покажи где ты была|покажи, где ты|покажи картинку|покажи изображение|есть фото|есть ли у тебя фото|посмотреть твои фото|покажи свои фотографии|любимые фото|любимое фото|любимых фото|есть еще фото|другие фото|покажи другое фото|ещё фото|какое твое любимое фото|покажи любимое фото|покажи другое|такие фото|такие фотки|фото где ты|фотки где ты)', user_text, re.IGNORECASE):
+        # Проверяем, был ли точно такой же вопрос
+        if user_id in user_last_photo_request:
+            last_q = user_last_photo_request[user_id]['question']
+            if last_q == user_text.strip().lower():
+                # Повторный вопрос — показываем то же самое
+                prev_data = user_last_photo_request[user_id]
+                reply_text = f"Я уже отвечала на этот вопрос, но если хочешь, покажу тебе ещё раз... Вот моё любимое фото: {prev_data['description']}"
+                bot.send_message(message.chat.id, distribute_emojis(reply_text))
+                with open(prev_data['photo_path'], 'rb') as photo:
+                    bot.send_photo(message.chat.id, photo)
+                add_message(user_id, 'user', user_text)
+                add_message(user_id, 'assistant', reply_text)
+                save_user_history(user_id)
+                return
+
         all_photos = photos.get_photo_list()
         if not all_photos:
             msg = "У меня ещё нет фотоальбома, но Максик обещал скоро добавить! 😊" if lang == 'ru' else "I don't have a photo album yet, but Max promised to add it soon! 😊"
@@ -1042,6 +1073,11 @@ def handle_message(message: telebot.types.Message) -> None:
                 add_message(user_id, 'user', user_text)
                 add_message(user_id, 'assistant', description)
                 save_user_history(user_id)
+                user_last_photo_request[user_id] = {
+                    'question': user_text.strip().lower(),
+                    'photo_path': chosen_photo,
+                    'description': description
+                }
                 return
         else:
             category = photos.search_category_by_query(user_text)
@@ -1166,6 +1202,11 @@ def handle_message(message: telebot.types.Message) -> None:
                 add_message(user_id, 'user', user_text)
                 add_message(user_id, 'assistant', description)
                 save_user_history(user_id)
+                user_last_photo_request[user_id] = {
+                    'question': user_text.strip().lower(),
+                    'photo_path': chosen_photo,
+                    'description': description
+                }
                 return
 
     # --- Вопросы о последнем фото ---
@@ -1233,7 +1274,7 @@ def handle_message(message: telebot.types.Message) -> None:
             return
 
     # --- Творческие функции Алёны (истории и подсказки) ---
-    if re.search(r'(расскажи историю|придумай историю|напиши рассказ)', user_text, re.IGNORECASE):
+    if re.search(r'(расскажи историю|придумай историю|напиши рассказ|какие нибудь истории|знаешь истории)', user_text, re.IGNORECASE):
         prompt = user_text
         story = stories.generate_story(prompt, user_id, lang, client, GIST_ID)
         bot.send_message(message.chat.id, distribute_emojis(story))
@@ -1242,7 +1283,7 @@ def handle_message(message: telebot.types.Message) -> None:
         save_user_history(user_id)
         return
 
-    if re.search(r'(дай идею для творчества|подскажи тему|что нарисовать|вдохнови на творчество)', user_text, re.IGNORECASE):
+    if re.search(r'(дай идею для творчества|подскажи тему|что нарисовать|вдохнови на творчество|творческие идеи)', user_text, re.IGNORECASE):
         idea = stories.creative_prompt(user_id, lang, client, GIST_ID)
         bot.send_message(message.chat.id, distribute_emojis(idea))
         add_message(user_id, 'user', user_text)
@@ -1341,5 +1382,5 @@ def run_web():
 threading.Thread(target=run_web, daemon=True).start()
 
 if __name__ == '__main__':
-    print('✅ Алёна — модули stories и photos исправлены')
+    print('✅ Алёна — финальная, с памятью о фото-вопросах и расширенными историями')
     bot.infinity_polling()
