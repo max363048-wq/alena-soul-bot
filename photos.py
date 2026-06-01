@@ -243,7 +243,7 @@ def analyze_user_photo(message, bot, client, lang: str) -> bool:
             bot.send_message(message.chat.id, "Something's wrong with the photo, maybe try another one? 😊")
         return False
 
-# --- НАДЁЖНЫЙ БЛОК ПАРИЖА ---
+# --- НАДЁЖНЫЙ БЛОК ПАРИЖА (ИСПРАВЛЕННЫЙ) ---
 def try_paris_photo(user_id: int, user_text: str, lang: str, bot, message, client, add_message, save_user_history, save_user_last_photo):
     """Пытается показать фото парижского моста. Возвращает True, если фото было отправлено."""
     if 'мосту' not in user_text.lower():
@@ -260,10 +260,26 @@ def try_paris_photo(user_id: int, user_text: str, lang: str, bot, message, clien
     if paris_photos:
         category = 'париж'
         user_last_category[user_id] = category
-        # Выбираем фото, не показывая дважды одно и то же
-        chosen_photo = select_thematic_photo(user_id, category)
-        if chosen_photo is None:
+        # Убираем уже показанные, чтобы не повторяться
+        if user_id in user_thematic_history and category in user_thematic_history[user_id]:
+            shown = user_thematic_history[user_id][category]
+            available = [p for p in paris_photos if p not in shown]
+            if available:
+                chosen_photo = random.choice(available)
+            else:
+                # Все показаны, начинаем заново
+                shown.clear()
+                chosen_photo = random.choice(paris_photos)
+        else:
             chosen_photo = random.choice(paris_photos)
+
+        # Обновляем историю
+        if user_id not in user_thematic_history:
+            user_thematic_history[user_id] = {}
+        if category not in user_thematic_history[user_id]:
+            user_thematic_history[user_id][category] = set()
+        user_thematic_history[user_id][category].add(chosen_photo)
+
         user_last_sent_photo[user_id] = chosen_photo
         save_user_last_photo(user_id, chosen_photo)
         try:
