@@ -242,3 +242,44 @@ def analyze_user_photo(message, bot, client, lang: str) -> bool:
         else:
             bot.send_message(message.chat.id, "Something's wrong with the photo, maybe try another one? 😊")
         return False
+
+# --- НАДЁЖНЫЙ БЛОК ПАРИЖА ---
+def try_paris_photo(user_id: int, user_text: str, lang: str, bot, message, client, add_message, save_user_history, save_user_last_photo):
+    """Пытается показать фото парижского моста. Возвращает True, если фото было отправлено."""
+    if 'мосту' not in user_text.lower():
+        return False
+    if not re.search(r'(фото|фотки|фотографии)', user_text, re.IGNORECASE):
+        return False
+
+    # Принудительно ищем фото с "мост" и "париж" в имени
+    all_photos = get_photo_list()
+    paris_photos = [p for p in all_photos if 'мост' in get_keywords_from_photo_name(p) and 'париж' in get_keywords_from_photo_name(p)]
+    if not paris_photos:
+        paris_photos = [p for p in all_photos if 'мост' in get_keywords_from_photo_name(p)]
+
+    if paris_photos:
+        category = 'париж'
+        user_last_category[user_id] = category
+        chosen_photo = random.choice(paris_photos)
+        user_last_sent_photo[user_id] = chosen_photo
+        save_user_last_photo(user_id, chosen_photo)
+        try:
+            if lang == 'ru':
+                analysis_prompt = "Начни свой ответ с душевного восклицания, например: 'Конечно, у меня есть такие фото!' или 'С удовольствием покажу!' Затем опиши фото: что ты на нём делаешь, где ты, какое у тебя настроение. Расскажи короткую историю. Обязательно добавь 2-3 эмодзи, чтобы описание было живым. Не начинай ответ с 'Привет'."
+            else:
+                analysis_prompt = "Start your answer with a warm phrase, e.g., 'I'm so glad you asked! Here's one of my photos...' Then describe the photo: what you are doing, where you are, what mood you are in. Tell a short story. Be sure to add 2-3 emojis to make the description lively. Do not start with 'Hello'."
+            description = analyze_photo_with_vision(chosen_photo, analysis_prompt, client, lang)
+            if description.startswith('Привет'):
+                description = re.sub(r'^Привет[,!\s]*', '', description)
+            description = _distribute_emojis(description)
+            with open(chosen_photo, 'rb') as photo:
+                bot.send_photo(message.chat.id, photo, caption=description)
+            add_message(user_id, 'user', user_text)
+            add_message(user_id, 'assistant', description)
+            save_user_history()
+            return True
+        except Exception as e:
+            print(f"Ошибка отправки фото моста: {e}")
+            bot.send_message(message.chat.id, "Ой, не могу показать фото моста, попробуй ещё раз 😅")
+            return True  # Считаем, что обработали, чтобы не идти дальше
+    return False
