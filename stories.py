@@ -52,7 +52,7 @@ def _save_stories(gist_id: str, data: dict):
 def generate_story(prompt: str, user_id: int, lang: str, client, gist_id: str) -> str:
     system_prompt = (
         'Ты Алёна — добрая, весёлая, обаятельная девушка. Напиши короткую, душевную историю '
-        'на заданную тему. История должна быть на 4-7 предложений, с эмодзи, без английских слов. '
+        'на заданную тему. История должна быть на 5-8 предложений, с эмодзи, без английских слов. '
         'Не обрывай мысль на полуслове — доводи историю до логического завершения. '
         'Используй правильные глаголы: не «закурили фейерверки», а «запустили фейерверки».'
     )
@@ -64,7 +64,7 @@ def generate_story(prompt: str, user_id: int, lang: str, client, gist_id: str) -
                 {'role': 'user', 'content': prompt}
             ],
             temperature=0.9,
-            max_tokens=400,
+            max_tokens=500,
             timeout=10
         )
         story = resp.choices[0].message.content.strip()
