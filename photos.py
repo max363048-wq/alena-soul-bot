@@ -4,7 +4,8 @@ import os
 import random
 import base64
 import re
-from typing import Dict, Deque, Optional, List, Any
+import time
+from typing import Dict, Optional, List
 
 # ---------- КОНСТАНТЫ ----------
 PHOTO_FOLDER = 'images'
@@ -36,7 +37,7 @@ user_thematic_history: Dict[int, Dict[str, set]] = {}
 user_last_category: Dict[int, str] = {}
 user_last_user_image_desc: Dict[int, str] = {}
 
-# ---------- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ (будут вынесены в utils.py позже) ----------
+# ---------- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ----------
 def _clean_english(text: str) -> str:
     if not text:
         return text
@@ -218,6 +219,9 @@ def analyze_photo_with_vision(image_path: str, prompt: str, client, lang: str = 
 
 def analyze_user_photo(message, bot, client, lang: str) -> bool:
     try:
+        if not message.photo:
+            bot.send_message(message.chat.id, "Пожалуйста, отправь фото как изображение, а не как файл 😊")
+            return False
         file_info = bot.get_file(message.photo[-1].file_id)
         downloaded_file = bot.download_file(file_info.file_path)
         temp_path = f"temp_user_image_{message.from_user.id}_{int(time.time())}.jpg"
