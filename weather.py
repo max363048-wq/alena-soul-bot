@@ -6,6 +6,7 @@ import requests
 from datetime import datetime, timedelta, timezone
 from typing import Dict, Optional, List, Any
 import telebot
+from text_utils import clean_english_words, remove_non_russian
 
 TEXT_NUMBERS = {
     'один': 1, 'одну': 1, 'два': 2, 'две': 2, 'три': 3, 'четыре': 4, 'пять': 5,
@@ -80,12 +81,12 @@ def get_forecast_for_day(city_name: str, day_delta: int, lang: str = 'ru') -> Op
         data = resp.json()
         if resp.status_code != 200:
             return None
-        target_date = (datetime.now() + timedelta(days=day_delta)).strftime('%Y-%m-%d')
+        target_date = (datetime.utcnow() + timedelta(days=day_delta)).date()
         temps, descs = [], []
         timezone_offset = data.get('city', {}).get('timezone', 0)
         for item in data['list']:
-            dt = datetime.fromtimestamp(item['dt'])
-            if dt.strftime('%Y-%m-%d') == target_date:
+            dt = datetime.utcfromtimestamp(item['dt'])
+            if dt.date() == target_date:
                 temps.append(item['main']['temp'])
                 descs.append(item['weather'][0]['description'])
         if temps:
@@ -140,6 +141,8 @@ def generate_natural_weather_response(city: str, weather_data: Dict, lang: str =
             temperature=0.7, max_tokens=150, timeout=5
         )
         reply = resp.choices[0].message.content.strip()
+        reply = clean_english_words(reply)
+        reply = remove_non_russian(reply)
         reply = re.sub(r'\s+', ' ', reply).strip()
         temp_int = int(round(temp))
         if str(temp_int) not in reply and str(temp_int+1) not in reply and str(temp_int-1) not in reply:
