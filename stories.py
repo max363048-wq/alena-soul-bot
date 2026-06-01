@@ -4,6 +4,7 @@ import os
 import json
 import requests
 from datetime import datetime
+from text_utils import clean_english_words, remove_non_russian
 
 STORIES_FILENAME = 'user_stories.json'
 
@@ -71,6 +72,9 @@ def generate_story(prompt: str, user_id: int, lang: str, client, gist_id: str) -
         if not story:
             return 'Ой, у меня не получилось придумать историю... Попробуй ещё раз! 😅'
         
+        story = clean_english_words(story)
+        story = remove_non_russian(story)
+        
         gist_id = gist_id or ''
         all_stories = _load_stories(gist_id)
         user_stories = all_stories.get(str(user_id), [])
@@ -110,6 +114,9 @@ def creative_prompt(user_id: int, lang: str, client, gist_id: str) -> str:
         idea = resp.choices[0].message.content.strip()
         if not idea:
             return 'Ой, муза сегодня капризничает... Давай попробуем ещё раз? 😊'
+        
+        idea = clean_english_words(idea)
+        idea = remove_non_russian(idea)
         
         gist_id = gist_id or ''
         all_stories = _load_stories(gist_id)
