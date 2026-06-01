@@ -30,6 +30,7 @@ def clean_english_words(text: str) -> str:
         r'\bdebug\b': 'отладка',
         r'\bcute\b': 'милые',
         r'\btranquil\b': 'спокойного',
+        r'\btranquility\b': 'спокойствие',
         r'\bserious\b': 'серьёзном',
         r'\bresilient\b': 'стойким',
         r'\bearlier\b': 'раньше',
@@ -47,6 +48,8 @@ def clean_english_words(text: str) -> str:
         r'\bfound\b': 'нашла',
         r'\bfeels\b': 'ощущается',
         r'\bthy\b': 'твоё',
+        r'\benjoy\w*\b': 'наслажда',  # enjoy, enjoyed, enjoying
+        r'\btranquility\b': 'спокойствие',
     }
     for eng, rus in reps.items():
         text = re.sub(eng, rus, text, flags=re.IGNORECASE)
