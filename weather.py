@@ -17,7 +17,8 @@ def extract_city(text: str, user_id: Optional[int] = None, user_last_city: Dict[
     match = re.search(r'\b(?:в|во|в городе)\s+([А-Яа-я\-]+(?:[-\s]?[А-Яа-я]+)?)', text, re.IGNORECASE)
     if match:
         city = match.group(1).strip().lower()
-        city = re.sub(r'\b(ночь|день|вечер|утро|сегодня|завтра|послезавтра|через|будет|самом|начале|начало|начал)\b', '', city).strip()
+        # расширенный список слов-паразитов, которые не относятся к названию города
+        city = re.sub(r'\b(ночь|день|вечер|утро|сегодня|завтра|послезавтра|через|будет|самом|начале|начало|начал|сейчас|погода|там|тут)\b', '', city).strip()
         if not city:
             return None
         corrections = {
