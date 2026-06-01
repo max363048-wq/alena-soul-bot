@@ -501,6 +501,22 @@ def handle_message(message: telebot.types.Message) -> None:
             photos.user_last_sent_photo[user_id] = chosen_photo
             save_user_last_photo(user_id, chosen_photo)
 
+            # Запоминаем категорию для "ещё таких"
+            photo_name = photos.get_keywords_from_photo_name(chosen_photo)
+            cat_found = False
+            for cat, words in photos.KEYWORD_MAP.items():
+                if any(syn in photo_name for syn in words):
+                    photos.user_last_category[user_id] = cat
+                    if user_id not in photos.user_thematic_history:
+                        photos.user_thematic_history[user_id] = {}
+                    if cat not in photos.user_thematic_history[user_id]:
+                        photos.user_thematic_history[user_id][cat] = set()
+                    photos.user_thematic_history[user_id][cat].add(chosen_photo)
+                    cat_found = True
+                    break
+            if not cat_found:
+                photos.user_last_category[user_id] = None
+
             max_attempts = 3
             attempt = 0
             sent = False
@@ -532,6 +548,21 @@ def handle_message(message: telebot.types.Message) -> None:
                         chosen_photo = random.choice(all_photos)
                         photos.user_last_sent_photo[user_id] = chosen_photo
                         save_user_last_photo(user_id, chosen_photo)
+                        # Обновляем категорию для нового фото
+                        photo_name = photos.get_keywords_from_photo_name(chosen_photo)
+                        cat_found = False
+                        for cat, words in photos.KEYWORD_MAP.items():
+                            if any(syn in photo_name for syn in words):
+                                photos.user_last_category[user_id] = cat
+                                if user_id not in photos.user_thematic_history:
+                                    photos.user_thematic_history[user_id] = {}
+                                if cat not in photos.user_thematic_history[user_id]:
+                                    photos.user_thematic_history[user_id][cat] = set()
+                                photos.user_thematic_history[user_id][cat].add(chosen_photo)
+                                cat_found = True
+                                break
+                        if not cat_found:
+                            photos.user_last_category[user_id] = None
                     else:
                         try:
                             with open(chosen_photo, 'rb') as photo:
