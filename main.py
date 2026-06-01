@@ -34,7 +34,6 @@ user_last_city: Dict[int, str] = {}
 user_zodiac: Dict[int, str] = {}
 user_timezone: Dict[int, int] = {}
 
-# Новый словарь: помнит последний фото-вопрос, путь к фото и описание
 user_last_photo_request: Dict[int, Dict[str, str]] = {}
 
 GIST_FILENAME = 'user_langs.json'
@@ -935,7 +934,6 @@ def handle_message(message: telebot.types.Message) -> None:
                 add_message(user_id, 'user', user_text)
                 add_message(user_id, 'assistant', description)
                 save_user_history(user_id)
-                # Запоминаем вопрос и ответ
                 user_last_photo_request[user_id] = {
                     'question': user_text.strip().lower(),
                     'photo_path': chosen_photo,
@@ -983,7 +981,6 @@ def handle_message(message: telebot.types.Message) -> None:
                 add_message(user_id, 'user', user_text)
                 add_message(user_id, 'assistant', description)
                 save_user_history(user_id)
-                # Запоминаем вопрос и ответ
                 user_last_photo_request[user_id] = {
                     'question': user_text.strip().lower(),
                     'photo_path': chosen_photo,
@@ -1000,9 +997,8 @@ def handle_message(message: telebot.types.Message) -> None:
         if user_id in user_last_photo_request:
             last_q = user_last_photo_request[user_id]['question']
             if last_q == user_text.strip().lower():
-                # Повторный вопрос — показываем то же самое
                 prev_data = user_last_photo_request[user_id]
-                reply_text = f"Я уже отвечала на этот вопрос, но если хочешь, покажу тебе ещё раз... Вот моё любимое фото: {prev_data['description']}"
+                reply_text = f"Я уже отвечала на этот вопрос, но если хочешь, покажу тебе ещё раз... {prev_data['description']}"
                 bot.send_message(message.chat.id, distribute_emojis(reply_text))
                 with open(prev_data['photo_path'], 'rb') as photo:
                     bot.send_photo(message.chat.id, photo)
@@ -1382,5 +1378,5 @@ def run_web():
 threading.Thread(target=run_web, daemon=True).start()
 
 if __name__ == '__main__':
-    print('✅ Алёна — финальная, с памятью о фото-вопросах и расширенными историями')
+    print('✅ Алёна — восстановленная логика фото и историй')
     bot.infinity_polling()
