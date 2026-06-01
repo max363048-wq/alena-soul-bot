@@ -13,6 +13,9 @@ from collections import deque
 from datetime import datetime, timedelta, timezone
 from typing import Dict, Deque, Optional, List, Any
 
+# Импорт модуля историй
+import stories
+
 BOT_TOKEN = os.getenv('BOT_TOKEN')
 GROQ_API_KEY = os.getenv('GROQ_API_KEY')
 WEATHER_API_KEY = os.getenv('WEATHER_API_KEY')
@@ -393,6 +396,7 @@ def clean_english_words(text: str) -> str:
         r'\bfinally\b': 'наконец',
         r'\bbecause\b': 'потому что',
         r'\bcapricorn\b': 'козерог',
+        r'\bmoi\b': 'мной',
     }
     for eng, rus in reps.items():
         text = re.sub(eng, rus, text, flags=re.IGNORECASE)
@@ -1089,7 +1093,6 @@ def handle_message(message: telebot.types.Message) -> None:
 
     # --- ГАРАНТИРОВАННОЕ ОПРЕДЕЛЕНИЕ КАТЕГОРИИ "ПАРИЖ" ДЛЯ ЗАПРОСОВ С МОСТОМ ---
     if 'мосту' in user_text.lower() and re.search(r'(фото|фотки|фотографии)', user_text, re.IGNORECASE):
-        # Явно выбираем фото из категории "париж"
         category = 'париж'
         user_last_category[user_id] = category
         chosen_photo = select_thematic_photo(user_id, category)
@@ -1369,6 +1372,24 @@ def handle_message(message: telebot.types.Message) -> None:
             horoscope_cmd(message, user_sign=sign)
             return
 
+    # --- Творческие функции Алёны (истории и подсказки) ---
+    if re.search(r'(расскажи историю|придумай историю|напиши рассказ)', user_text, re.IGNORECASE):
+        prompt = user_text
+        story = stories.generate_story(prompt, user_id, lang, client, GIST_ID)
+        bot.send_message(message.chat.id, distribute_emojis(story))
+        add_message(user_id, 'user', user_text)
+        add_message(user_id, 'assistant', story)
+        save_user_history(user_id)
+        return
+
+    if re.search(r'(дай идею для творчества|подскажи тему|что нарисовать|вдохнови на творчество)', user_text, re.IGNORECASE):
+        idea = stories.creative_prompt(user_id, lang, client, GIST_ID)
+        bot.send_message(message.chat.id, distribute_emojis(idea))
+        add_message(user_id, 'user', user_text)
+        add_message(user_id, 'assistant', idea)
+        save_user_history(user_id)
+        return
+
     if user_has_no_photos:
         reply = (
             "Как жаль, а я бы с удовольствием посмотрела на тебя! 😊 Но ничего страшного, мне и так хорошо с тобой. "
@@ -1460,5 +1481,5 @@ def run_web():
 threading.Thread(target=run_web, daemon=True).start()
 
 if __name__ == '__main__':
-    print('✅ Алёна — финальная, язык в Gist, шутки без повторов, Render-ready, история в Gist, знает время')
+    print('✅ Алёна — финальная, язык в Gist, шутки без повторов, Render-ready, история в Gist, знает время, модуль stories')
     bot.infinity_polling()
