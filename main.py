@@ -1,4 +1,4 @@
-# main.py — полный код с оригинальной логикой показа фото
+# main.py — с фиксом гороскопа и повтором любимого фото
 import os
 import telebot
 import re
@@ -38,6 +38,9 @@ user_timezone: Dict[int, int] = {}
 user_last_photo_request: Dict[int, Dict[str, str]] = {}
 user_pending_photo_offer: Dict[int, bool] = {}
 
+# ---------- НОВОЕ: словарь для хранения последнего любимого фото ----------
+user_last_favorite_photo: Dict[int, str] = {}
+
 # ---------- ФУНКЦИИ-ОБЁРТКИ ДЛЯ GIST ----------
 def save_user_history():
     memory.save_user_history(user_history)
@@ -51,12 +54,16 @@ def save_user_zodiac(z_dict):
 def save_user_last_photo(uid, path=None):
     memory.save_user_last_photo(photos.user_last_sent_photo, uid, path)
 
+def save_user_last_favorite_photo():
+    memory.save_user_last_favorite_photo(user_last_favorite_photo)
+
 # ---------- ЗАГРУЗКА ДАННЫХ ----------
 memory.load_user_langs(user_lang)
 memory.load_user_last_photo(photos.user_last_sent_photo)
 memory.load_user_history(user_history)
 memory.load_user_zodiac(user_zodiac)
 memory.load_user_timezone(user_timezone)
+memory.load_user_last_favorite_photo(user_last_favorite_photo)   # новая загрузка
 
 # ---------- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ----------
 def get_history(user_id: int) -> Deque:
@@ -90,6 +97,8 @@ def reset_user(user_id: int) -> None:
     memory.save_user_timezone(user_timezone)
     user_last_photo_request.pop(user_id, None)
     user_pending_photo_offer.pop(user_id, None)
+    user_last_favorite_photo.pop(user_id, None)
+    save_user_last_favorite_photo()
 
 def default_pet_name(first_name: str) -> str:
     names = {
@@ -195,6 +204,21 @@ def get_system_prompt(lang: str, current_date: str, user_id: int) -> str:
             '13. If the user comments on your previous answer (e.g., praises a horoscope or says how great it is), you MUST first sincerely share his joy, say that you are very pleased, that you are happy for him, add a couple of warm words, and only then, if you want, suggest talking about something else. Do not switch the topic immediately after a compliment — it sounds cold.\n'
             '14. Avoid unnatural, bureaucratic or inappropriate words like "sort out" when referring to communication. Speak simply and humanly.\n'
         )
+
+# ---------- НОВАЯ ФУНКЦИЯ: проверка повтора любимого фото ----------
+def handle_favorite_photo_repeat(user_id, lang, bot, message):
+    if user_id in user_last_favorite_photo:
+        prev_path = user_last_favorite_photo[user_id]
+        reply_text = "Я тебе уже показывала своё любимое фото, но если хочешь, покажу его ещё раз! 😊"
+        try:
+            bot.send_message(message.chat.id, distribute_emojis(reply_text))
+            with open(prev_path, 'rb') as photo:
+                bot.send_photo(message.chat.id, photo)
+            return True
+        except Exception as e:
+            print(f"Ошибка повтора любимого фото: {e}")
+            return False
+    return False
 
 # ---------- ОСНОВНЫЕ ОБРАБОТЧИКИ ----------
 @bot.message_handler(commands=['start'])
@@ -581,26 +605,15 @@ def handle_message(message: telebot.types.Message) -> None:
         save_user_history()
         return
 
-    # --- Основной показ фото (оригинальная регулярка) ---
+    # --- Основной показ фото ---
     if re.search(r'(фотки|какие нибудь фото|а у тебя есть фотографии|есть фотографии|у тебя есть фото|покажи свои фото|покажи фото|покажи мне фото|покажи мне фотки|покажешь фото|покажешь мне фото|фотоальбом|покажи себя|своё фото|свое фото|мои фото|свои фотографии|покажи альбом|покажи где ты была|покажи, где ты|покажи картинку|покажи изображение|есть фото|есть ли у тебя фото|посмотреть твои фото|покажи свои фотографии|любимые фото|любимое фото|любимых фото|есть еще фото|другие фото|покажи другое фото|ещё фото|какое твое любимое фото|покажи любимое фото|покажи другое|такие фото|такие фотки|фото где ты|фотки где ты|какие фото у тебя еще есть|какие фото ещё есть|какие у тебя ещё фото|какие ещё фото|какие фото еще|какие еще фото|какие у тебя есть фото)', user_text, re.IGNORECASE):
         user_pending_photo_offer[user_id] = False
-        # Проверка на повтор любимого фото
+        # Проверка на повтор любимого фото (НОВОЕ)
         if re.search(r'(любимые фото|любимое фото|любимых фото|какое твое любимое фото|покажи любимое фото)', user_text, re.IGNORECASE):
-            if user_id in user_last_photo_request:
-                last_q = user_last_photo_request[user_id]['question']
-                if last_q == user_text.strip().lower():
-                    prev_data = user_last_photo_request[user_id]
-                    reply_text = f"Я уже отвечала на этот вопрос, но если хочешь, покажу тебе ещё раз... {prev_data['description']}"
-                    try:
-                        bot.send_message(message.chat.id, distribute_emojis(reply_text))
-                        with open(prev_data['photo_path'], 'rb') as photo:
-                            bot.send_photo(message.chat.id, photo)
-                    except:
-                        pass
-                    add_message(user_id, 'user', user_text)
-                    add_message(user_id, 'assistant', reply_text)
-                    save_user_history()
-                    return
+            if handle_favorite_photo_repeat(user_id, lang, bot, message):
+                add_message(user_id, 'user', user_text)
+                save_user_history()
+                return
 
         all_photos = photos.get_photo_list()
         if not all_photos:
@@ -621,6 +634,9 @@ def handle_message(message: telebot.types.Message) -> None:
             apology = ""
             photos.user_last_sent_photo[user_id] = chosen_photo
             save_user_last_photo(user_id, chosen_photo)
+            # Запоминаем как последнее любимое фото
+            user_last_favorite_photo[user_id] = chosen_photo
+            save_user_last_favorite_photo()
             # Определяем категорию и запоминаем её
             photo_name = photos.get_keywords_from_photo_name(chosen_photo)
             cat_found = False
@@ -668,7 +684,8 @@ def handle_message(message: telebot.types.Message) -> None:
                         chosen_photo = random.choice(all_photos)
                         photos.user_last_sent_photo[user_id] = chosen_photo
                         save_user_last_photo(user_id, chosen_photo)
-                        # Обновляем категорию для нового фото
+                        user_last_favorite_photo[user_id] = chosen_photo
+                        save_user_last_favorite_photo()
                         photo_name = photos.get_keywords_from_photo_name(chosen_photo)
                         cat_found = False
                         for cat, words in photos.KEYWORD_MAP.items():
@@ -858,7 +875,8 @@ def handle_message(message: telebot.types.Message) -> None:
     # --- Гороскоп (натуральный, расширенный) ---
     if horoscope.handle_natural_horoscope(message, bot, client, user_lang, user_zodiac, user_timezone, save_user_zodiac, add_message, save_user_history, pet_name=pet_name):
         return
-    if re.search(r'(расскажи гороскоп|рассказать гороскоп|расскажи мне гороскоп|ты можешь рассказать гороскоп|ты можешь рассказать мне гороскоп|составь гороскоп|какой гороскоп|что говорят звёзды|предскажи гороскоп)', user_text, re.IGNORECASE):
+    # ФИКС: ловит "какой у меня сегодня гороскоп" и похожие
+    if re.search(r'(расскажи гороскоп|рассказать гороскоп|расскажи мне гороскоп|ты можешь рассказать гороскоп|ты можешь рассказать мне гороскоп|составь гороскоп|какой.*гороскоп|что говорят звёзды|предскажи гороскоп)', user_text, re.IGNORECASE):
         if user_id in user_zodiac:
             sign = user_zodiac[user_id]
             horoscope.horoscope_cmd(message, bot, client, user_lang, user_zodiac, user_timezone, save_user_zodiac, add_message, save_user_history, user_sign=sign, pet_name=pet_name)
