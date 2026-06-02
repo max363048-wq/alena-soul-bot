@@ -40,7 +40,7 @@ def format_local_time(timezone_offset: int, target_date: Optional[datetime] = No
     from weather import format_local_time as weather_format_local_time
     return weather_format_local_time(timezone_offset, target_date)
 
-def horoscope_cmd(message: telebot.types.Message, bot, client, user_lang, user_zodiac, user_timezone, save_user_zodiac, add_message, save_user_history, user_sign: Optional[str] = None):
+def horoscope_cmd(message: telebot.types.Message, bot, client, user_lang, user_zodiac, user_timezone, save_user_zodiac, add_message, save_user_history, user_sign: Optional[str] = None, pet_name: str = ''):
     user_id = message.from_user.id
     lang = user_lang.get(user_id, 'ru')
     parts = message.text.split(maxsplit=1)
@@ -67,8 +67,15 @@ def horoscope_cmd(message: telebot.types.Message, bot, client, user_lang, user_z
     if user_id in user_timezone:
         local_time_str = format_local_time(user_timezone[user_id])
         local_time_note = f' Сейчас у пользователя {local_time_str}.'
+
+    # Подставляем ласковое имя, если оно есть
+    greeting = f'{pet_name}, ' if pet_name else ''
     try:
-        prompt = f"Ты астролог. Составь короткое доброе предсказание для знака {sign.capitalize()} на {today}.{local_time_note} Обращайся к пользователю на 'ты'. Пиши на русском, без английских слов. НЕ начинай ответ с 'Здравствуй' или 'Привет'."
+        prompt = (f"Ты астролог. Составь короткое доброе предсказание для знака {sign.capitalize()} на {today}.{local_time_note} "
+                  f"Начни ответ с обращения к пользователю: '{greeting}' (если имя есть, то используй его ласковую форму). "
+                  f"Добавь в конце 2-3 эмодзи (😊✨💖). "
+                  f"Пиши на русском, без английских слов. НЕ начинай ответ с 'Здравствуй' или 'Привет'."
+                  f"Обращайся на 'ты'.")
         resp = client.chat.completions.create(
             model='llama-3.1-8b-instant',
             messages=[{'role': 'user', 'content': prompt}],
@@ -77,6 +84,9 @@ def horoscope_cmd(message: telebot.types.Message, bot, client, user_lang, user_z
         text = resp.choices[0].message.content.strip()
         text = clean_english_words(text)
         text = remove_non_russian(text)
+        # Если ответ не содержит имени пользователя, добавляем его в начало
+        if pet_name and not text.startswith(pet_name):
+            text = f"{pet_name}, {text[0].lower()}{text[1:]}" if text else text
         bot.send_message(message.chat.id, text)
         add_message(user_id, 'user', f'/horoscope {sign}' if not parts else message.text)
         add_message(user_id, 'assistant', text)
@@ -84,14 +94,14 @@ def horoscope_cmd(message: telebot.types.Message, bot, client, user_lang, user_z
     except:
         bot.send_message(message.chat.id, "Не удалось составить гороскоп 😅 Попробуй позже.")
 
-def handle_natural_horoscope(message: telebot.types.Message, bot, client, user_lang, user_zodiac, user_timezone, save_user_zodiac, add_message, save_user_history):
+def handle_natural_horoscope(message: telebot.types.Message, bot, client, user_lang, user_zodiac, user_timezone, save_user_zodiac, add_message, save_user_history, pet_name: str = ''):
     user_id = message.from_user.id
     user_text = message.text
     if re.search(r'(расскажи гороскоп|составь гороскоп|какой гороскоп|что говорят звёзды|предскажи гороскоп|расскажи мне гороскоп)', user_text, re.IGNORECASE):
         if user_id in user_zodiac:
             sign = user_zodiac[user_id]
             message.text = f'/horoscope {sign}'
-            horoscope_cmd(message, bot, client, user_lang, user_zodiac, user_timezone, save_user_zodiac, add_message, save_user_history, user_sign=sign)
+            horoscope_cmd(message, bot, client, user_lang, user_zodiac, user_timezone, save_user_zodiac, add_message, save_user_history, user_sign=sign, pet_name=pet_name)
         else:
             bot.send_message(message.chat.id, "Прости, но я не знаю твою дату рождения (можно просто день и месяц) или просто скажи мне свой знак зодиака... 😊")
         return True
