@@ -6,7 +6,7 @@ import requests
 from datetime import datetime, timedelta, timezone
 from typing import Dict, Optional, List, Any
 import telebot
-from text_utils import clean_english_words, remove_non_russian
+from text_utils import clean_english_words, remove_non_russian, distribute_emojis
 
 TEXT_NUMBERS = {
     'один': 1, 'одну': 1, 'два': 2, 'две': 2, 'три': 3, 'четыре': 4, 'пять': 5,
@@ -129,7 +129,6 @@ def generate_natural_weather_response(city: str, weather_data: Dict, lang: str =
     if is_forecast:
         temp = weather_data['temp']
         desc = weather_data['desc']
-        # Тёплый fallback с эмодзи
         fallback = f"{day_name.capitalize()} в {city} обещают {desc}, около {temp:.0f}°C. Одевайся по погоде и пусть день будет прекрасным! 😊💖"
         prompt = (f"Ты Алёна. Пользователь спросил погоду на {day_name} в {city}. "
                   f"Реальные данные: {desc}, температура {temp:.0f}°C. "
@@ -168,9 +167,9 @@ def generate_natural_weather_response(city: str, weather_data: Dict, lang: str =
         temp_int = int(round(temp))
         if str(temp_int) not in reply and str(temp_int+1) not in reply and str(temp_int-1) not in reply:
             return fallback
-        return reply
+        return distribute_emojis(reply)
     except:
-        return fallback
+        return distribute_emojis(fallback)
 
 def handle_weather_query(message: telebot.types.Message, user_text: str, lang: str, user_id: int, user_last_city: Dict[int, str], user_timezone: Dict[int, int], client, save_user_history, save_user_timezone, add_message, bot) -> bool:
     if not is_weather_query(user_text):
@@ -218,46 +217,81 @@ def handle_weather_query(message: telebot.types.Message, user_text: str, lang: s
     add_message(user_id, 'user', user_text)
 
     if is_multi_day:
-        forecast_replies = []
+        # Собираем реальные данные по дням
+        day_data = []
         for d in day_deltas:
             if d == 0:
-                weather = get_current_weather(city, lang)
-                if weather:
-                    timezone_offset = weather.get('timezone', 0)
-                    user_timezone[user_id] = timezone_offset
-                    save_user_timezone(user_timezone)
-                    local_time_str = format_local_time(timezone_offset)
-                    forecast_replies.append(f"• Сегодня: {weather['desc']}, около {weather['temp']:.0f}°C ({local_time_str})")
-                else:
-                    forecast_replies.append(f"• Сегодня: данные недоступны")
+                wdata = get_current_weather(city, lang)
+                label = 'сегодня'
             else:
-                fc = get_forecast_for_day(city, d, lang)
-                if fc:
-                    timezone_offset = fc.get('timezone', 0)
-                    user_timezone[user_id] = timezone_offset
-                    save_user_timezone(user_timezone)
-                    target_date = datetime.now() + timedelta(days=d)
-                    local_time_str = format_local_time(timezone_offset, target_date)
-                    forecast_replies.append(f"• День {d}: {fc['desc']}, около {fc['temp']:.0f}°C ({local_time_str})")
+                wdata = get_forecast_for_day(city, d, lang)
+                if d == 1:
+                    label = 'завтра'
+                elif d == 2:
+                    label = 'послезавтра'
                 else:
-                    forecast_replies.append(f"• День {d}: данные недоступны")
-        if forecast_replies:
-            reply = f"Прогноз в {city} на ближайшие дни: 😊\n" + "\n".join(forecast_replies)
-            reply += "\nХорошей погоды! 💖"
-            bot.send_message(message.chat.id, reply)
-        else:
-            bot.send_message(message.chat.id, f"Не удалось получить прогноз для {city}. Попробуй позже 😊")
+                    label = f'через {d} дней'
+
+            if wdata:
+                timezone_offset = wdata.get('timezone', 0)
+                user_timezone[user_id] = timezone_offset
+                save_user_timezone(user_timezone)
+                day_data.append({
+                    'label': label,
+                    'desc': wdata['desc'],
+                    'temp': wdata['temp'],
+                    'timezone_offset': timezone_offset
+                })
+            else:
+                day_data.append({
+                    'label': label,
+                    'desc': None,
+                    'temp': None,
+                    'timezone_offset': 0
+                })
+
+        # Формируем промпт для LLM
+        data_lines = []
+        for d in day_data:
+            if d['desc']:
+                data_lines.append(f"{d['label']}: {d['desc']}, около {d['temp']:.0f}°C")
+            else:
+                data_lines.append(f"{d['label']}: данные пока недоступны")
+        data_text = '\n'.join(data_lines)
+
+        prompt = (f"Ты Алёна. Пользователь спросил погоду в {city} на ближайшие дни. "
+                  f"Вот ТОЛЬКО РЕАЛЬНЫЕ данные, которые у тебя есть:\n{data_text}\n\n"
+                  f"Составь тёплый, короткий ответ (3-5 предложений) на основе ТОЛЬКО этих данных. "
+                  f"Не придумывай ничего нового. Не называй дни недели. "
+                  f"Для дней, где данных нет, скажи, что пока не знаешь, но обязательно узнаешь позже. "
+                  f"Добавь эмодзи. Без английских слов. Не начинай с приветствия.")
+
+        try:
+            resp = client.chat.completions.create(
+                model='llama-3.1-8b-instant',
+                messages=[{'role': 'user', 'content': prompt}],
+                temperature=0.7, max_tokens=250, timeout=8
+            )
+            reply = resp.choices[0].message.content.strip()
+        except:
+            # Если LLM не ответила, соберём простой список
+            reply = '\n'.join([f"• {d['label'].capitalize()}: {d['desc']}, около {d['temp']:.0f}°C" if d['desc'] else f"• {d['label'].capitalize()}: данные недоступны" for d in day_data])
+
+        reply = clean_english_words(reply)
+        reply = remove_non_russian(reply)
+        reply = distribute_emojis(reply)
+        bot.send_message(message.chat.id, reply)
         add_message(user_id, 'assistant', reply)
         save_user_history()
         return True
 
     if day_delta == 0:
-        weather = get_current_weather(city, lang)
-        if weather:
-            if 'timezone' in weather:
-                user_timezone[user_id] = weather['timezone']
+        weather_data = get_current_weather(city, lang)
+        if weather_data:
+            if 'timezone' in weather_data:
+                user_timezone[user_id] = weather_data['timezone']
                 save_user_timezone(user_timezone)
-            reply = generate_natural_weather_response(city, weather, lang, is_forecast=False, client=client)
+            reply = generate_natural_weather_response(city, weather_data, lang, is_forecast=False, client=client)
         else:
             reply = f"Не удалось получить текущую погоду для {city}. Проверь название города 😊"
     else:
