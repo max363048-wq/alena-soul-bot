@@ -1,4 +1,4 @@
-# voice.py — Модуль голоса и слуха Алёны (синтез через Cloudflare MeloTTS)
+# voice.py — Модуль голоса и слуха Алёны (синтез через Cloudflare MMS‑TTS)
 
 import os
 import re
@@ -13,7 +13,7 @@ from typing import Optional, Tuple, List
 CF_ACCOUNT_ID = os.getenv('CF_ACCOUNT_ID')
 CF_API_TOKEN = os.getenv('CF_API_TOKEN')
 WHISPER_MODEL = '@cf/openai/whisper'
-TTS_MODEL = '@cf/facebook/mms-tts'
+TTS_MODEL = '@cf/facebook/mms-tts'          # правильная модель для русского
 
 # YAMNet (загружается один раз)
 _YAMNET_MODEL = None
@@ -112,8 +112,13 @@ def speech_to_text(audio_bytes: bytes, lang: str = 'ru') -> Optional[str]:
         print(f"Ошибка распознавания речи: {e}")
         return None
 
-# ---------- СИНТЕЗ РЕЧИ (Cloudflare MeloTTS) ----------
-def text_to_speech(text: str) -> Optional[bytes]:
+# ---------- СИНТЕЗ РЕЧИ (Cloudflare MMS-TTS) ----------
+def text_to_speech(text: str, lang: str = 'ru') -> Optional[bytes]:
+    """
+    Синтезирует голос Алёны через Cloudflare MMS-TTS.
+    Параметр lang не используется (модель сама определяет язык по тексту),
+    но оставлен для совместимости с вызовами из main.py.
+    """
     try:
         url = f'https://api.cloudflare.com/client/v4/accounts/{CF_ACCOUNT_ID}/ai/run/{TTS_MODEL}'
         headers = {
@@ -122,7 +127,7 @@ def text_to_speech(text: str) -> Optional[bytes]:
         }
         payload = {
             'text': text,
-            'language': 'rus'
+            'language': 'rus'        # трёхбуквенный код ISO 639-3 для русского
         }
         resp = requests.post(url, headers=headers, json=payload, timeout=20)
         data = resp.json()
