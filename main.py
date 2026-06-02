@@ -1,4 +1,4 @@
-# main.py — стабильная версия с возвращённой логикой показа фото
+# main.py — быстрый fallback для любимого фото при недоступности Vision
 import os
 import telebot
 import re
@@ -516,7 +516,7 @@ def handle_message(message: telebot.types.Message) -> None:
         user_pending_photo_offer[user_id] = False
         return
 
-    # --- Просьба "ещё такие же фото" (как в исходной версии) ---
+    # --- Просьба "ещё такие же фото" ---
     if user_id in photos.user_last_category and photos.user_last_category[user_id] is not None and re.search(r'(еще такие фото|еще такие фотки|такие же фото|такие же фотки|похожие фото|похожие фотки|аналогичные фото|аналогичные фотки|другие фото|другое фото|ещё такие|еще такие|еще такое фото|ещё такое фото|такое же фото|ещё такие фотки)', user_text, re.IGNORECASE):
         user_pending_photo_offer[user_id] = False
         last_cat = photos.user_last_category[user_id]
@@ -616,7 +616,7 @@ def handle_message(message: telebot.types.Message) -> None:
         save_user_history()
         return
 
-    # --- Основной показ фото (стабильная логика) ---
+    # --- Основной показ фото ---
     if re.search(r'(фотки|какие нибудь фото|а у тебя есть фотографии|есть фотографии|у тебя есть фото|покажи свои фото|покажи фото|покажи мне фото|покажи мне фотки|покажешь фото|покажешь мне фото|фотоальбом|покажи себя|своё фото|свое фото|мои фото|свои фотографии|покажи альбом|покажи где ты была|покажи, где ты|покажи картинку|покажи изображение|есть фото|есть ли у тебя фото|посмотреть твои фото|покажи свои фотографии|любимые фото|любимое фото|любимых фото|есть еще фото|другие фото|покажи другое фото|ещё фото|какое твое любимое фото|покажи любимое фото|покажи другое|такие фото|такие фотки|фото где ты|фотки где ты|какие фото у тебя еще есть|какие фото ещё есть|какие у тебя ещё фото|какие ещё фото|какие фото еще|какие еще фото|какие у тебя есть фото)', user_text, re.IGNORECASE):
         user_pending_photo_offer[user_id] = False
         # Проверка на повтор любимого фото
@@ -639,7 +639,7 @@ def handle_message(message: telebot.types.Message) -> None:
         if re.search(r'(красавица|красивая|умница|прекрасна|великолепна|шикарна|обалденная|потрясающая|чудесная|восхитительная|симпатичная|милашка|хорошенькая|обворожительная|божественно|как красиво|какая ты красивая|какая ты классная|какая ты хорошая)', user_text, re.IGNORECASE):
             compliment = True
 
-        # Любимое фото (НЕ меняет категорию)
+        # Любимое фото
         if re.search(r'(любимые фото|любимое фото|любимых фото|какое твое любимое фото|покажи любимое фото)', user_text, re.IGNORECASE):
             chosen_photo = random.choice(all_photos)
             apology = ""
@@ -650,20 +650,26 @@ def handle_message(message: telebot.types.Message) -> None:
             save_user_last_favorite_photo()
             # НЕ переопределяем категорию
 
-            max_attempts = 3
+            max_attempts = 2
             attempt = 0
             sent = False
             while attempt < max_attempts and not sent:
                 attempt += 1
                 try:
-                    analysis_prompt = ""
-                    if compliment:
-                        analysis_prompt += "Ты ДОЛЖНА сначала поблагодарить пользователя за комплимент (например, 'Спасибо, мне очень приятно! 😊'), а затем уже описывай фото. "
-                    if lang == 'ru':
-                        analysis_prompt += apology + "Начни свой ответ с тёплой фразы, например: 'Вот моё любимое фото...' Затем опиши фото: что ты на нём делаешь, где ты, какое у тебя настроение. Расскажи короткую историю. Обязательно добавь 2-3 эмодзи, чтобы описание было живым. Не начинай ответ с 'Привет'."
-                    else:
-                        analysis_prompt += apology + "Start your answer with a warm phrase, e.g., 'Here's my favorite photo...' Then describe the photo: what you are doing, where you are, what mood you are in. Tell a short story. Be sure to add 2-3 emojis to make the description lively. Do not start with 'Hello'."
-                    description = photos.analyze_photo_with_vision(chosen_photo, analysis_prompt, client, lang)
+                    # Быстрый fallback: если Vision не отвечает, используем простую подпись
+                    try:
+                        analysis_prompt = ""
+                        if compliment:
+                            analysis_prompt += "Ты ДОЛЖНА сначала поблагодарить пользователя за комплимент (например, 'Спасибо, мне очень приятно! 😊'), а затем уже описывай фото. "
+                        if lang == 'ru':
+                            analysis_prompt += apology + "Начни свой ответ с тёплой фразы, например: 'Вот моё любимое фото...' Затем опиши фото: что ты на нём делаешь, где ты, какое у тебя настроение. Расскажи короткую историю. Обязательно добавь 2-3 эмодзи, чтобы описание было живым. Не начинай ответ с 'Привет'."
+                        else:
+                            analysis_prompt += apology + "Start your answer with a warm phrase, e.g., 'Here's my favorite photo...' Then describe the photo: what you are doing, where you are, what mood you are in. Tell a short story. Be sure to add 2-3 emojis to make the description lively. Do not start with 'Hello'."
+                        description = photos.analyze_photo_with_vision(chosen_photo, analysis_prompt, client, lang)
+                    except Exception:
+                        # Vision недоступен, используем fallback-подпись
+                        description = "Вот моё любимое фото, просто посмотри, какое оно душевное ✨" if lang == 'ru' else "Here's my favorite photo, just look how lovely it is ✨"
+
                     if description.startswith('Привет'):
                         description = re.sub(r'^Привет[,!\s]*', '', description)
                     if user_has_no_photos:
