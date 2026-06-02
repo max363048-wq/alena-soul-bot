@@ -11,8 +11,8 @@ LAST_PHOTO_FILENAME = 'user_last_photo.json'
 HISTORY_FILENAME = 'user_history.json'
 ZODIAC_FILENAME = 'user_zodiac.json'
 TIMEZONE_FILENAME = 'user_timezone.json'
-FAVORITE_PHOTO_FILENAME = 'user_last_favorite_photo.json'
-GENDER_FILENAME = 'user_gender.json'                     # новый файл
+FAVORITE_PHOTO_FILENAME = 'user_last_favorite_photo.json'   # новый файл
+GENDER_FILENAME = 'user_gender.json'                         # новый файл
 
 def get_headers():
     token = os.getenv('GITHUB_TOKEN')
