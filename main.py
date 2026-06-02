@@ -391,6 +391,7 @@ def handle_message(message: telebot.types.Message) -> None:
     pet_name = get_pet_name(user_id, message.from_user.first_name)
 
     if message.content_type == 'photo':
+        user_pending_photo_offer[user_id] = False
         try:
             photos.analyze_user_photo(message, bot, client, lang)
         except Exception as e:
@@ -404,18 +405,17 @@ def handle_message(message: telebot.types.Message) -> None:
     if user_text.startswith('/'):
         return
 
-    # --- Сброс флага pending_photo_offer при любых явных запросах других функций ---
-    if user_pending_photo_offer.get(user_id) and re.search(r'(гороскоп|погода|погоду|погоде|истори|творчеств|расскажи|составь)', user_text, re.IGNORECASE):
+    # Сброс флага при явных запросах других функций
+    if re.search(r'(гороскоп|погода|погоду|погоде|историю|истории|творчеств|вдохнови|расскажи историю|расскажи мне историю|расскажи какую)', user_text, re.IGNORECASE):
         user_pending_photo_offer[user_id] = False
 
-    # Проверка: если бот только что предложил показать фото, а пользователь соглашается
+    # Проверка предложения показать фото
     if user_pending_photo_offer.get(user_id) and re.search(r'(давай|покажи|показывай|хочу|конечно|ага|да|yes|ok|ок)', user_text, re.IGNORECASE):
         all_photos = photos.get_photo_list()
         if all_photos:
             chosen_photo = random.choice(all_photos)
             photos.user_last_sent_photo[user_id] = chosen_photo
             save_user_last_photo(user_id, chosen_photo)
-            # Определяем категорию
             photo_name = photos.get_keywords_from_photo_name(chosen_photo)
             cat_found = False
             for cat, words in photos.KEYWORD_MAP.items():
@@ -444,20 +444,18 @@ def handle_message(message: telebot.types.Message) -> None:
                 add_message(user_id, 'user', user_text)
                 add_message(user_id, 'assistant', description)
                 save_user_history()
-                user_pending_photo_offer[user_id] = False
             except Exception as e:
                 print(f"Ошибка отправки фото по предложению: {e}")
                 try:
                     bot.send_message(message.chat.id, "Ой, не получилось показать фото 😅 Давай попробуем позже?")
                 except:
                     pass
-                user_pending_photo_offer[user_id] = False
         else:
             try:
                 bot.send_message(message.chat.id, "У меня пока нет фотоальбома, но Максик обещал скоро добавить! 😊")
             except:
                 pass
-            user_pending_photo_offer[user_id] = False
+        user_pending_photo_offer[user_id] = False
         return
 
     user_has_no_photos = False
@@ -479,12 +477,13 @@ def handle_message(message: telebot.types.Message) -> None:
 
     # --- ГАРАНТИРОВАННЫЙ ПАРИЖ (САМЫЙ ПЕРВЫЙ!) ---
     if photos.try_paris_photo(user_id, user_text, lang, bot, message, client, add_message, save_user_history, save_user_last_photo):
+        user_pending_photo_offer[user_id] = False
         return
 
-    # --- Просьба "ещё такие же фото" (СТАРАЯ ЛОГИКА) ---
+    # --- Просьба "ещё такие же фото" ---
     if user_id in photos.user_last_category and photos.user_last_category[user_id] is not None and re.search(r'(еще такие фото|еще такие фотки|такие же фото|такие же фотки|похожие фото|похожие фотки|аналогичные фото|аналогичные фотки|другие фото|другое фото|ещё такие|еще такие|еще такое фото|ещё такое фото|такое же фото|ещё такие фотки)', user_text, re.IGNORECASE):
+        user_pending_photo_offer[user_id] = False
         last_cat = photos.user_last_category[user_id]
-        # Принудительный поиск для Парижа
         if last_cat == 'париж':
             all_photos = photos.get_photo_list()
             paris_photos = [p for p in all_photos if 'мост' in photos.get_keywords_from_photo_name(p) and 'париж' in photos.get_keywords_from_photo_name(p)]
@@ -583,6 +582,7 @@ def handle_message(message: telebot.types.Message) -> None:
 
     # --- Основной показ фото ---
     if re.search(r'(фотки|какие нибудь фото|а у тебя есть фотографии|есть фотографии|у тебя есть фото|покажи свои фото|покажи фото|покажи мне фото|покажи мне фотки|покажешь фото|покажешь мне фото|фотоальбом|покажи себя|своё фото|свое фото|мои фото|свои фотографии|покажи альбом|покажи где ты была|покажи, где ты|покажи картинку|покажи изображение|есть фото|есть ли у тебя фото|посмотреть твои фото|покажи свои фотографии|любимые фото|любимое фото|любимых фото|есть еще фото|другие фото|покажи другое фото|ещё фото|какое твое любимое фото|покажи любимое фото|покажи другое|такие фото|такие фотки|фото где ты|фотки где ты)', user_text, re.IGNORECASE):
+        user_pending_photo_offer[user_id] = False
         # Проверка на повтор любимого фото
         if re.search(r'(любимые фото|любимое фото|любимых фото|какое твое любимое фото|покажи любимое фото)', user_text, re.IGNORECASE):
             if user_id in user_last_photo_request:
@@ -620,9 +620,6 @@ def handle_message(message: telebot.types.Message) -> None:
             apology = ""
             photos.user_last_sent_photo[user_id] = chosen_photo
             save_user_last_photo(user_id, chosen_photo)
-
-            # НЕ переопределяем категорию, оставляем старую логику
-            # (категория остаётся той, что была установлена предыдущим тематическим запросом)
 
             max_attempts = 3
             attempt = 0
@@ -688,7 +685,6 @@ def handle_message(message: telebot.types.Message) -> None:
                 else:
                     apology = ""
             else:
-                # Если запрос не содержит категории, но есть last_category, используем её для "ещё таких"
                 if user_id in photos.user_last_category and photos.user_last_category[user_id] is not None and re.search(r'(еще такие|такие же|похожие|аналогичные|ещё такие)', user_text, re.IGNORECASE):
                     last_cat = photos.user_last_category[user_id]
                     chosen_photo = photos.select_thematic_photo(user_id, last_cat)
@@ -934,7 +930,7 @@ def handle_message(message: telebot.types.Message) -> None:
             except:
                 pass
             add_message(user_id, 'assistant', reply)
-            # Проверяем, предложила ли Алёна показать фото
+            # Устанавливаем флаг ТОЛЬКО если Алёна предложила показать фото в обычном диалоге
             if re.search(r'(показать|посмотреть|покажу|фотографий|фотоальбом|фото|фотки|фотографию|снимки|снимок)', reply, re.IGNORECASE):
                 user_pending_photo_offer[user_id] = True
             else:
