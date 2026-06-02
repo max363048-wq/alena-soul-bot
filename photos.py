@@ -1,4 +1,4 @@
-# photos.py — Модуль фотоальбома Алёны (полная логика показа фото)
+# photos.py — Модуль фотоальбома Алёны (исправлено: "ещё такие" использует категорию последнего фото)
 
 import os
 import random
@@ -13,7 +13,6 @@ SUPPORTED_EXTENSIONS = ('.jpg', '.jpeg', '.png', '.gif')
 VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
 MAX_BASE64_SIZE = 4 * 1024 * 1024
 
-# Категории строго от специфичных к общим (как в исходной стабильной версии)
 KEYWORD_MAP = {
     'кормит птиц': ['кормит птиц', 'птиц', 'голуби', 'корм'],
     'зима': ['зима', 'зимой', 'зимние', 'лыжи', 'лыжах', 'кататься', 'катаешься'],
@@ -30,7 +29,6 @@ KEYWORD_MAP = {
     'город': ['город', 'городе', 'улица', 'проспект', 'площадь']
 }
 
-# Словари (будут импортированы из main.py или определены здесь)
 user_last_sent_photo: Dict[int, str] = {}
 user_no_photos: Dict[int, bool] = {}
 user_thematic_history: Dict[int, Dict[str, set]] = {}
@@ -41,7 +39,7 @@ user_last_photo_request: Dict[int, Dict[str, str]] = {}
 user_pending_photo_offer: Dict[int, bool] = {}
 user_last_favorite_photo: Dict[int, str] = {}
 
-# ---------- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ФОТОАЛЬБОМА ----------
+# ---------- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ----------
 def get_photo_list() -> List[str]:
     if not os.path.exists(PHOTO_FOLDER):
         os.makedirs(PHOTO_FOLDER, exist_ok=True)
@@ -214,7 +212,6 @@ def try_paris_photo(user_id: int, user_text: str, lang: str, bot, message, clien
     return False
 
 def handle_favorite_photo_repeat(user_id, lang, bot, message):
-    """Если любимое фото уже было показано, предлагает повторить. Возвращает True, если обработано."""
     if user_id in user_last_favorite_photo:
         prev_path = user_last_favorite_photo[user_id]
         reply_text = "Я тебе уже показывала своё любимое фото, но если хочешь, покажу его ещё раз! 😊"
@@ -232,10 +229,6 @@ def handle_favorite_photo_repeat(user_id, lang, bot, message):
 def handle_photo_request(user_id: int, user_text: str, lang: str, bot, message, client,
                          add_message, save_user_history, save_user_last_photo_func,
                          save_user_last_favorite_photo_func, user_has_no_photos: bool = False):
-    """
-    Обрабатывает любой запрос, связанный с показом фото.
-    Возвращает True, если фото было отправлено (или обработано), иначе False.
-    """
     # --- ГАРАНТИРОВАННЫЙ ПАРИЖ (САМЫЙ ПЕРВЫЙ!) ---
     if try_paris_photo(user_id, user_text, lang, bot, message, client, add_message, save_user_history, save_user_last_photo_func):
         user_pending_photo_offer[user_id] = False
@@ -418,14 +411,31 @@ def handle_photo_request(user_id: int, user_text: str, lang: str, bot, message, 
                 else:
                     apology = ""
             else:
-                if user_id in user_last_category and user_last_category[user_id] is not None and re.search(r'(еще такие|такие же|похожие|аналогичные|ещё такие)', user_text, re.IGNORECASE):
-                    last_cat = user_last_category[user_id]
-                    chosen_photo = select_thematic_photo(user_id, last_cat)
-                    if chosen_photo is None:
+                # Если запрос "ещё такие", но категория не найдена, используем категорию последнего фото
+                if re.search(r'(еще такие|такие же|похожие|аналогичные|ещё такие)', user_text, re.IGNORECASE):
+                    # Пытаемся определить категорию по последнему показанному фото
+                    last_photo = user_last_sent_photo.get(user_id)
+                    if last_photo:
+                        photo_name = get_keywords_from_photo_name(last_photo)
+                        cat_found = False
+                        for cat, words in KEYWORD_MAP.items():
+                            if any(syn in photo_name for syn in words):
+                                user_last_category[user_id] = cat
+                                cat_found = True
+                                break
+                        if cat_found:
+                            chosen_photo = select_thematic_photo(user_id, cat)
+                            if chosen_photo is None:
+                                chosen_photo = random.choice(all_photos)
+                                apology = "Ой, у меня пока нет фото на эту тему, но вот одно из моих любимых – надеюсь, тебе понравится! "
+                            else:
+                                apology = ""
+                        else:
+                            chosen_photo = random.choice(all_photos)
+                            apology = "Ой, у меня пока нет фото на эту тему, но вот одно из моих любимых – надеюсь, тебе понравится! "
+                    else:
                         chosen_photo = random.choice(all_photos)
                         apology = "Ой, у меня пока нет фото на эту тему, но вот одно из моих любимых – надеюсь, тебе понравится! "
-                    else:
-                        apology = ""
                 else:
                     # Случайное фото – запоминаем категорию
                     chosen_photo = random.choice(all_photos)
