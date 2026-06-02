@@ -6,11 +6,12 @@ import requests
 import json
 from typing import Dict, Deque, Optional
 
-GIST_FILENAME = 'user_langs.json'
+GIST_FILENAME_LANGS = 'user_langs.json'
 LAST_PHOTO_FILENAME = 'user_last_photo.json'
 HISTORY_FILENAME = 'user_history.json'
 ZODIAC_FILENAME = 'user_zodiac.json'
 TIMEZONE_FILENAME = 'user_timezone.json'
+FAVORITE_PHOTO_FILENAME = 'user_last_favorite_photo.json'   # новый файл
 
 def get_headers():
     token = os.getenv('GITHUB_TOKEN')
@@ -32,8 +33,8 @@ def load_user_langs(user_lang: Dict[int, str]):
         if resp.status_code == 200:
             gist_data = resp.json()
             files = gist_data.get('files', {})
-            if GIST_FILENAME in files:
-                content = files[GIST_FILENAME].get('content', '{}')
+            if GIST_FILENAME_LANGS in files:
+                content = files[GIST_FILENAME_LANGS].get('content', '{}')
                 data = json.loads(content)
                 user_lang.update({int(k): v for k, v in data.items()})
     except Exception as e:
@@ -45,7 +46,7 @@ def save_user_langs(user_lang: Dict[int, str]):
     try:
         payload = {
             'files': {
-                GIST_FILENAME: {
+                GIST_FILENAME_LANGS: {
                     'content': json.dumps(user_lang, ensure_ascii=False, indent=2)
                 }
             }
@@ -183,3 +184,34 @@ def save_user_timezone(user_timezone: Dict[int, int]):
         requests.patch(_get_gist_api_url(), headers=get_headers(), json=payload, timeout=5)
     except Exception as e:
         print(f'Ошибка сохранения часовых поясов в Gist: {e}')
+
+# ---------- ЛЮБИМОЕ ФОТО ----------
+def load_user_last_favorite_photo(user_last_favorite_photo: Dict[int, str]):
+    if not os.getenv('GIST_ID') or not os.getenv('GITHUB_TOKEN'):
+        return
+    try:
+        resp = requests.get(_get_gist_api_url(), headers=get_headers(), timeout=5)
+        if resp.status_code == 200:
+            gist_data = resp.json()
+            files = gist_data.get('files', {})
+            if FAVORITE_PHOTO_FILENAME in files:
+                content = files[FAVORITE_PHOTO_FILENAME].get('content', '{}')
+                data = json.loads(content)
+                user_last_favorite_photo.update({int(k): v for k, v in data.items()})
+    except Exception as e:
+        print(f'Ошибка загрузки любимых фото из Gist: {e}')
+
+def save_user_last_favorite_photo(user_last_favorite_photo: Dict[int, str]):
+    if not os.getenv('GIST_ID') or not os.getenv('GITHUB_TOKEN'):
+        return
+    try:
+        payload = {
+            'files': {
+                FAVORITE_PHOTO_FILENAME: {
+                    'content': json.dumps(user_last_favorite_photo, ensure_ascii=False)
+                }
+            }
+        }
+        requests.patch(_get_gist_api_url(), headers=get_headers(), json=payload, timeout=5)
+    except Exception as e:
+        print(f'Ошибка сохранения любимого фото в Gist: {e}')
