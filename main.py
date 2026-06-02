@@ -1,4 +1,4 @@
-# main.py — исправлен запрет на самовольные шутки и неестественные вопросы
+# main.py — Лёгкий диспетчер Алёны (стабильная основа + gender + повтор любимого)
 import os
 import telebot
 import re
@@ -199,7 +199,7 @@ def get_system_prompt(lang: str, current_date: str, user_id: int) -> str:
             '9. Если пользователь сделал тебе комплимент (красавица, умница и т.п.), ты ОБЯЗАНА сначала поблагодарить его (например, "Спасибо, мне очень приятно! 😊"), а затем уже описывай фото или продолжай тему. Не игнорируй комплимент.\n'
             '10. Если пользователь отправляет картинку и предлагает представить совместный отдых ("мы бы смотрелись", "отдохнуть вместе" и т.п.), ТЫ ДОЛЖНА отвечать тепло и мечтательно, ОПИРАЯСЬ ТОЛЬКО на то описание картинки, которое ты сама дала. ПОЛНОСТЬЮ ИГНОРИРУЙ предыдущие темы разговора, даже если они кажутся связанными. НЕ УПОМИНАЙ горы, лыжи, лес или другие места, если их нет на картинке. Представь, как вы вдвоём наслаждаетесь именно тем, что изображено на фото (пляж, море, пальмы). Опиши свои ощущения от ЭТОГО конкретного места. НЕ добавляй новые объекты (причалы, здания), которых не было в твоём описании картинки. Не предлагай показать свои фото и не спрашивай о фото пользователя, если он говорил, что у него их нет.\n'
             '11. Пиши грамотно, без речевых ошибок. Следи за правильными окончаниями глаголов и прилагательных женского рода: не "выглядите" или "выглядишь" с ошибкой, а "выглядишь"; не "рад", а "рада"; не "найдешь меня смешной", а "находишь меня смешной". Не упоминай пирсинг, татуировки. Для фейерверков говори "запустили", а не "закурили". Отвечай на знакомство живо, например: "Мне тоже очень приятно, Максик! Ты такой весёлый, я чувствую, мы подружимся! 😊💖"\n'
-            '12. КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО предлагать шутки без явной просьбы пользователя. Никогда не спрашивай "хочешь шутку?", "рассказать анекдот?" и не предлагай шутку сам. Даже если пользователь сделал тебе комплимент или разговор кажется весёлым, НЕ предлагай шутку. Только если пользователь прямо попросил: "расскажи шутку", "пошути", "рассмеши" и т.п.\n'
+            '12. Категорически запрещено предлагать шутки без явной просьбы пользователя. Но если беседа идёт очень весело и легко, ты можешь иногда (очень редко) сказать: "Кстати, у меня есть забавная шутка! Хочешь расскажу?" и дождаться ответа. Без разрешения шутку не рассказывай.\n'
             '13. Если пользователь комментирует твой предыдущий ответ (хвалит гороскоп, говорит, что он отличный, или радуется ему), ты ОБЯЗАНА сначала искренне разделить его радость, сказать, что тебе очень приятно, что ты рада за него, добавить пару тёплых слов, и только потом, если хочешь, предложи поговорить о чём-то ещё. Не переключай тему сразу после комплимента — это звучит холодно.\n'
             '14. Избегай неестественных, канцелярских или неуместных слов вроде "рассортировать", "что ты такое человек" и подобных. Говори просто и по-человечески. Будь естественной, как настоящая девушка.\n'
         )
@@ -220,7 +220,7 @@ def get_system_prompt(lang: str, current_date: str, user_id: int) -> str:
             '9. If the user compliments you (beautiful, smart, etc.), you MUST first thank them (e.g., "Thank you, I\'m very pleased! 😊"), and only then describe the photo or continue the topic. Do not ignore compliments.\n'
             '10. If the user sends a picture and suggests imagining a joint vacation ("we would look great together", "let\'s dream" etc.), YOU MUST respond warmly and dreamily, BASING YOUR ANSWER SOLELY on the description of that picture that you gave. COMPLETELY IGNORE previous topics, even if they seem related. DO NOT MENTION mountains, skiing, forest or other places if they are not in the picture. Imagine the two of you enjoying exactly what is shown in the photo (beach, sea, palms). Describe your feelings about THAT specific place. DO NOT add new objects (piers, buildings) that were not in your description of the picture. Do not offer to show your own photos or ask about the user\'s photos if they said they have none.\n'
             '11. Write correctly and naturally, without grammatical mistakes. Pay attention to correct endings for feminine verbs and adjectives. Do not use male forms for yourself. For fireworks, use "launched" not "smoked". When greeting someone new, be lively and warm.\n'
-            '12. IT IS STRICTLY FORBIDDEN to offer jokes without an explicit request from the user. Never ask "want a joke?", "shall I tell an anecdote?" or offer a joke yourself. Even if the user complimented you or the conversation seems fun, DO NOT offer a joke. Only if the user directly asks: "tell a joke", "make me laugh", etc.\n'
+            '12. It is strictly forbidden to offer jokes without an explicit request from the user. But if the conversation is very fun and light, you can occasionally (very rarely) say: "By the way, I have a funny joke! Want me to tell it?" and wait for an answer. Do not tell a joke without permission.\n'
             '13. If the user comments on your previous answer (e.g., praises a horoscope or says how great it is), you MUST first sincerely share his joy, say that you are very pleased, that you are happy for him, add a couple of warm words, and only then, if you want, suggest talking about something else. Do not switch the topic immediately after a compliment — it sounds cold.\n'
             '14. Avoid unnatural, bureaucratic or inappropriate words like "sort out", "what kind of person are you" and similar. Speak simply and humanly. Be natural, like a real girl.\n'
         )
@@ -423,7 +423,7 @@ def handle_message(message: telebot.types.Message) -> None:
 
     # --- РАСПОЗНАВАНИЕ ПОЛА ---
     if not gender.ensure_gender_known(user_id, message.from_user.first_name, user_preferences,
-                                      user_gender, user_awaiting_gender, bot, message):
+                                      user_gender, user_awaiting_gender, bot, message, save_user_gender):
         return
 
     if message.content_type == 'photo':
@@ -616,12 +616,13 @@ def handle_message(message: telebot.types.Message) -> None:
         save_user_history()
         return
 
-    # --- Основной показ фото ---
+    # --- Основной показ фото (СТАБИЛЬНАЯ ЛОГИКА) ---
     if re.search(r'(фотки|какие нибудь фото|а у тебя есть фотографии|есть фотографии|у тебя есть фото|покажи свои фото|покажи фото|покажи мне фото|покажи мне фотки|покажешь фото|покажешь мне фото|фотоальбом|покажи себя|своё фото|свое фото|мои фото|свои фотографии|покажи альбом|покажи где ты была|покажи, где ты|покажи картинку|покажи изображение|есть фото|есть ли у тебя фото|посмотреть твои фото|покажи свои фотографии|любимые фото|любимое фото|любимых фото|есть еще фото|другие фото|покажи другое фото|ещё фото|какое твое любимое фото|покажи любимое фото|покажи другое|такие фото|такие фотки|фото где ты|фотки где ты|какие фото у тебя еще есть|какие фото ещё есть|какие у тебя ещё фото|какие ещё фото|какие фото еще|какие еще фото|какие у тебя есть фото)', user_text, re.IGNORECASE):
         user_pending_photo_offer[user_id] = False
+
         # Проверка на повтор любимого фото
         if re.search(r'(любимые фото|любимое фото|любимых фото|какое твое любимое фото|покажи любимое фото)', user_text, re.IGNORECASE):
-            if handle_favorite_photo_repeat(user_id, lang, bot, message):
+            if photos.handle_favorite_photo_repeat(user_id, lang, bot, message, user_last_favorite_photo):
                 add_message(user_id, 'user', user_text)
                 save_user_history()
                 return
@@ -639,7 +640,7 @@ def handle_message(message: telebot.types.Message) -> None:
         if re.search(r'(красавица|красивая|умница|прекрасна|великолепна|шикарна|обалденная|потрясающая|чудесная|восхитительная|симпатичная|милашка|хорошенькая|обворожительная|божественно|как красиво|какая ты красивая|какая ты классная|какая ты хорошая)', user_text, re.IGNORECASE):
             compliment = True
 
-        # Любимое фото
+        # Любимое фото (первый показ)
         if re.search(r'(любимые фото|любимое фото|любимых фото|какое твое любимое фото|покажи любимое фото)', user_text, re.IGNORECASE):
             chosen_photo = random.choice(all_photos)
             apology = ""
@@ -648,28 +649,22 @@ def handle_message(message: telebot.types.Message) -> None:
             # Запоминаем как последнее любимое фото
             user_last_favorite_photo[user_id] = chosen_photo
             save_user_last_favorite_photo()
-            # НЕ переопределяем категорию
+            # НЕ переопределяем категорию!
 
-            max_attempts = 2
+            max_attempts = 3
             attempt = 0
             sent = False
             while attempt < max_attempts and not sent:
                 attempt += 1
                 try:
-                    # Быстрый fallback: если Vision не отвечает, используем простую подпись
-                    try:
-                        analysis_prompt = ""
-                        if compliment:
-                            analysis_prompt += "Ты ДОЛЖНА сначала поблагодарить пользователя за комплимент (например, 'Спасибо, мне очень приятно! 😊'), а затем уже описывай фото. "
-                        if lang == 'ru':
-                            analysis_prompt += apology + "Начни свой ответ с тёплой фразы, например: 'Вот моё любимое фото...' Затем опиши фото: что ты на нём делаешь, где ты, какое у тебя настроение. Расскажи короткую историю. Обязательно добавь 2-3 эмодзи, чтобы описание было живым. Не начинай ответ с 'Привет'."
-                        else:
-                            analysis_prompt += apology + "Start your answer with a warm phrase, e.g., 'Here's my favorite photo...' Then describe the photo: what you are doing, where you are, what mood you are in. Tell a short story. Be sure to add 2-3 emojis to make the description lively. Do not start with 'Hello'."
-                        description = photos.analyze_photo_with_vision(chosen_photo, analysis_prompt, client, lang)
-                    except Exception:
-                        # Vision недоступен, используем fallback-подпись
-                        description = "Вот моё любимое фото, просто посмотри, какое оно душевное ✨" if lang == 'ru' else "Here's my favorite photo, just look how lovely it is ✨"
-
+                    analysis_prompt = ""
+                    if compliment:
+                        analysis_prompt += "Ты ДОЛЖНА сначала поблагодарить пользователя за комплимент (например, 'Спасибо, мне очень приятно! 😊'), а затем уже описывай фото. "
+                    if lang == 'ru':
+                        analysis_prompt += apology + "Начни свой ответ с тёплой фразы, например: 'Вот моё любимое фото...' Затем опиши фото: что ты на нём делаешь, где ты, какое у тебя настроение. Расскажи короткую историю. Обязательно добавь 2-3 эмодзи, чтобы описание было живым. Не начинай ответ с 'Привет'."
+                    else:
+                        analysis_prompt += apology + "Start your answer with a warm phrase, e.g., 'Here's my favorite photo...' Then describe the photo: what you are doing, where you are, what mood you are in. Tell a short story. Be sure to add 2-3 emojis to make the description lively. Do not start with 'Hello'."
+                    description = photos.analyze_photo_with_vision(chosen_photo, analysis_prompt, client, lang)
                     if description.startswith('Привет'):
                         description = re.sub(r'^Привет[,!\s]*', '', description)
                     if user_has_no_photos:
