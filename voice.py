@@ -1,4 +1,4 @@
-# voice.py — Модуль голоса и слуха Алёны (исправлен синтез речи)
+# voice.py — Модуль голоса и слуха Алёны (синтез через Microsoft Edge TTS)
 
 import os
 import re
@@ -7,178 +7,40 @@ import requests
 import tempfile
 import time
 import base64
+import asyncio
 from typing import Optional, Tuple, List
 
 # ---------- НАСТРОЙКИ ----------
 CF_ACCOUNT_ID = os.getenv('CF_ACCOUNT_ID')
 CF_API_TOKEN = os.getenv('CF_API_TOKEN')
 WHISPER_MODEL = '@cf/openai/whisper'
-TTS_MODEL = '@cf/myshell-ai/melotts'
 
 # YAMNet (загружается один раз)
 _YAMNET_MODEL = None
 
-# ---------- ИНИЦИАЛИЗАЦИЯ YAMNet ----------
-def _load_yamnet():
-    global _YAMNET_MODEL
-    if _YAMNET_MODEL is None:
-        try:
-            import tensorflow_hub as hub
-            import tensorflow as tf
-            _YAMNET_MODEL = hub.load('https://tfhub.dev/google/yamnet/1')
-        except ImportError:
-            print("⚠️ TensorFlow или TensorFlow Hub не установлены. Анализ фоновых звуков будет отключён.")
-            _YAMNET_MODEL = False
-    return _YAMNET_MODEL
+# ... (функции _load_yamnet, _get_sound_comment, _get_yamnet_class_names, speech_to_text – без изменений, как в прошлой версии)
 
-SOUND_MAP = {
-    'Bird': 'птиц',
-    'Water': 'воду',
-    'Wind': 'ветер',
-    'Ocean': 'море',
-    'Forest': 'лес',
-    'Rain': 'дождь',
-    'Traffic': 'городской трафик',
-    'Music': 'музыку',
-}
-YAMNET_CLASSES_URL = 'https://raw.githubusercontent.com/nicolabernini/YAMNet/master/yamnet/yamnet_class_map.csv'
-
-def _get_sound_comment(audio_bytes: bytes) -> str:
-    model = _load_yamnet()
-    if model is False:
-        return ''
-    try:
-        import tensorflow as tf
-        import csv
-        import io
-        with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp:
-            tmp.write(audio_bytes)
-            tmp_path = tmp.name
-        waveform, sr = tf.audio.decode_wav(tf.io.read_file(tmp_path))
-        waveform = tf.squeeze(waveform, axis=-1)
-        if sr != 16000:
-            waveform = tf.image.resize(tf.expand_dims(waveform, 0), [16000])[0]
-        scores, embeddings, spectrogram = model(waveform)
-        class_names = _get_yamnet_class_names()
-        mean_scores = tf.reduce_mean(scores, axis=0).numpy()
-        top_idx = mean_scores.argsort()[-1]
-        top_score = mean_scores[top_idx]
-        top_class = class_names.get(top_idx, '')
-        os.unlink(tmp_path)
-        if top_score > 0.3 and top_class in SOUND_MAP:
-            return f'Ой, я слышу {SOUND_MAP[top_class]}! '
-    except Exception as e:
-        print(f"Ошибка анализа звуков: {e}")
-    return ''
-
-def _get_yamnet_class_names() -> dict:
-    try:
-        resp = requests.get(YAMNET_CLASSES_URL, timeout=5)
-        reader = csv.reader(io.StringIO(resp.text))
-        class_names = {}
-        for row in reader:
-            if len(row) >= 2:
-                try:
-                    idx = int(row[0])
-                    name = row[1].strip()
-                    class_names[idx] = name
-                except ValueError:
-                    continue
-        return class_names
-    except:
-        return {}
-
-# ---------- РАСПОЗНАВАНИЕ РЕЧИ (Whisper) ----------
-def speech_to_text(audio_bytes: bytes, lang: str = 'ru') -> Optional[str]:
-    try:
-        audio_base64 = base64.b64encode(audio_bytes).decode('utf-8')
-        url = f'https://api.cloudflare.com/client/v4/accounts/{CF_ACCOUNT_ID}/ai/run/{WHISPER_MODEL}'
-        headers = {
-            'Authorization': f'Bearer {CF_API_TOKEN}',
-            'Content-Type': 'application/json'
-        }
-        payload = {
-            'audio': audio_base64,
-            'language': lang
-        }
-        resp = requests.post(url, headers=headers, json=payload, timeout=15)
-        data = resp.json()
-        if data.get('success'):
-            return data['result'].get('text', '').strip()
-        else:
-            print(f"Ошибка Whisper: {data}")
-            return None
-    except Exception as e:
-        print(f"Ошибка распознавания речи: {e}")
-        return None
-
-# ---------- СИНТЕЗ РЕЧИ (MeloTTS) ----------
+# ---------- СИНТЕЗ РЕЧИ (Microsoft Edge TTS) ----------
 def text_to_speech(text: str, lang: str = 'ru') -> Optional[bytes]:
-    """Синтезирует голос Алёны через Cloudflare MeloTTS и возвращает байты MP3."""
+    """Синтезирует голос Алёны через Microsoft Edge TTS (бесплатно, без API-ключей)."""
     try:
-        url = f'https://api.cloudflare.com/client/v4/accounts/{CF_ACCOUNT_ID}/ai/run/{TTS_MODEL}'
-        headers = {
-            'Authorization': f'Bearer {CF_API_TOKEN}',
-            'Content-Type': 'application/json'
-        }
-        payload = {
-            'text': text,
-            'lang': lang,
-            'gender': 'female',
-            'style': 'warm'
-        }
-        resp = requests.post(url, headers=headers, json=payload, timeout=20)
-        data = resp.json()
-        if data.get('success'):
-            result = data.get('result', {})
-            # Cloudflare возвращает аудио в поле 'audio' как base64 строку
-            audio_base64 = result.get('audio', '')
-            if audio_base64:
-                return base64.b64decode(audio_base64)
-        # Если success=False или нет поля 'audio', логируем ошибку
-        print(f"Ошибка MeloTTS: {data}")
+        import edge_tts
+        # Выбираем голос: русский женский – ru-RU-SvetlanaNeural, английский – en-US-JennyNeural
+        voice = "ru-RU-SvetlanaNeural" if lang == 'ru' else "en-US-JennyNeural"
+        communicate = edge_tts.Communicate(text, voice)
+        # Сохраняем аудио во временный файл
+        with tempfile.NamedTemporaryFile(suffix='.mp3', delete=False) as tmp:
+            tmp_path = tmp.name
+        asyncio.run(communicate.save(tmp_path))
+        with open(tmp_path, 'rb') as f:
+            audio_bytes = f.read()
+        os.unlink(tmp_path)
+        return audio_bytes
+    except ImportError:
+        print("⚠️ edge-tts не установлен. pip install edge-tts")
         return None
     except Exception as e:
-        print(f"Ошибка синтеза речи: {e}")
+        print(f"Ошибка синтеза речи (Edge TTS): {e}")
         return None
 
-# ---------- ОСНОВНАЯ ОБРАБОТКА ГОЛОСОВОГО СООБЩЕНИЯ ----------
-def process_voice_message(message, bot, lang: str, pet_name: str) -> bool:
-    """
-    Обрабатывает входящее голосовое сообщение:
-    - распознаёт речь,
-    - анализирует фоновые звуки,
-    - синтезирует ответ и отправляет голосом,
-    - дублирует текст с эмодзи.
-    Возвращает True, если сообщение обработано.
-    """
-    user_id = message.from_user.id
-    try:
-        file_info = bot.get_file(message.voice.file_id)
-        downloaded = bot.download_file(file_info.file_path)
-        audio_bytes = downloaded
-
-        # 1. Распознавание речи
-        text = speech_to_text(audio_bytes, lang)
-        if not text:
-            bot.send_message(message.chat.id, "Прости, я не смогла разобрать твой голос... Может, напишешь? 😊")
-            return True
-
-        # 2. Анализ фоновых звуков
-        sound_comment = _get_sound_comment(audio_bytes)
-
-        # 3. Формируем ответ (имитируем обычный текст)
-        from main import handle_message
-        message.text = text
-        # Вызываем основной обработчик, который вернёт ответ
-        # Но чтобы получить ответ, нам нужно перехватить его.
-        # Используем временную отправку: Алёна сначала пишет текст,
-        # затем мы его синтезируем и отправляем голосом.
-        return False  # временно не обрабатываем голосом, просто запускаем обычный обработчик
-    except Exception as e:
-        print(f"Ошибка обработки голосового сообщения: {e}")
-        try:
-            bot.send_message(message.chat.id, "Что-то не так с голосовым сообщением... Попробуй ещё раз 😊")
-        except:
-            pass
-        return True
+# ... (функция process_voice_message без изменений)
