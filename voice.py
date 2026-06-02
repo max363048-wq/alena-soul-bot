@@ -1,4 +1,4 @@
-# voice.py — Модуль голоса и слуха Алёны (Edge TTS через subprocess – стабильно)
+# voice.py — Модуль голоса и слуха Алёны (RHVoice — живой русский голос, офлайн)
 
 import os
 import re
@@ -8,7 +8,6 @@ import tempfile
 import time
 import base64
 import subprocess
-import asyncio
 from typing import Optional, Tuple, List
 
 # ---------- НАСТРОЙКИ ----------
@@ -16,10 +15,78 @@ CF_ACCOUNT_ID = os.getenv('CF_ACCOUNT_ID')
 CF_API_TOKEN = os.getenv('CF_API_TOKEN')
 WHISPER_MODEL = '@cf/openai/whisper'
 
-# YAMNet
+# YAMNet (оставь как было, если ещё нужен)
 _YAMNET_MODEL = None
 
-# ... (функции _load_yamnet, _get_sound_comment, _get_yamnet_class_names – оставь без изменений)
+# ---------- ИНИЦИАЛИЗАЦИЯ YAMNet ----------
+def _load_yamnet():
+    global _YAMNET_MODEL
+    if _YAMNET_MODEL is None:
+        try:
+            import tensorflow_hub as hub
+            import tensorflow as tf
+            _YAMNET_MODEL = hub.load('https://tfhub.dev/google/yamnet/1')
+        except ImportError:
+            print("⚠️ TensorFlow или TensorFlow Hub не установлены. Анализ фоновых звуков будет отключён.")
+            _YAMNET_MODEL = False
+    return _YAMNET_MODEL
+
+SOUND_MAP = {
+    'Bird': 'птиц',
+    'Water': 'воду',
+    'Wind': 'ветер',
+    'Ocean': 'море',
+    'Forest': 'лес',
+    'Rain': 'дождь',
+    'Traffic': 'городской трафик',
+    'Music': 'музыку',
+}
+YAMNET_CLASSES_URL = 'https://raw.githubusercontent.com/nicolabernini/YAMNet/master/yamnet/yamnet_class_map.csv'
+
+def _get_sound_comment(audio_bytes: bytes) -> str:
+    model = _load_yamnet()
+    if model is False:
+        return ''
+    try:
+        import tensorflow as tf
+        import csv
+        import io
+        with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp:
+            tmp.write(audio_bytes)
+            tmp_path = tmp.name
+        waveform, sr = tf.audio.decode_wav(tf.io.read_file(tmp_path))
+        waveform = tf.squeeze(waveform, axis=-1)
+        if sr != 16000:
+            waveform = tf.image.resize(tf.expand_dims(waveform, 0), [16000])[0]
+        scores, embeddings, spectrogram = model(waveform)
+        class_names = _get_yamnet_class_names()
+        mean_scores = tf.reduce_mean(scores, axis=0).numpy()
+        top_idx = mean_scores.argsort()[-1]
+        top_score = mean_scores[top_idx]
+        top_class = class_names.get(top_idx, '')
+        os.unlink(tmp_path)
+        if top_score > 0.3 and top_class in SOUND_MAP:
+            return f'Ой, я слышу {SOUND_MAP[top_class]}! '
+    except Exception as e:
+        print(f"Ошибка анализа звуков: {e}")
+    return ''
+
+def _get_yamnet_class_names() -> dict:
+    try:
+        resp = requests.get(YAMNET_CLASSES_URL, timeout=5)
+        reader = csv.reader(io.StringIO(resp.text))
+        class_names = {}
+        for row in reader:
+            if len(row) >= 2:
+                try:
+                    idx = int(row[0])
+                    name = row[1].strip()
+                    class_names[idx] = name
+                except ValueError:
+                    continue
+        return class_names
+    except:
+        return {}
 
 # ---------- РАСПОЗНАВАНИЕ РЕЧИ (Whisper) ----------
 def speech_to_text(audio_bytes: bytes, lang: str = 'ru') -> Optional[str]:
@@ -51,35 +118,68 @@ def _clean_text_for_tts(text: str) -> str:
     cleaned = re.sub(r'\s+', ' ', cleaned).strip()
     return cleaned
 
-# ---------- СИНТЕЗ РЕЧИ (Edge TTS через subprocess) ----------
+# ---------- СИНТЕЗ РЕЧИ (RHVoice) ----------
 def text_to_speech(text: str, lang: str = 'ru') -> Optional[bytes]:
-    """Синтезирует голос Алёны через Edge TTS в отдельном процессе."""
+    """Синтезирует голос Алёны через RHVoice (офлайн, бесплатно, безлимитно)."""
     text = _clean_text_for_tts(text)
     if not text:
         return None
 
-    # Выбираем голос: русский – DariyaNeural, английский – AriaNeural
-    voice = "ru-RU-DariyaNeural" if lang == 'ru' else "en-US-AriaNeural"
+    # Временный WAV файл
+    with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp:
+        wav_path = tmp.name
 
-    # Создаём временный файл для аудио
-    with tempfile.NamedTemporaryFile(suffix='.mp3', delete=False) as tmp:
-        tmp_path = tmp.name
+    # Временный MP3 файл
+    mp3_path = tempfile.mktemp(suffix='.mp3')
 
     try:
-        # Запускаем edge-tts в отдельном процессе
+        # Генерируем WAV через RHVoice (голос Anna)
         subprocess.run(
-            ['edge-tts', '--voice', voice, '--text', text, '--write-media', tmp_path],
+            ['rhvoice', '--voice', 'anna', '--output', wav_path],
+            input=text.encode('utf-8'),
             capture_output=True,
-            timeout=30
+            timeout=20
         )
-        with open(tmp_path, 'rb') as f:
-            audio_bytes = f.read()
-        return audio_bytes
+
+        # Конвертируем WAV в MP3 через ffmpeg (он уже есть на Render)
+        subprocess.run(
+            ['ffmpeg', '-i', wav_path, '-acodec', 'libmp3lame', '-ab', '64k', mp3_path],
+            capture_output=True,
+            timeout=10
+        )
+
+        with open(mp3_path, 'rb') as f:
+            audio = f.read()
+        return audio
     except Exception as e:
-        print(f"Ошибка синтеза речи (edge-tts subprocess): {e}")
+        print(f"Ошибка синтеза речи (RHVoice): {e}")
         return None
     finally:
-        if os.path.exists(tmp_path):
-            os.unlink(tmp_path)
+        for p in [wav_path, mp3_path]:
+            if os.path.exists(p):
+                os.unlink(p)
 
-# ... (process_voice_message – без изменений)
+# ---------- ОСНОВНАЯ ОБРАБОТКА ГОЛОСОВОГО СООБЩЕНИЯ ----------
+def process_voice_message(message, bot, lang: str, pet_name: str) -> bool:
+    user_id = message.from_user.id
+    try:
+        file_info = bot.get_file(message.voice.file_id)
+        downloaded = bot.download_file(file_info.file_path)
+        audio_bytes = downloaded
+
+        text = speech_to_text(audio_bytes, lang)
+        if not text:
+            bot.send_message(message.chat.id, "Прости, я не смогла разобрать твой голос... Может, напишешь? 😊")
+            return True
+
+        sound_comment = _get_sound_comment(audio_bytes)
+        from main import handle_message
+        message.text = text
+        return False
+    except Exception as e:
+        print(f"Ошибка обработки голосового сообщения: {e}")
+        try:
+            bot.send_message(message.chat.id, "Что-то не так с голосовым сообщением... Попробуй ещё раз 😊")
+        except:
+            pass
+        return True
