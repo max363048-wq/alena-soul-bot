@@ -3,29 +3,36 @@
 import re
 from typing import Dict, Optional
 
-# Простые однозначные имена
+# Простые однозначные имена (добавлены ласковые формы из default_pet_name)
 GENDER_MAP = {
-    'максим': 'male', 'макс': 'male', 'владимир': 'male', 'вова': 'male',
-    'александр': 'male', 'саня': 'male', 'саша': None,   # неоднозначное
-    'анна': 'female', 'анечка': 'female', 'екатерина': 'female',
-    'катя': 'female', 'джон': 'male', 'иван': 'male', 'ваня': 'male',
-    'сергей': 'male', 'серёжа': 'male', 'михаил': 'male', 'миша': 'male',
-    'дмитрий': 'male', 'дима': 'male', 'андрей': 'male', 'андрюша': 'male',
-    'алексей': 'male', 'лёша': 'male', 'олег': 'male', 'олежек': 'male',
+    'максим': 'male', 'макс': 'male', 'максик': 'male',         # добавлено
+    'владимир': 'male', 'вова': 'male', 'вовочка': 'male',
+    'александр': 'male', 'саня': 'male', 'саша': None, 'сашенька': None,
+    'анна': 'female', 'анечка': 'female',
+    'екатерина': 'female', 'катя': 'female', 'катюша': 'female',
+    'джон': 'male', 'джонни': 'male',                          # добавлено
+    'иван': 'male', 'ваня': 'male', 'ванюша': 'male',          # добавлено
+    'сергей': 'male', 'серёжа': 'male',
+    'михаил': 'male', 'миша': 'male',
+    'дмитрий': 'male', 'дима': 'male',
+    'андрей': 'male', 'андрюша': 'male',
+    'алексей': 'male', 'лёша': 'male',
+    'олег': 'male', 'олежек': 'male',
     'пётр': 'male', 'петя': 'male', 'петр': 'male',
-    'женя': None, 'валя': None, 'вадим': 'male', 'вадик': 'male',
-    'даша': 'female', 'дарья': 'female', 'мария': 'female', 'маша': 'female',
-    'лиза': 'female', 'елизавета': 'female', 'лена': 'female', 'алена': 'female',
-    'ольга': 'female', 'оля': 'female', 'татьяна': 'female', 'таня': 'female',
+    'женя': None, 'валя': None,
+    'вадим': 'male', 'вадик': 'male',
+    'даша': 'female', 'дарья': 'female',
+    'мария': 'female', 'маша': 'female',
+    'лиза': 'female', 'елизавета': 'female',
+    'лена': 'female', 'алена': 'female',
+    'ольга': 'female', 'оля': 'female',
+    'татьяна': 'female', 'таня': 'female',
     'юлия': 'female', 'юля': 'female',
 }
 
 def get_gender_by_name(name: str) -> Optional[str]:
     """Возвращает 'male', 'female' или None, если пол не определён."""
     name_lower = name.strip().lower()
-    # Убираем ласковые суффиксы, если они не меняют основу
-    # (очень простой вариант: обрезаем "ик", "очка", "ечка" и т.п.)
-    # Но для надёжности используем словарь как есть.
     return GENDER_MAP.get(name_lower)
 
 def is_name_like(text: str) -> bool:
@@ -74,9 +81,7 @@ def ensure_gender_known(user_id: int, first_name: str, user_preferences: Dict[in
     # Имя неоднозначное или не похоже на имя – спрашиваем, как обращаться (если ещё не спросили),
     # а затем уточняем пол.
     if not user_preferences.get(user_id):
-        # Сначала спросим, как к нему обращаться
         bot.send_message(message.chat.id, f"Я хочу обращаться к тебе правильно! Как мне тебя называть? 😊")
-        # Выходим, чтобы не забивать диалог; пользователь ответит, и следующий заход определит имя
         return False
 
     # Имя уже есть в preferences, но пол не ясен – задаём вопрос о поле
