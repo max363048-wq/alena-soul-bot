@@ -1,4 +1,4 @@
-# main.py — восстановлена установка категории для случайного фото
+# main.py — стабильная версия с возвращённой логикой показа фото
 import os
 import telebot
 import re
@@ -516,7 +516,7 @@ def handle_message(message: telebot.types.Message) -> None:
         user_pending_photo_offer[user_id] = False
         return
 
-    # --- Просьба "ещё такие же фото" ---
+    # --- Просьба "ещё такие же фото" (как в исходной версии) ---
     if user_id in photos.user_last_category and photos.user_last_category[user_id] is not None and re.search(r'(еще такие фото|еще такие фотки|такие же фото|такие же фотки|похожие фото|похожие фотки|аналогичные фото|аналогичные фотки|другие фото|другое фото|ещё такие|еще такие|еще такое фото|ещё такое фото|такое же фото|ещё такие фотки)', user_text, re.IGNORECASE):
         user_pending_photo_offer[user_id] = False
         last_cat = photos.user_last_category[user_id]
@@ -616,7 +616,7 @@ def handle_message(message: telebot.types.Message) -> None:
         save_user_history()
         return
 
-    # --- Основной показ фото ---
+    # --- Основной показ фото (стабильная логика) ---
     if re.search(r'(фотки|какие нибудь фото|а у тебя есть фотографии|есть фотографии|у тебя есть фото|покажи свои фото|покажи фото|покажи мне фото|покажи мне фотки|покажешь фото|покажешь мне фото|фотоальбом|покажи себя|своё фото|свое фото|мои фото|свои фотографии|покажи альбом|покажи где ты была|покажи, где ты|покажи картинку|покажи изображение|есть фото|есть ли у тебя фото|посмотреть твои фото|покажи свои фотографии|любимые фото|любимое фото|любимых фото|есть еще фото|другие фото|покажи другое фото|ещё фото|какое твое любимое фото|покажи любимое фото|покажи другое|такие фото|такие фотки|фото где ты|фотки где ты|какие фото у тебя еще есть|какие фото ещё есть|какие у тебя ещё фото|какие ещё фото|какие фото еще|какие еще фото|какие у тебя есть фото)', user_text, re.IGNORECASE):
         user_pending_photo_offer[user_id] = False
         # Проверка на повтор любимого фото
@@ -639,7 +639,7 @@ def handle_message(message: telebot.types.Message) -> None:
         if re.search(r'(красавица|красивая|умница|прекрасна|великолепна|шикарна|обалденная|потрясающая|чудесная|восхитительная|симпатичная|милашка|хорошенькая|обворожительная|божественно|как красиво|какая ты красивая|какая ты классная|какая ты хорошая)', user_text, re.IGNORECASE):
             compliment = True
 
-        # Любимое фото
+        # Любимое фото (НЕ меняет категорию)
         if re.search(r'(любимые фото|любимое фото|любимых фото|какое твое любимое фото|покажи любимое фото)', user_text, re.IGNORECASE):
             chosen_photo = random.choice(all_photos)
             apology = ""
@@ -648,21 +648,7 @@ def handle_message(message: telebot.types.Message) -> None:
             # Запоминаем как последнее любимое фото
             user_last_favorite_photo[user_id] = chosen_photo
             save_user_last_favorite_photo()
-            # Определяем категорию и запоминаем её
-            photo_name = photos.get_keywords_from_photo_name(chosen_photo)
-            cat_found = False
-            for cat, words in photos.KEYWORD_MAP.items():
-                if any(syn in photo_name for syn in words):
-                    photos.user_last_category[user_id] = cat
-                    if user_id not in photos.user_thematic_history:
-                        photos.user_thematic_history[user_id] = {}
-                    if cat not in photos.user_thematic_history[user_id]:
-                        photos.user_thematic_history[user_id][cat] = set()
-                    photos.user_thematic_history[user_id][cat].add(chosen_photo)
-                    cat_found = True
-                    break
-            if not cat_found:
-                photos.user_last_category[user_id] = None
+            # НЕ переопределяем категорию
 
             max_attempts = 3
             attempt = 0
@@ -697,20 +683,6 @@ def handle_message(message: telebot.types.Message) -> None:
                         save_user_last_photo(user_id, chosen_photo)
                         user_last_favorite_photo[user_id] = chosen_photo
                         save_user_last_favorite_photo()
-                        photo_name = photos.get_keywords_from_photo_name(chosen_photo)
-                        cat_found = False
-                        for cat, words in photos.KEYWORD_MAP.items():
-                            if any(syn in photo_name for syn in words):
-                                photos.user_last_category[user_id] = cat
-                                if user_id not in photos.user_thematic_history:
-                                    photos.user_thematic_history[user_id] = {}
-                                if cat not in photos.user_thematic_history[user_id]:
-                                    photos.user_thematic_history[user_id][cat] = set()
-                                photos.user_thematic_history[user_id][cat].add(chosen_photo)
-                                cat_found = True
-                                break
-                        if not cat_found:
-                            photos.user_last_category[user_id] = None
                     else:
                         try:
                             with open(chosen_photo, 'rb') as photo:
@@ -753,7 +725,7 @@ def handle_message(message: telebot.types.Message) -> None:
                     else:
                         apology = ""
                 else:
-                    # ВАЖНО: возвращаем установку категории для случайного фото
+                    # Случайное фото – запоминаем категорию
                     chosen_photo = random.choice(all_photos)
                     apology = ""
                     photo_name = photos.get_keywords_from_photo_name(chosen_photo)
