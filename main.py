@@ -1,4 +1,4 @@
-# main.py — полный, компактный, с правками, gender и сервером
+# main.py — восстановлена установка категории для случайного фото
 import os
 import telebot
 import re
@@ -753,6 +753,7 @@ def handle_message(message: telebot.types.Message) -> None:
                     else:
                         apology = ""
                 else:
+                    # ВАЖНО: возвращаем установку категории для случайного фото
                     chosen_photo = random.choice(all_photos)
                     apology = ""
                     photo_name = photos.get_keywords_from_photo_name(chosen_photo)
@@ -884,7 +885,6 @@ def handle_message(message: telebot.types.Message) -> None:
             return
 
     # --- Гороскоп (натуральный, расширенный) ---
-    # Если только что дали гороскоп, не запускаем его снова при фразе "какой хороший гороскоп"
     if user_just_gave_horoscope.get(user_id) and re.search(r'гороскоп', user_text, re.IGNORECASE):
         user_just_gave_horoscope[user_id] = False
     else:
