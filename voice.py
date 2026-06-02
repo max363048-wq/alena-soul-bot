@@ -1,4 +1,4 @@
-# voice.py — Модуль голоса и слуха Алёны (gTTS, стабильный)
+# voice.py — Модуль голоса и слуха Алёны (OpenAI TTS + очистка эмодзи, fallback gTTS)
 
 import os
 import re
@@ -13,8 +13,9 @@ from typing import Optional, Tuple, List
 CF_ACCOUNT_ID = os.getenv('CF_ACCOUNT_ID')
 CF_API_TOKEN = os.getenv('CF_API_TOKEN')
 WHISPER_MODEL = '@cf/openai/whisper'
+TTS_MODEL = '@cf/openai/tts'
 
-# YAMNet (загружается один раз)
+# YAMNet
 _YAMNET_MODEL = None
 
 # ---------- ИНИЦИАЛИЗАЦИЯ YAMNet ----------
@@ -111,9 +112,50 @@ def speech_to_text(audio_bytes: bytes, lang: str = 'ru') -> Optional[str]:
         print(f"Ошибка распознавания речи: {e}")
         return None
 
-# ---------- СИНТЕЗ РЕЧИ (gTTS) ----------
+# ---------- ОЧИСТКА ТЕКСТА ОТ ЭМОДЗИ ----------
+def _clean_text_for_tts(text: str) -> str:
+    """Удаляет все эмодзи и специальные символы, оставляя только речь."""
+    # Удаляем все, что не является буквами, цифрами, пробелами, знаками препинания
+    cleaned = re.sub(r'[^\w\s.,!?:;—–-]', '', text)
+    # Убираем лишние пробелы
+    cleaned = re.sub(r'\s+', ' ', cleaned).strip()
+    return cleaned
+
+# ---------- СИНТЕЗ РЕЧИ (OpenAI TTS через Cloudflare + fallback gTTS) ----------
 def text_to_speech(text: str, lang: str = 'ru') -> Optional[bytes]:
-    """Синтезирует голос Алёны через Google Text-to-Speech (бесплатно, без API-ключей)."""
+    """Синтезирует голос Алёны. Основной – OpenAI TTS, fallback – gTTS."""
+    # Очищаем текст от эмодзи
+    text = _clean_text_for_tts(text)
+    if not text:
+        return None
+
+    # --- Попытка через OpenAI TTS (Cloudflare) ---
+    try:
+        url = f'https://api.cloudflare.com/client/v4/accounts/{CF_ACCOUNT_ID}/ai/run/{TTS_MODEL}'
+        headers = {
+            'Authorization': f'Bearer {CF_API_TOKEN}',
+            'Content-Type': 'application/json'
+        }
+        # Голос nova – естественный женский, подходит для обоих языков
+        payload = {
+            'model': 'tts-1',
+            'input': text,
+            'voice': 'nova',
+            'response_format': 'mp3'
+        }
+        resp = requests.post(url, headers=headers, json=payload, timeout=20)
+        data = resp.json()
+        if data.get('success'):
+            result = data.get('result', {})
+            audio_base64 = result.get('audio', '')
+            if audio_base64:
+                return base64.b64decode(audio_base64)
+        else:
+            print(f"OpenAI TTS error: {data}")
+    except Exception as e:
+        print(f"Ошибка OpenAI TTS: {e}")
+
+    # --- Fallback: gTTS ---
     try:
         from gtts import gTTS
         tts = gTTS(text=text, lang=lang, slow=False)
@@ -124,11 +166,8 @@ def text_to_speech(text: str, lang: str = 'ru') -> Optional[bytes]:
             audio_bytes = f.read()
         os.unlink(tmp_path)
         return audio_bytes
-    except ImportError:
-        print("⚠️ gtts не установлен. pip install gtts")
-        return None
     except Exception as e:
-        print(f"Ошибка синтеза речи (gTTS): {e}")
+        print(f"Ошибка gTTS: {e}")
         return None
 
 # ---------- ОСНОВНАЯ ОБРАБОТКА ГОЛОСОВОГО СООБЩЕНИЯ ----------
