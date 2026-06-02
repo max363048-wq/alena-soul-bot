@@ -1,4 +1,4 @@
-# photos.py — Модуль фотоальбома Алёны (исправлен порядок категорий)
+# photos.py — Модуль фотоальбома Алёны
 
 import os
 import random
@@ -13,7 +13,7 @@ SUPPORTED_EXTENSIONS = ('.jpg', '.jpeg', '.png', '.gif')
 VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
 MAX_BASE64_SIZE = 4 * 1024 * 1024
 
-# Категории строго от специфичных к общим (как в исходной рабочей версии)
+# Категории строго от специфичных к общим (как в исходной стабильной версии)
 KEYWORD_MAP = {
     'кормит птиц': ['кормит птиц', 'птиц', 'голуби', 'корм'],
     'зима': ['зима', 'зимой', 'зимние', 'лыжи', 'лыжах', 'кататься', 'катаешься'],
@@ -205,4 +205,20 @@ def try_paris_photo(user_id: int, user_text: str, lang: str, bot, message, clien
             print(f"Ошибка отправки фото моста: {e}")
             bot.send_message(message.chat.id, "Ой, не могу показать фото моста, попробуй ещё раз 😅")
             return True
+    return False
+
+# --- НОВАЯ ФУНКЦИЯ: повтор любимого фото (перенесена из main.py) ---
+def handle_favorite_photo_repeat(user_id, lang, bot, message, user_last_favorite_photo):
+    """Если любимое фото уже было показано, предлагает повторить. Возвращает True, если обработано."""
+    if user_id in user_last_favorite_photo:
+        prev_path = user_last_favorite_photo[user_id]
+        reply_text = "Я тебе уже показывала своё любимое фото, но если хочешь, покажу его ещё раз! 😊"
+        try:
+            bot.send_message(message.chat.id, distribute_emojis(reply_text))
+            with open(prev_path, 'rb') as photo:
+                bot.send_photo(message.chat.id, photo)
+            return True
+        except Exception as e:
+            print(f"Ошибка повтора любимого фото: {e}")
+            return False
     return False
