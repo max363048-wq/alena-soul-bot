@@ -39,7 +39,7 @@ def extract_city(text: str, user_id: Optional[int] = None, user_last_city: Dict[
         return city
 
     # Дополнительные проверки с прогнозными словами
-    if user_last_city and re.search(r'(завтра|послезавтра|будет|через \d+|на неделю|на (два|три|четыре|пять) дня|в ближайшие (два|три|четыре|пять) дня)', text, re.IGNORECASE):
+    if user_last_city and re.search(r'(завтра|послезавтра|будет|через \d+|на неделю|на (два|три|четыре|пять) дня|в ближайшие (два|три|четыре|пять) дня|здесь в ближайшие)', text, re.IGNORECASE):
         if re.search(r'(погод|температур|дождь|солнце|ветер|градусов)', text, re.IGNORECASE):
             if user_id and user_id in user_last_city:
                 return user_last_city[user_id]
@@ -183,12 +183,15 @@ def handle_weather_query(message: telebot.types.Message, user_text: str, lang: s
     if re.search(r'на неделю', user_text, re.IGNORECASE):
         is_multi_day = True
         day_deltas = list(range(1, 6))
-    match_text = re.search(r'на (два|две|три|четыре|пять) дня|в ближайшие (два|три|четыре|пять) дня', user_text, re.IGNORECASE)
+    match_text = re.search(r'(?:на|в ближайшие|здесь в ближайшие)\s+(два|две|три|четыре|пять)\s+(дня|дней|день)', user_text, re.IGNORECASE)
+    if not match_text:
+        match_text = re.search(r'(?:на|в ближайшие|здесь в ближайшие)\s+(\d+)\s+(дня|дней|день)', user_text, re.IGNORECASE)
     if match_text:
-        word = match_text.group(1).lower() if match_text.group(1) else match_text.group(2).lower()
-        if not word:
-            word = match_text.group(2).lower()
-        num_days = TEXT_NUMBERS.get(word, 0)
+        word = match_text.group(1).lower()
+        if word.isdigit():
+            num_days = int(word)
+        else:
+            num_days = TEXT_NUMBERS.get(word, 0)
         is_multi_day = True
         day_deltas = list(range(0, num_days))
     else:
