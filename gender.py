@@ -3,15 +3,15 @@
 import re
 from typing import Dict, Optional
 
-# Простые однозначные имена (добавлены ласковые формы из default_pet_name)
+# Простые однозначные имена (добавлены все ласковые формы из default_pet_name)
 GENDER_MAP = {
-    'максим': 'male', 'макс': 'male', 'максик': 'male',         # добавлено
+    'максим': 'male', 'макс': 'male', 'максик': 'male',
     'владимир': 'male', 'вова': 'male', 'вовочка': 'male',
     'александр': 'male', 'саня': 'male', 'саша': None, 'сашенька': None,
     'анна': 'female', 'анечка': 'female',
     'екатерина': 'female', 'катя': 'female', 'катюша': 'female',
-    'джон': 'male', 'джонни': 'male',                          # добавлено
-    'иван': 'male', 'ваня': 'male', 'ванюша': 'male',          # добавлено
+    'джон': 'male', 'джонни': 'male',
+    'иван': 'male', 'ваня': 'male', 'ванюша': 'male',
     'сергей': 'male', 'серёжа': 'male',
     'михаил': 'male', 'миша': 'male',
     'дмитрий': 'male', 'дима': 'male',
@@ -41,7 +41,7 @@ def is_name_like(text: str) -> bool:
 
 def ensure_gender_known(user_id: int, first_name: str, user_preferences: Dict[int, str],
                         user_gender: Dict[int, str], user_awaiting_gender: Dict[int, bool],
-                        bot, message) -> bool:
+                        bot, message, save_user_gender_func) -> bool:
     """
     Проверяет, знаем ли мы пол пользователя.
     Если нет – пытается определить по имени, а при необходимости задаёт вопрос.
@@ -58,11 +58,13 @@ def ensure_gender_known(user_id: int, first_name: str, user_preferences: Dict[in
         if answer in ['парень', 'мужчина', 'мужской', 'м', 'мальчик', 'male', 'я парень']:
             user_gender[user_id] = 'male'
             user_awaiting_gender[user_id] = False
+            save_user_gender_func()
             bot.send_message(message.chat.id, "Поняла! Буду знать 😊💖")
             return True
         elif answer in ['девушка', 'женщина', 'женский', 'ж', 'девочка', 'female', 'я девушка']:
             user_gender[user_id] = 'female'
             user_awaiting_gender[user_id] = False
+            save_user_gender_func()
             bot.send_message(message.chat.id, "Поняла! Буду знать 😊💖")
             return True
         else:
@@ -76,10 +78,10 @@ def ensure_gender_known(user_id: int, first_name: str, user_preferences: Dict[in
     if gender is not None:
         # Пол определён однозначно
         user_gender[user_id] = gender
+        save_user_gender_func()
         return True
 
-    # Имя неоднозначное или не похоже на имя – спрашиваем, как обращаться (если ещё не спросили),
-    # а затем уточняем пол.
+    # Имя неоднозначное или не похоже на имя – спрашиваем, как обращаться (если ещё не спросили)
     if not user_preferences.get(user_id):
         bot.send_message(message.chat.id, f"Я хочу обращаться к тебе правильно! Как мне тебя называть? 😊")
         return False
