@@ -405,12 +405,12 @@ def handle_message(message: telebot.types.Message) -> None:
     if user_text.startswith('/'):
         return
 
-    # Сброс флага при явных запросах других функций
-    if re.search(r'(гороскоп|погода|погоду|погоде|историю|истории|творчеств|вдохнови|расскажи историю|расскажи мне историю|расскажи какую)', user_text, re.IGNORECASE):
+    # Сброс флага при явных запросах других функций (включая "расскажи гороскоп", "расскажи историю")
+    if re.search(r'(гороскоп|погода|погоду|погоде|историю|истории|история|творчеств|вдохнови|расскажи гороскоп|расскажи мне гороскоп|расскажи историю|расскажи мне историю|расскажи какую)', user_text, re.IGNORECASE):
         user_pending_photo_offer[user_id] = False
 
-    # Проверка предложения показать фото
-    if user_pending_photo_offer.get(user_id) and re.search(r'(давай|покажи|показывай|хочу|конечно|ага|да|yes|ok|ок)', user_text, re.IGNORECASE):
+    # Проверка предложения показать фото (согласие пользователя)
+    if user_pending_photo_offer.get(user_id) and re.search(r'\b(давай|покажи|показывай|хочу|конечно|ага|да|yes|ok|ок)\b', user_text, re.IGNORECASE):
         all_photos = photos.get_photo_list()
         if all_photos:
             chosen_photo = random.choice(all_photos)
@@ -556,8 +556,8 @@ def handle_message(message: telebot.types.Message) -> None:
                     pass
             return
 
-    # --- Творческие функции ---
-    if re.search(r'(расскажи историю|придумай историю|напиши рассказ|какие нибудь истории|знаешь истории)', user_text, re.IGNORECASE):
+    # --- Творческие функции (расширенный список) ---
+    if re.search(r'(расскажи историю|расскажи мне историю|расскажи какую-нибудь историю|расскажи какую нибудь историю|придумай историю|напиши рассказ|какие нибудь истории|знаешь истории|ты можешь рассказать историю)', user_text, re.IGNORECASE):
         prompt = user_text
         story = stories.generate_story(prompt, user_id, lang, client, os.getenv('GIST_ID'))
         try:
@@ -824,8 +824,19 @@ def handle_message(message: telebot.types.Message) -> None:
                 pass
             return
 
-    # --- Гороскоп (натуральный) ---
+    # --- Гороскоп (натуральный, расширенный) ---
     if horoscope.handle_natural_horoscope(message, bot, client, user_lang, user_zodiac, user_timezone, save_user_zodiac, add_message, save_user_history, pet_name=pet_name):
+        return
+    # Дополнительно ловим фразы, которые могли не попасть в модуль
+    if re.search(r'(расскажи гороскоп|рассказать гороскоп|расскажи мне гороскоп|ты можешь рассказать гороскоп|ты можешь рассказать мне гороскоп|составь гороскоп|какой гороскоп|что говорят звёзды|предскажи гороскоп)', user_text, re.IGNORECASE):
+        if user_id in user_zodiac:
+            sign = user_zodiac[user_id]
+            horoscope.horoscope_cmd(message, bot, client, user_lang, user_zodiac, user_timezone, save_user_zodiac, add_message, save_user_history, user_sign=sign, pet_name=pet_name)
+        else:
+            try:
+                bot.send_message(message.chat.id, "Прости, но я не знаю твою дату рождения (можно просто день и месяц) или просто скажи мне свой знак зодиака... 😊")
+            except:
+                pass
         return
 
     # --- Определение даты/знака зодиака вне команды ---
@@ -930,8 +941,8 @@ def handle_message(message: telebot.types.Message) -> None:
             except:
                 pass
             add_message(user_id, 'assistant', reply)
-            # Устанавливаем флаг ТОЛЬКО если Алёна предложила показать фото в обычном диалоге
-            if re.search(r'(показать|посмотреть|покажу|фотографий|фотоальбом|фото|фотки|фотографию|снимки|снимок)', reply, re.IGNORECASE):
+            # Устанавливаем флаг ТОЛЬКО если Алёна явно предложила показать/посмотреть (а не просто упомянула слово "фото")
+            if re.search(r'\b(показать|посмотреть|покажу|хочешь увидеть|хочешь посмотреть)\b', reply, re.IGNORECASE):
                 user_pending_photo_offer[user_id] = True
             else:
                 user_pending_photo_offer[user_id] = False
