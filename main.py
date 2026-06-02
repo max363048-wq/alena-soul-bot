@@ -404,7 +404,7 @@ def reset_cmd(message: telebot.types.Message) -> None:
         print(f'Ошибка reset_cmd: {e}')
         traceback.print_exc()
 
-# --- КОМАНДА ДЛЯ ГОЛОСА (ИСПРАВЛЕНА) ---
+# --- Команда для голоса ---
 @bot.message_handler(commands=['voice'])
 def voice_cmd(message: telebot.types.Message) -> None:
     user_id = message.from_user.id
