@@ -4,6 +4,7 @@ import re
 import random
 import time
 import threading
+import traceback
 from flask import Flask
 from openai import OpenAI
 from collections import deque
@@ -34,7 +35,6 @@ user_zodiac: Dict[int, str] = {}
 user_timezone: Dict[int, int] = {}
 
 user_last_photo_request: Dict[int, Dict[str, str]] = {}
-# Флаг: бот предложил показать фото, ждёт ответа пользователя
 user_pending_photo_offer: Dict[int, bool] = {}
 
 # ---------- ФУНКЦИИ-ОБЁРТКИ ДЛЯ GIST ----------
@@ -153,7 +153,7 @@ def get_system_prompt(lang: str, current_date: str, user_id: int) -> str:
     if user_id in user_timezone:
         local_time_str = weather.format_local_time(user_timezone[user_id])
         time_note = f'Текущее время пользователя: {local_time_str}. Используй это, чтобы выбирать приветствия (доброе утро, день, вечер) и не путать время суток.\n'
-    
+
     if lang == 'ru':
         return (
             f'Ты Алёна — добрая, весёлая, обаятельная девушка. Сегодня {current_date}.\n'
@@ -201,141 +201,175 @@ def send_welcome(message: telebot.types.Message) -> None:
     pet = default_pet_name(first_name)
     user_preferences[user_id] = pet
     reset_user(user_id)
-    if user_lang.get(user_id) is None:
-        user_lang[user_id] = None
-        bot.send_message(message.chat.id,
-            f"✨ Привет, {pet}! ✨\n\nМеня зовут Алёна 💖 Я — твой добрый собеседник, помощник и немного волшебница 🧚‍♀️\n\nДавай выберем язык общения:\nНапиши: **Русский** или **English**\n\n✨ Hi, {pet}! ✨\n\nI'm Alena 💖 Your kind friend and helper 🧚‍♀️\n\nLet's choose the language:\nType: **Russian** or **English**")
-    else:
-        lang = user_lang[user_id]
-        joke = get_random_joke(lang)
-        invite_link = f'https://t.me/{BOT_USERNAME}'
-        if lang == 'ru':
-            reply = f'✨ Привет, {pet}! ✨\n\nЯ уже знаю, что мы общаемся на русском 💖\n\n😊 Шутка для настроения: {joke}\n\nРасскажи, как твои дела? 💕\n\n✨ *Кстати!* Если хочешь поделиться мной с другом, вот ссылочка: {invite_link} Буду рада новым знакомствам 😘'
+    try:
+        if user_lang.get(user_id) is None:
+            user_lang[user_id] = None
+            bot.send_message(message.chat.id,
+                f"✨ Привет, {pet}! ✨\n\nМеня зовут Алёна 💖 Я — твой добрый собеседник, помощник и немного волшебница 🧚‍♀️\n\nДавай выберем язык общения:\nНапиши: **Русский** или **English**\n\n✨ Hi, {pet}! ✨\n\nI'm Alena 💖 Your kind friend and helper 🧚‍♀️\n\nLet's choose the language:\nType: **Russian** or **English**")
         else:
-            reply = f'✨ Hi, {pet}! ✨\n\nI already know we speak English 💖\n\n😊 A joke to cheer you up: {joke}\n\nSo, how are you? 💕\n\n✨ *By the way!* If you want to share me with a friend, here\'s the link: {invite_link} I\'ll be happy to meet new people 😘'
-        bot.send_message(message.chat.id, distribute_emojis(reply))
-    add_message(user_id, 'assistant', 'Выбор языка' if user_lang.get(user_id) is None else 'Приветствие')
-    save_user_history()
+            lang = user_lang[user_id]
+            joke = get_random_joke(lang)
+            invite_link = f'https://t.me/{BOT_USERNAME}'
+            if lang == 'ru':
+                reply = f'✨ Привет, {pet}! ✨\n\nЯ уже знаю, что мы общаемся на русском 💖\n\n😊 Шутка для настроения: {joke}\n\nРасскажи, как твои дела? 💕\n\n✨ *Кстати!* Если хочешь поделиться мной с другом, вот ссылочка: {invite_link} Буду рада новым знакомствам 😘'
+            else:
+                reply = f'✨ Hi, {pet}! ✨\n\nI already know we speak English 💖\n\n😊 A joke to cheer you up: {joke}\n\nSo, how are you? 💕\n\n✨ *By the way!* If you want to share me with a friend, here\'s the link: {invite_link} I\'ll be happy to meet new people 😘'
+            bot.send_message(message.chat.id, distribute_emojis(reply))
+        add_message(user_id, 'assistant', 'Выбор языка' if user_lang.get(user_id) is None else 'Приветствие')
+        save_user_history()
+    except Exception as e:
+        print(f'Ошибка send_welcome: {e}')
+        traceback.print_exc()
 
 @bot.message_handler(func=lambda message: message.text and re.match(r'^(русский|russian|english|английский)[!.\s]*$', message.text.lower()))
 def set_language(message: telebot.types.Message) -> None:
     user_id = message.from_user.id
     text = message.text.lower().strip()
-    if 'русский' in text or 'russian' in text:
-        user_lang[user_id] = 'ru'
-    else:
-        user_lang[user_id] = 'en'
-    memory.save_user_langs(user_lang)
-    pet = get_pet_name(user_id, message.from_user.first_name)
-    lang = user_lang[user_id]
-    joke = get_random_joke(lang)
-    invite_link = f'https://t.me/{BOT_USERNAME}'
-    if lang == 'ru':
-        reply = (f'Отлично, {pet}! Будем общаться по-русски 💖\n\n😊 Шутка для настроения: {joke}\n\nА вот что я умею: могу поболтать по душам, рассмешить шуткой, поддержать советом, вдохновить и даже составить для тебя гороскоп ✨ Просто спроси — и я рядом.\n\nРасскажи, как твои дела? 💕\n\n✨ *Кстати!* Если хочешь поделиться мной с другом, вот ссылочка: {invite_link} Буду рада новым знакомствам 😘')
-    else:
-        reply = (f'Great, {pet}! We\'ll speak English 💖\n\n😊 A joke to cheer you up: {joke}\n\nHere\'s what I can do: chat from the heart, make you laugh, give advice, inspire, and even make a horoscope for you ✨ Just ask — I\'m here.\n\nSo, how are you? 💕\n\n✨ *By the way!* If you want to share me with a friend, here\'s the link: {invite_link} I\'ll be happy to meet new people 😘')
-    bot.send_message(message.chat.id, distribute_emojis(reply))
-    add_message(user_id, 'assistant', reply)
-    save_user_history()
+    try:
+        if 'русский' in text or 'russian' in text:
+            user_lang[user_id] = 'ru'
+        else:
+            user_lang[user_id] = 'en'
+        memory.save_user_langs(user_lang)
+        pet = get_pet_name(user_id, message.from_user.first_name)
+        lang = user_lang[user_id]
+        joke = get_random_joke(lang)
+        invite_link = f'https://t.me/{BOT_USERNAME}'
+        if lang == 'ru':
+            reply = (f'Отлично, {pet}! Будем общаться по-русски 💖\n\n😊 Шутка для настроения: {joke}\n\nА вот что я умею: могу поболтать по душам, рассмешить шуткой, поддержать советом, вдохновить и даже составить для тебя гороскоп ✨ Просто спроси — и я рядом.\n\nРасскажи, как твои дела? 💕\n\n✨ *Кстати!* Если хочешь поделиться мной с другом, вот ссылочка: {invite_link} Буду рада новым знакомствам 😘')
+        else:
+            reply = (f'Great, {pet}! We\'ll speak English 💖\n\n😊 A joke to cheer you up: {joke}\n\nHere\'s what I can do: chat from the heart, make you laugh, give advice, inspire, and even make a horoscope for you ✨ Just ask — I\'m here.\n\nSo, how are you? 💕\n\n✨ *By the way!* If you want to share me with a friend, here\'s the link: {invite_link} I\'ll be happy to meet new people 😘')
+        bot.send_message(message.chat.id, distribute_emojis(reply))
+        add_message(user_id, 'assistant', reply)
+        save_user_history()
+    except Exception as e:
+        print(f'Ошибка set_language: {e}')
+        traceback.print_exc()
 
 @bot.message_handler(func=lambda message: message.text and re.match(r'^(зовут меня|называй меня|обращайся ко мне|call me|name me)\s+', message.text.lower()))
 def change_name(message: telebot.types.Message) -> None:
     user_id = message.from_user.id
-    m = re.match(r'(?:зовут меня|называй меня|обращайся ко мне|call me|name me)\s+(.+?)(?:\.|$)', message.text, re.IGNORECASE)
-    if m:
-        new_name = m.group(1).strip()
-        if new_name:
-            user_preferences[user_id] = new_name
-            lang = user_lang.get(user_id, 'ru')
-            reply = f'Запомнила! Теперь буду называть тебя «{new_name}» 💖😘' if lang=='ru' else f'Got it! Now I\'ll call you {new_name} 💖😘'
-            bot.send_message(message.chat.id, distribute_emojis(reply))
-            add_message(user_id, 'assistant', reply)
-            save_user_history()
-            return
-    lang = user_lang.get(user_id, 'ru')
-    reply = 'Напиши, как тебя называть, например: «Зови меня Друг» 😊' if lang=='ru' else 'Tell me what to call you, e.g. "Call me Friend" 😊'
-    bot.send_message(message.chat.id, distribute_emojis(reply))
-    add_message(user_id, 'assistant', reply)
-    save_user_history()
+    try:
+        m = re.match(r'(?:зовут меня|называй меня|обращайся ко мне|call me|name me)\s+(.+?)(?:\.|$)', message.text, re.IGNORECASE)
+        if m:
+            new_name = m.group(1).strip()
+            if new_name:
+                user_preferences[user_id] = new_name
+                lang = user_lang.get(user_id, 'ru')
+                reply = f'Запомнила! Теперь буду называть тебя «{new_name}» 💖😘' if lang=='ru' else f'Got it! Now I\'ll call you {new_name} 💖😘'
+                bot.send_message(message.chat.id, distribute_emojis(reply))
+                add_message(user_id, 'assistant', reply)
+                save_user_history()
+                return
+        lang = user_lang.get(user_id, 'ru')
+        reply = 'Напиши, как тебя называть, например: «Зови меня Друг» 😊' if lang=='ru' else 'Tell me what to call you, e.g. "Call me Friend" 😊'
+        bot.send_message(message.chat.id, distribute_emojis(reply))
+        add_message(user_id, 'assistant', reply)
+        save_user_history()
+    except Exception as e:
+        print(f'Ошибка change_name: {e}')
+        traceback.print_exc()
 
 @bot.message_handler(commands=['weather'])
 def weather_cmd(message: telebot.types.Message) -> None:
     user_id = message.from_user.id
     lang = user_lang.get(user_id, 'ru')
     parts = message.text.split(maxsplit=1)
-    if len(parts) < 2:
-        bot.send_message(message.chat.id, "Напиши город: /weather Москва")
-        return
-    city = parts[1].strip()
-    weather_data = weather.get_current_weather(city, lang)
-    if weather_data:
-        if 'timezone' in weather_data:
-            user_timezone[user_id] = weather_data['timezone']
-            memory.save_user_timezone(user_timezone)
-        reply = weather.generate_natural_weather_response(city, weather_data, lang, is_forecast=False, client=client)
-    else:
-        reply = f"Не удалось получить погоду для {city}."
-    bot.send_message(message.chat.id, reply)
+    try:
+        if len(parts) < 2:
+            bot.send_message(message.chat.id, "Напиши город: /weather Москва")
+            return
+        city = parts[1].strip()
+        weather_data = weather.get_current_weather(city, lang)
+        if weather_data:
+            if 'timezone' in weather_data:
+                user_timezone[user_id] = weather_data['timezone']
+                memory.save_user_timezone(user_timezone)
+            reply = weather.generate_natural_weather_response(city, weather_data, lang, is_forecast=False, client=client)
+        else:
+            reply = f"Не удалось получить погоду для {city}."
+        bot.send_message(message.chat.id, reply)
+    except Exception as e:
+        print(f'Ошибка weather_cmd: {e}')
+        traceback.print_exc()
 
 @bot.message_handler(commands=['forecast'])
 def forecast_cmd(message: telebot.types.Message) -> None:
     user_id = message.from_user.id
     lang = user_lang.get(user_id, 'ru')
     parts = message.text.split(maxsplit=1)
-    if len(parts) < 2:
-        bot.send_message(message.chat.id, "Напиши город и день: /forecast Москва завтра")
-        return
-    args = parts[1].strip().split()
-    if len(args) < 2:
-        bot.send_message(message.chat.id, "Укажи город и день (завтра/послезавтра). Пример: /forecast Москва завтра")
-        return
-    city = args[0]
-    day_word = args[1].lower()
-    if 'завтра' in day_word:
-        day_delta, day_name = 1, 'завтра'
-    elif 'послезавтра' in day_word:
-        day_delta, day_name = 2, 'послезавтра'
-    else:
-        bot.send_message(message.chat.id, "Укажи день: завтра или послезавтра")
-        return
-    forecast = weather.get_forecast_for_day(city, day_delta, lang)
-    if forecast:
-        if 'timezone' in forecast:
-            user_timezone[user_id] = forecast['timezone']
-            memory.save_user_timezone(user_timezone)
-        reply = weather.generate_natural_weather_response(city, forecast, lang, is_forecast=True, day_name=day_name, client=client)
-    else:
-        reply = f"Не удалось получить прогноз на {day_name} для {city}."
-    bot.send_message(message.chat.id, reply)
+    try:
+        if len(parts) < 2:
+            bot.send_message(message.chat.id, "Напиши город и день: /forecast Москва завтра")
+            return
+        args = parts[1].strip().split()
+        if len(args) < 2:
+            bot.send_message(message.chat.id, "Укажи город и день (завтра/послезавтра). Пример: /forecast Москва завтра")
+            return
+        city = args[0]
+        day_word = args[1].lower()
+        if 'завтра' in day_word:
+            day_delta, day_name = 1, 'завтра'
+        elif 'послезавтра' in day_word:
+            day_delta, day_name = 2, 'послезавтра'
+        else:
+            bot.send_message(message.chat.id, "Укажи день: завтра или послезавтра")
+            return
+        forecast = weather.get_forecast_for_day(city, day_delta, lang)
+        if forecast:
+            if 'timezone' in forecast:
+                user_timezone[user_id] = forecast['timezone']
+                memory.save_user_timezone(user_timezone)
+            reply = weather.generate_natural_weather_response(city, forecast, lang, is_forecast=True, day_name=day_name, client=client)
+        else:
+            reply = f"Не удалось получить прогноз на {day_name} для {city}."
+        bot.send_message(message.chat.id, reply)
+    except Exception as e:
+        print(f'Ошибка forecast_cmd: {e}')
+        traceback.print_exc()
 
 @bot.message_handler(commands=['date'])
 def date_cmd(message: telebot.types.Message) -> None:
     user_id = message.from_user.id
     lang = user_lang.get(user_id, 'ru')
     now = datetime.now()
-    if lang == 'ru':
-        weekdays = ['понедельник', 'вторник', 'среду', 'четверг', 'пятницу', 'субботу', 'воскресенье']
-        wd = weekdays[now.weekday()]
-        bot.send_message(message.chat.id, distribute_emojis(f"Сегодня {wd}, {now.strftime('%d.%m.%Y')} года. 😊"))
-    else:
-        bot.send_message(message.chat.id, distribute_emojis(f"Today is {now.strftime('%B %d, %Y')}. 😊"))
+    try:
+        if lang == 'ru':
+            weekdays = ['понедельник', 'вторник', 'среду', 'четверг', 'пятницу', 'субботу', 'воскресенье']
+            wd = weekdays[now.weekday()]
+            bot.send_message(message.chat.id, distribute_emojis(f"Сегодня {wd}, {now.strftime('%d.%m.%Y')} года. 😊"))
+        else:
+            bot.send_message(message.chat.id, distribute_emojis(f"Today is {now.strftime('%B %d, %Y')}. 😊"))
+    except Exception as e:
+        print(f'Ошибка date_cmd: {e}')
+        traceback.print_exc()
 
 @bot.message_handler(commands=['horoscope'])
 def horoscope_command(message: telebot.types.Message) -> None:
-    horoscope.horoscope_cmd(message, bot, client, user_lang, user_zodiac, user_timezone, save_user_zodiac, add_message, save_user_history)
+    user_id = message.from_user.id
+    pet_name = get_pet_name(user_id, message.from_user.first_name)
+    horoscope.horoscope_cmd(message, bot, client, user_lang, user_zodiac, user_timezone, save_user_zodiac, add_message, save_user_history, pet_name=pet_name)
 
 @bot.message_handler(commands=['quote'])
 def quote_cmd(message: telebot.types.Message) -> None:
     user_id = message.from_user.id
     lang = user_lang.get(user_id, 'ru')
-    quote = get_motivation(lang)
-    bot.send_message(message.chat.id, distribute_emojis(quote))
+    try:
+        quote = get_motivation(lang)
+        bot.send_message(message.chat.id, distribute_emojis(quote))
+    except Exception as e:
+        print(f'Ошибка quote_cmd: {e}')
+        traceback.print_exc()
 
 @bot.message_handler(commands=['reset'])
 def reset_cmd(message: telebot.types.Message) -> None:
     user_id = message.from_user.id
-    reset_user(user_id)
-    bot.send_message(message.chat.id, distribute_emojis("Память очищена 😊"))
+    try:
+        reset_user(user_id)
+        bot.send_message(message.chat.id, distribute_emojis("Память очищена 😊"))
+    except Exception as e:
+        print(f'Ошибка reset_cmd: {e}')
+        traceback.print_exc()
 
 @bot.message_handler(func=lambda message: True, content_types=['text', 'photo'])
 def handle_message(message: telebot.types.Message) -> None:
@@ -343,14 +377,24 @@ def handle_message(message: telebot.types.Message) -> None:
     user_text = message.text if message.text else ''
 
     if user_id not in user_lang or user_lang[user_id] is None:
-        bot.send_message(message.chat.id, 'Пожалуйста, выбери язык: напиши "Русский" или "English"')
+        try:
+            bot.send_message(message.chat.id, 'Пожалуйста, выбери язык: напиши "Русский" или "English"')
+        except Exception as e:
+            print(f'Ошибка запроса языка: {e}')
         return
 
     lang = user_lang[user_id]
     pet_name = get_pet_name(user_id, message.from_user.first_name)
 
     if message.content_type == 'photo':
-        photos.analyze_user_photo(message, bot, client, lang)
+        try:
+            photos.analyze_user_photo(message, bot, client, lang)
+        except Exception as e:
+            print(f'Ошибка анализа фото пользователя: {e}')
+            try:
+                bot.send_message(message.chat.id, "Что-то не так с фото, может, попробуешь другое? 😊")
+            except:
+                pass
         return
 
     if user_text.startswith('/'):
@@ -358,7 +402,6 @@ def handle_message(message: telebot.types.Message) -> None:
 
     # Проверка: если бот только что предложил показать фото, а пользователь соглашается
     if user_pending_photo_offer.get(user_id) and re.search(r'(давай|покажи|показывай|хочу|конечно|ага|да|yes|ok|ок)', user_text, re.IGNORECASE):
-        # Принудительно показываем случайное фото
         all_photos = photos.get_photo_list()
         if all_photos:
             chosen_photo = random.choice(all_photos)
@@ -394,16 +437,20 @@ def handle_message(message: telebot.types.Message) -> None:
                 add_message(user_id, 'assistant', description)
                 save_user_history()
                 user_pending_photo_offer[user_id] = False
-                return
             except Exception as e:
                 print(f"Ошибка отправки фото по предложению: {e}")
-                bot.send_message(message.chat.id, "Ой, не получилось показать фото 😅 Давай попробуем позже?")
+                try:
+                    bot.send_message(message.chat.id, "Ой, не получилось показать фото 😅 Давай попробуем позже?")
+                except:
+                    pass
                 user_pending_photo_offer[user_id] = False
-                return
         else:
-            bot.send_message(message.chat.id, "У меня пока нет фотоальбома, но Максик обещал скоро добавить! 😊")
+            try:
+                bot.send_message(message.chat.id, "У меня пока нет фотоальбома, но Максик обещал скоро добавить! 😊")
+            except:
+                pass
             user_pending_photo_offer[user_id] = False
-            return
+        return
 
     user_has_no_photos = False
     if re.search(r'(нет фото|нет своих фото|не снимаюсь|не люблю фоткаться|нет моих фото|не фотографируюсь)', user_text, re.IGNORECASE):
@@ -413,7 +460,10 @@ def handle_message(message: telebot.types.Message) -> None:
     # Шутки
     if re.search(r'(расскажи\s+.*шутку|расскажи шутку|пошути|какие еще шутки|еще шутк|дай шутку|рассмеши|подними настроение шуткой)', user_text, re.IGNORECASE):
         joke = get_random_joke(lang)
-        bot.send_message(message.chat.id, distribute_emojis(joke))
+        try:
+            bot.send_message(message.chat.id, distribute_emojis(joke))
+        except:
+            pass
         add_message(user_id, 'user', user_text)
         add_message(user_id, 'assistant', joke)
         save_user_history()
@@ -448,10 +498,16 @@ def handle_message(message: telebot.types.Message) -> None:
                         photos.user_thematic_history[user_id][last_cat] = set()
                     photos.user_thematic_history[user_id][last_cat].add(chosen_photo)
                 else:
-                    bot.send_message(message.chat.id, "У меня пока только это фото на тему «Париж». Хочешь, покажу что-нибудь из другого альбома? 😊")
+                    try:
+                        bot.send_message(message.chat.id, "У меня пока только это фото на тему «Париж». Хочешь, покажу что-нибудь из другого альбома? 😊")
+                    except:
+                        pass
                     return
             else:
-                bot.send_message(message.chat.id, "Ой, не могу найти парижские фото, попробуй ещё раз 😅")
+                try:
+                    bot.send_message(message.chat.id, "Ой, не могу найти парижские фото, попробуй ещё раз 😅")
+                except:
+                    pass
                 return
         else:
             photos_in_cat = photos.get_photos_by_category(last_cat)
@@ -460,7 +516,10 @@ def handle_message(message: telebot.types.Message) -> None:
                 available = [p for p in photos_in_cat if p not in shown]
                 if not available:
                     msg = f"У меня пока только это фото на тему «{last_cat}». Хочешь, покажу что-нибудь из другого альбома? 😊"
-                    bot.send_message(message.chat.id, msg)
+                    try:
+                        bot.send_message(message.chat.id, msg)
+                    except:
+                        pass
                     return
                 chosen_photo = random.choice(available)
                 photos.user_thematic_history[user_id][last_cat].add(chosen_photo)
@@ -498,14 +557,20 @@ def handle_message(message: telebot.types.Message) -> None:
                 save_user_history()
             except Exception as e:
                 print(f"Ошибка отправки ещё одного фото: {e}")
-                bot.send_message(message.chat.id, "Ой, не могу показать другое фото, попробуй ещё раз 😅")
+                try:
+                    bot.send_message(message.chat.id, "Ой, не могу показать другое фото, попробуй ещё раз 😅")
+                except:
+                    pass
             return
 
     # --- Творческие функции ---
     if re.search(r'(расскажи историю|придумай историю|напиши рассказ|какие нибудь истории|знаешь истории)', user_text, re.IGNORECASE):
         prompt = user_text
         story = stories.generate_story(prompt, user_id, lang, client, os.getenv('GIST_ID'))
-        bot.send_message(message.chat.id, distribute_emojis(story))
+        try:
+            bot.send_message(message.chat.id, distribute_emojis(story))
+        except:
+            pass
         add_message(user_id, 'user', user_text)
         add_message(user_id, 'assistant', story)
         save_user_history()
@@ -513,7 +578,10 @@ def handle_message(message: telebot.types.Message) -> None:
 
     if re.search(r'(дай идею для творчества|подскажи тему|что нарисовать|вдохнови на творчество|творческие идеи|творческую идею|идеи для творчества)', user_text, re.IGNORECASE):
         idea = stories.creative_prompt(user_id, lang, client, os.getenv('GIST_ID'))
-        bot.send_message(message.chat.id, distribute_emojis(idea))
+        try:
+            bot.send_message(message.chat.id, distribute_emojis(idea))
+        except:
+            pass
         add_message(user_id, 'user', user_text)
         add_message(user_id, 'assistant', idea)
         save_user_history()
@@ -528,9 +596,12 @@ def handle_message(message: telebot.types.Message) -> None:
                 if last_q == user_text.strip().lower():
                     prev_data = user_last_photo_request[user_id]
                     reply_text = f"Я уже отвечала на этот вопрос, но если хочешь, покажу тебе ещё раз... {prev_data['description']}"
-                    bot.send_message(message.chat.id, distribute_emojis(reply_text))
-                    with open(prev_data['photo_path'], 'rb') as photo:
-                        bot.send_photo(message.chat.id, photo)
+                    try:
+                        bot.send_message(message.chat.id, distribute_emojis(reply_text))
+                        with open(prev_data['photo_path'], 'rb') as photo:
+                            bot.send_photo(message.chat.id, photo)
+                    except:
+                        pass
                     add_message(user_id, 'user', user_text)
                     add_message(user_id, 'assistant', reply_text)
                     save_user_history()
@@ -539,7 +610,10 @@ def handle_message(message: telebot.types.Message) -> None:
         all_photos = photos.get_photo_list()
         if not all_photos:
             msg = "У меня ещё нет фотоальбома, но Максик обещал скоро добавить! 😊" if lang == 'ru' else "I don't have a photo album yet, but Max promised to add it soon! 😊"
-            bot.send_message(message.chat.id, msg)
+            try:
+                bot.send_message(message.chat.id, msg)
+            except:
+                pass
             return
 
         compliment = False
@@ -623,7 +697,10 @@ def handle_message(message: telebot.types.Message) -> None:
                             sent = True
                         except Exception as e2:
                             print(f"Ошибка запасной отправки любимого фото: {e2}")
-                            bot.send_message(message.chat.id, "Не могу отправить фото, что-то не так 😅")
+                            try:
+                                bot.send_message(message.chat.id, "Не могу отправить фото, что-то не так 😅")
+                            except:
+                                pass
             if sent:
                 add_message(user_id, 'user', user_text)
                 add_message(user_id, 'assistant', description)
@@ -652,7 +729,10 @@ def handle_message(message: telebot.types.Message) -> None:
                         shown = photos.user_thematic_history[user_id][last_cat]
                         if len(shown) >= 1:
                             msg = f"У меня пока только это фото на тему «{last_cat}». Хочешь посмотреть ещё раз? 😊" if lang == 'ru' else f"I only have this one photo on the topic «{last_cat}». Want to see it again? 😊"
-                            bot.send_message(message.chat.id, msg)
+                            try:
+                                bot.send_message(message.chat.id, msg)
+                            except:
+                                pass
                             return
                     chosen_photo = photos.select_thematic_photo(user_id, last_cat)
                     if chosen_photo is None:
@@ -752,7 +832,10 @@ def handle_message(message: telebot.types.Message) -> None:
                             photos.user_last_category[user_id] = None
                     else:
                         error_msg = "Не могу отправить фото, что-то не так 😅" if lang=='ru' else "I can't send the photo, something went wrong 😅"
-                        bot.send_message(message.chat.id, error_msg)
+                        try:
+                            bot.send_message(message.chat.id, error_msg)
+                        except:
+                            pass
             if sent:
                 add_message(user_id, 'user', user_text)
                 add_message(user_id, 'assistant', description)
@@ -789,14 +872,20 @@ def handle_message(message: telebot.types.Message) -> None:
                 bot.send_message(message.chat.id, description)
             except Exception as e:
                 print(f"Ошибка при ответе о последнем фото: {e}")
-                bot.send_message(message.chat.id, "Извини, я не могу сейчас вспомнить детали этого фото 😅")
+                try:
+                    bot.send_message(message.chat.id, "Извини, я не могу сейчас вспомнить детали этого фото 😅")
+                except:
+                    pass
             return
         else:
-            bot.send_message(message.chat.id, "Ты о каком фото? Покажи, если хочешь обсудить 😊")
+            try:
+                bot.send_message(message.chat.id, "Ты о каком фото? Покажи, если хочешь обсудить 😊")
+            except:
+                pass
             return
 
-    # --- Гороскоп ---
-    if horoscope.handle_natural_horoscope(message, bot, client, user_lang, user_zodiac, user_timezone, save_user_zodiac, add_message, save_user_history):
+    # --- Гороскоп (натуральный) ---
+    if horoscope.handle_natural_horoscope(message, bot, client, user_lang, user_zodiac, user_timezone, save_user_zodiac, add_message, save_user_history, pet_name=pet_name):
         return
 
     # --- Определение даты/знака зодиака вне команды ---
@@ -807,14 +896,14 @@ def handle_message(message: telebot.types.Message) -> None:
         user_zodiac[user_id] = sign
         memory.save_user_zodiac(user_zodiac)
         message.text = f'/horoscope {sign}'
-        horoscope.horoscope_cmd(message, bot, client, user_lang, user_zodiac, user_timezone, save_user_zodiac, add_message, save_user_history, user_sign=sign)
+        horoscope.horoscope_cmd(message, bot, client, user_lang, user_zodiac, user_timezone, save_user_zodiac, add_message, save_user_history, user_sign=sign, pet_name=pet_name)
         return
     for sign in zodiac_list:
         if sign in user_text.lower():
             user_zodiac[user_id] = sign
             memory.save_user_zodiac(user_zodiac)
             message.text = f'/horoscope {sign}'
-            horoscope.horoscope_cmd(message, bot, client, user_lang, user_zodiac, user_timezone, save_user_zodiac, add_message, save_user_history, user_sign=sign)
+            horoscope.horoscope_cmd(message, bot, client, user_lang, user_zodiac, user_timezone, save_user_zodiac, add_message, save_user_history, user_sign=sign, pet_name=pet_name)
             return
 
     if user_has_no_photos:
@@ -825,11 +914,17 @@ def handle_message(message: telebot.types.Message) -> None:
             "What a pity, I would love to see you! 😊 But it's okay, I feel good with you anyway. "
             "If you want, you can show me some picture or photo – we'll laugh together or just continue chatting 💕"
         )
-        bot.send_message(message.chat.id, reply)
+        try:
+            bot.send_message(message.chat.id, reply)
+        except:
+            pass
         return
 
     if re.search(r'(вдохнов|мотивируй|подними дух|пожелай|скажи что-то хорошее)', user_text, re.IGNORECASE):
-        bot.send_message(message.chat.id, distribute_emojis(get_motivation(lang)))
+        try:
+            bot.send_message(message.chat.id, distribute_emojis(get_motivation(lang)))
+        except:
+            pass
         return
 
     if re.search(r'(какой сегодня день|какое сегодня число|какой день недели|сегодняшняя дата)', user_text, re.IGNORECASE):
@@ -837,9 +932,15 @@ def handle_message(message: telebot.types.Message) -> None:
         if lang == 'ru':
             weekdays = ['понедельник', 'вторник', 'среду', 'четверг', 'пятницу', 'субботу', 'воскресенье']
             wd = weekdays[now.weekday()]
-            bot.send_message(message.chat.id, distribute_emojis(f"Сегодня {wd}, {now.strftime('%d.%m.%Y')} года. 😊"))
+            try:
+                bot.send_message(message.chat.id, distribute_emojis(f"Сегодня {wd}, {now.strftime('%d.%m.%Y')} года. 😊"))
+            except:
+                pass
         else:
-            bot.send_message(message.chat.id, distribute_emojis(f"Today is {now.strftime('%B %d, %Y')}. 😊"))
+            try:
+                bot.send_message(message.chat.id, distribute_emojis(f"Today is {now.strftime('%B %d, %Y')}. 😊"))
+            except:
+                pass
         return
 
     # Погода
@@ -884,7 +985,10 @@ def handle_message(message: telebot.types.Message) -> None:
             reply = clean_english_words(reply)
             reply = remove_non_russian(reply)
             reply = distribute_emojis(reply)
-            bot.send_message(message.chat.id, reply)
+            try:
+                bot.send_message(message.chat.id, reply)
+            except:
+                pass
             add_message(user_id, 'assistant', reply)
             # Проверяем, предложила ли Алёна показать фото
             if re.search(r'(показать|посмотреть|покажу|фотографий|фотоальбом|фото|фотки|фотографию|снимки|снимок)', reply, re.IGNORECASE):
@@ -894,9 +998,12 @@ def handle_message(message: telebot.types.Message) -> None:
             save_user_history()
             break
         except Exception as e:
-            print(f'Ошибка (попытка {attempt+1}): {e}')
+            print(f'Ошибка LLM (попытка {attempt+1}): {e}')
             if attempt == max_retries - 1:
-                pass
+                try:
+                    bot.send_message(message.chat.id, "Ой, что-то пошло не так... Попробуй ещё раз, пожалуйста 😊")
+                except:
+                    pass
             else:
                 time.sleep(1)
 
@@ -915,4 +1022,8 @@ threading.Thread(target=run_web, daemon=True).start()
 
 if __name__ == '__main__':
     print('✅ Алёна — финальная, язык в Gist, шутки без повторов, Render-ready, история в Gist')
-    bot.infinity_polling()
+    try:
+        bot.infinity_polling()
+    except Exception as e:
+        print(f'Ошибка polling: {e}')
+        traceback.print_exc()
