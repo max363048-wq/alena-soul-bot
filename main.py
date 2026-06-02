@@ -404,6 +404,10 @@ def handle_message(message: telebot.types.Message) -> None:
     if user_text.startswith('/'):
         return
 
+    # --- Сброс флага pending_photo_offer при любых явных запросах других функций ---
+    if user_pending_photo_offer.get(user_id) and re.search(r'(гороскоп|погода|погоду|погоде|истори|творчеств|расскажи|составь)', user_text, re.IGNORECASE):
+        user_pending_photo_offer[user_id] = False
+
     # Проверка: если бот только что предложил показать фото, а пользователь соглашается
     if user_pending_photo_offer.get(user_id) and re.search(r'(давай|покажи|показывай|хочу|конечно|ага|да|yes|ok|ок)', user_text, re.IGNORECASE):
         all_photos = photos.get_photo_list()
@@ -477,8 +481,8 @@ def handle_message(message: telebot.types.Message) -> None:
     if photos.try_paris_photo(user_id, user_text, lang, bot, message, client, add_message, save_user_history, save_user_last_photo):
         return
 
-    # --- Просьба "ещё такие же фото" (включая единственное число) ---
-    if user_id in photos.user_last_category and photos.user_last_category[user_id] is not None and re.search(r'(еще такие фото|еще такие фотки|такие же фото|такие же фотки|похожие фото|похожие фотки|аналогичные фото|аналогичные фотки|другие фото|другое фото|ещё такие|еще такие|еще такое фото|ещё такое фото|такое же фото)', user_text, re.IGNORECASE):
+    # --- Просьба "ещё такие же фото" (СТАРАЯ ЛОГИКА) ---
+    if user_id in photos.user_last_category and photos.user_last_category[user_id] is not None and re.search(r'(еще такие фото|еще такие фотки|такие же фото|такие же фотки|похожие фото|похожие фотки|аналогичные фото|аналогичные фотки|другие фото|другое фото|ещё такие|еще такие|еще такое фото|ещё такое фото|такое же фото|ещё такие фотки)', user_text, re.IGNORECASE):
         last_cat = photos.user_last_category[user_id]
         # Принудительный поиск для Парижа
         if last_cat == 'париж':
@@ -487,7 +491,6 @@ def handle_message(message: telebot.types.Message) -> None:
             if not paris_photos:
                 paris_photos = [p for p in all_photos if 'мост' in photos.get_keywords_from_photo_name(p)]
             if paris_photos:
-                # Убираем уже показанные
                 if user_id in photos.user_thematic_history and last_cat in photos.user_thematic_history[user_id]:
                     shown = photos.user_thematic_history[user_id][last_cat]
                     available = [p for p in paris_photos if p not in shown]
@@ -495,7 +498,6 @@ def handle_message(message: telebot.types.Message) -> None:
                     available = paris_photos
                 if available:
                     chosen_photo = random.choice(available)
-                    # Добавляем в историю
                     if user_id not in photos.user_thematic_history:
                         photos.user_thematic_history[user_id] = {}
                     if last_cat not in photos.user_thematic_history[user_id]:
@@ -514,25 +516,13 @@ def handle_message(message: telebot.types.Message) -> None:
                     pass
                 return
         else:
-            photos_in_cat = photos.get_photos_by_category(last_cat)
-            if user_id in photos.user_thematic_history and last_cat in photos.user_thematic_history[user_id]:
-                shown = photos.user_thematic_history[user_id][last_cat]
-                available = [p for p in photos_in_cat if p not in shown]
-                if not available:
-                    msg = f"У меня пока только это фото на тему «{last_cat}». Хочешь, покажу что-нибудь из другого альбома? 😊"
-                    try:
-                        bot.send_message(message.chat.id, msg)
-                    except:
-                        pass
-                    return
-                chosen_photo = random.choice(available)
-                photos.user_thematic_history[user_id][last_cat].add(chosen_photo)
-            else:
-                chosen_photo = random.choice(photos_in_cat)
-                if user_id not in photos.user_thematic_history:
-                    photos.user_thematic_history[user_id] = {}
-                photos.user_thematic_history[user_id][last_cat] = {chosen_photo}
-            # chosen_photo уже определён
+            chosen_photo = photos.select_thematic_photo(user_id, last_cat)
+            if chosen_photo is None:
+                try:
+                    bot.send_message(message.chat.id, f"У меня пока только это фото на тему «{last_cat}». Хочешь, покажу что-нибудь из другого альбома? 😊")
+                except:
+                    pass
+                return
 
         if chosen_photo:
             photos.user_last_sent_photo[user_id] = chosen_photo
@@ -631,21 +621,8 @@ def handle_message(message: telebot.types.Message) -> None:
             photos.user_last_sent_photo[user_id] = chosen_photo
             save_user_last_photo(user_id, chosen_photo)
 
-            # Запоминаем категорию для "ещё таких"
-            photo_name = photos.get_keywords_from_photo_name(chosen_photo)
-            cat_found = False
-            for cat, words in photos.KEYWORD_MAP.items():
-                if any(syn in photo_name for syn in words):
-                    photos.user_last_category[user_id] = cat
-                    if user_id not in photos.user_thematic_history:
-                        photos.user_thematic_history[user_id] = {}
-                    if cat not in photos.user_thematic_history[user_id]:
-                        photos.user_thematic_history[user_id][cat] = set()
-                    photos.user_thematic_history[user_id][cat].add(chosen_photo)
-                    cat_found = True
-                    break
-            if not cat_found:
-                photos.user_last_category[user_id] = None
+            # НЕ переопределяем категорию, оставляем старую логику
+            # (категория остаётся той, что была установлена предыдущим тематическим запросом)
 
             max_attempts = 3
             attempt = 0
@@ -678,21 +655,6 @@ def handle_message(message: telebot.types.Message) -> None:
                         chosen_photo = random.choice(all_photos)
                         photos.user_last_sent_photo[user_id] = chosen_photo
                         save_user_last_photo(user_id, chosen_photo)
-                        # Обновляем категорию для нового фото
-                        photo_name = photos.get_keywords_from_photo_name(chosen_photo)
-                        cat_found = False
-                        for cat, words in photos.KEYWORD_MAP.items():
-                            if any(syn in photo_name for syn in words):
-                                photos.user_last_category[user_id] = cat
-                                if user_id not in photos.user_thematic_history:
-                                    photos.user_thematic_history[user_id] = {}
-                                if cat not in photos.user_thematic_history[user_id]:
-                                    photos.user_thematic_history[user_id][cat] = set()
-                                photos.user_thematic_history[user_id][cat].add(chosen_photo)
-                                cat_found = True
-                                break
-                        if not cat_found:
-                            photos.user_last_category[user_id] = None
                     else:
                         try:
                             with open(chosen_photo, 'rb') as photo:
@@ -726,18 +688,9 @@ def handle_message(message: telebot.types.Message) -> None:
                 else:
                     apology = ""
             else:
-                if user_id in photos.user_last_category and photos.user_last_category[user_id] is not None and re.search(r'(еще такие фото|еще такие фотки|такие же фото|такие же фотки|похожие фото|похожие фотки|аналогичные фото|аналогичные фотки|такие фото|такие фотки|еще такое фото)', user_text, re.IGNORECASE):
+                # Если запрос не содержит категории, но есть last_category, используем её для "ещё таких"
+                if user_id in photos.user_last_category and photos.user_last_category[user_id] is not None and re.search(r'(еще такие|такие же|похожие|аналогичные|ещё такие)', user_text, re.IGNORECASE):
                     last_cat = photos.user_last_category[user_id]
-                    photos_in_cat = photos.get_photos_by_category(last_cat)
-                    if len(photos_in_cat) == 1 and user_id in photos.user_thematic_history and last_cat in photos.user_thematic_history[user_id]:
-                        shown = photos.user_thematic_history[user_id][last_cat]
-                        if len(shown) >= 1:
-                            msg = f"У меня пока только это фото на тему «{last_cat}». Хочешь посмотреть ещё раз? 😊" if lang == 'ru' else f"I only have this one photo on the topic «{last_cat}». Want to see it again? 😊"
-                            try:
-                                bot.send_message(message.chat.id, msg)
-                            except:
-                                pass
-                            return
                     chosen_photo = photos.select_thematic_photo(user_id, last_cat)
                     if chosen_photo is None:
                         chosen_photo = random.choice(all_photos)
@@ -745,21 +698,8 @@ def handle_message(message: telebot.types.Message) -> None:
                     else:
                         apology = ""
                 else:
-                    if user_id in photos.user_last_category and photos.user_last_category[user_id] is not None:
-                        last_cat = photos.user_last_category[user_id]
-                        available_photos = [
-                            p for p in all_photos
-                            if not any(syn in photos.get_keywords_from_photo_name(p) for syn in photos.KEYWORD_MAP.get(last_cat, []))
-                        ]
-                        if not available_photos:
-                            chosen_photo = random.choice(all_photos)
-                            apology = "У меня пока в основном такие фото, но я работаю над пополнением альбома! "
-                        else:
-                            chosen_photo = random.choice(available_photos)
-                            apology = ""
-                    else:
-                        chosen_photo = random.choice(all_photos)
-                        apology = ""
+                    chosen_photo = random.choice(all_photos)
+                    apology = ""
                     photo_name = photos.get_keywords_from_photo_name(chosen_photo)
                     cat_found = False
                     for cat, words in photos.KEYWORD_MAP.items():
