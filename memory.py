@@ -11,7 +11,8 @@ LAST_PHOTO_FILENAME = 'user_last_photo.json'
 HISTORY_FILENAME = 'user_history.json'
 ZODIAC_FILENAME = 'user_zodiac.json'
 TIMEZONE_FILENAME = 'user_timezone.json'
-FAVORITE_PHOTO_FILENAME = 'user_last_favorite_photo.json'   # новый файл
+FAVORITE_PHOTO_FILENAME = 'user_last_favorite_photo.json'
+GENDER_FILENAME = 'user_gender.json'                     # новый файл
 
 def get_headers():
     token = os.getenv('GITHUB_TOKEN')
@@ -215,3 +216,34 @@ def save_user_last_favorite_photo(user_last_favorite_photo: Dict[int, str]):
         requests.patch(_get_gist_api_url(), headers=get_headers(), json=payload, timeout=5)
     except Exception as e:
         print(f'Ошибка сохранения любимого фото в Gist: {e}')
+
+# ---------- ПОЛ ПОЛЬЗОВАТЕЛЯ ----------
+def load_user_gender(user_gender: Dict[int, str]):
+    if not os.getenv('GIST_ID') or not os.getenv('GITHUB_TOKEN'):
+        return
+    try:
+        resp = requests.get(_get_gist_api_url(), headers=get_headers(), timeout=5)
+        if resp.status_code == 200:
+            gist_data = resp.json()
+            files = gist_data.get('files', {})
+            if GENDER_FILENAME in files:
+                content = files[GENDER_FILENAME].get('content', '{}')
+                data = json.loads(content)
+                user_gender.update({int(k): v for k, v in data.items()})
+    except Exception as e:
+        print(f'Ошибка загрузки пола из Gist: {e}')
+
+def save_user_gender(user_gender: Dict[int, str]):
+    if not os.getenv('GIST_ID') or not os.getenv('GITHUB_TOKEN'):
+        return
+    try:
+        payload = {
+            'files': {
+                GENDER_FILENAME: {
+                    'content': json.dumps(user_gender, ensure_ascii=False)
+                }
+            }
+        }
+        requests.patch(_get_gist_api_url(), headers=get_headers(), json=payload, timeout=5)
+    except Exception as e:
+        print(f'Ошибка сохранения пола в Gist: {e}')
