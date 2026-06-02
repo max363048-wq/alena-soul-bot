@@ -1,4 +1,4 @@
-# main.py — Лёгкий диспетчер Алёны (флаг гороскопа проверяется ДО регулярки)
+# main.py — Лёгкий диспетчер Алёны (стабильная основа + gender + голос)
 import os
 import telebot
 import re
@@ -6,6 +6,7 @@ import random
 import time
 import threading
 import traceback
+import tempfile
 from flask import Flask
 from openai import OpenAI
 from collections import deque
@@ -18,6 +19,7 @@ import weather
 import horoscope
 import memory
 import gender
+import voice
 from text_utils import clean_english_words, remove_non_russian, distribute_emojis, SAFE_EMOJIS
 
 BOT_TOKEN = os.getenv('BOT_TOKEN')
@@ -402,7 +404,41 @@ def reset_cmd(message: telebot.types.Message) -> None:
         print(f'Ошибка reset_cmd: {e}')
         traceback.print_exc()
 
-@bot.message_handler(func=lambda message: True, content_types=['text', 'photo'])
+# --- Команда для голоса ---
+@bot.message_handler(commands=['voice'])
+def voice_cmd(message: telebot.types.Message) -> None:
+    user_id = message.from_user.id
+    lang = user_lang.get(user_id, 'ru')
+    # Ищем последнее сообщение ассистента
+    if user_id in user_history and user_history[user_id]:
+        for role, content in reversed(user_history[user_id]):
+            if role == 'assistant':
+                text_to_say = content
+                break
+        else:
+            bot.send_message(message.chat.id, "У меня пока нет сообщений, которые можно озвучить 😊")
+            return
+        # Синтезируем и отправляем
+        audio = voice.text_to_speech(text_to_say, lang)
+        if audio:
+            try:
+                with tempfile.NamedTemporaryFile(suffix='.mp3', delete=False) as tmp:
+                    tmp.write(audio)
+                    tmp.flush()
+                    with open(tmp.name, 'rb') as f:
+                        bot.send_voice(message.chat.id, f)
+                os.unlink(tmp.name)
+                # Дублируем текст
+                bot.send_message(message.chat.id, text_to_say)
+            except Exception as e:
+                print(f"Ошибка отправки голоса: {e}")
+                bot.send_message(message.chat.id, "Не получилось озвучить... Но вот что я хотела сказать:\n" + text_to_say)
+        else:
+            bot.send_message(message.chat.id, "Не получилось озвучить... Но вот что я хотела сказать:\n" + text_to_say)
+    else:
+        bot.send_message(message.chat.id, "Сначала напиши мне что-нибудь! 😊")
+
+@bot.message_handler(func=lambda message: True, content_types=['text', 'photo', 'voice'])
 def handle_message(message: telebot.types.Message) -> None:
     user_id = message.from_user.id
     user_text = message.text if message.text else ''
@@ -421,6 +457,25 @@ def handle_message(message: telebot.types.Message) -> None:
     if not gender.ensure_gender_known(user_id, message.from_user.first_name, user_preferences,
                                       user_gender, user_awaiting_gender, bot, message, save_user_gender):
         return
+
+    # --- Обработка голосовых сообщений ---
+    if message.content_type == 'voice':
+        # Преобразуем в текст и отдаём обычному обработчику
+        try:
+            file_info = bot.get_file(message.voice.file_id)
+            downloaded = bot.download_file(file_info.file_path)
+            text = voice.speech_to_text(downloaded, lang)
+            if text:
+                message.text = text
+                # Продолжаем обработку как текстового сообщения
+                user_text = text
+            else:
+                bot.send_message(message.chat.id, "Прости, я не смогла разобрать твой голос... Может, напишешь? 😊")
+                return
+        except Exception as e:
+            print(f"Ошибка получения голосового: {e}")
+            bot.send_message(message.chat.id, "Что-то не так с голосовым сообщением... Попробуй ещё раз 😊")
+            return
 
     if message.content_type == 'photo':
         photos.user_pending_photo_offer[user_id] = False
@@ -498,28 +553,26 @@ def handle_message(message: telebot.types.Message) -> None:
                 pass
             return
 
-    # --- Гороскоп (флаг проверяется ПЕРЕД регуляркой) ---
+    # --- Гороскоп (натуральный, расширенный) ---
     if user_just_gave_horoscope.get(user_id) and re.search(r'гороскоп', user_text, re.IGNORECASE):
-        # Пользователь комментирует гороскоп – не генерируем новый, просто идём в обычный диалог
         user_just_gave_horoscope[user_id] = False
     else:
         user_just_gave_horoscope[user_id] = False
 
-        # Только если флаг не активен, проверяем запрос на гороскоп
-        if horoscope.handle_natural_horoscope(message, bot, client, user_lang, user_zodiac, user_timezone, save_user_zodiac, add_message, save_user_history, pet_name=pet_name):
-            user_just_gave_horoscope[user_id] = True
-            return
-        if re.search(r'(расскажи гороскоп|рассказать гороскоп|расскажи мне гороскоп|ты можешь рассказать гороскоп|ты можешь рассказать мне гороскоп|составь гороскоп|какой.*гороскоп|что говорят звёзды|предскажи гороскоп)', user_text, re.IGNORECASE):
-            if user_id in user_zodiac:
-                sign = user_zodiac[user_id]
-                horoscope.horoscope_cmd(message, bot, client, user_lang, user_zodiac, user_timezone, save_user_zodiac, add_message, save_user_history, user_sign=sign, pet_name=pet_name)
-            else:
-                try:
-                    bot.send_message(message.chat.id, "Прости, но я не знаю твою дату рождения (можно просто день и месяц) или просто скажи мне свой знак зодиака... 😊")
-                except:
-                    pass
-            user_just_gave_horoscope[user_id] = True
-            return
+    if horoscope.handle_natural_horoscope(message, bot, client, user_lang, user_zodiac, user_timezone, save_user_zodiac, add_message, save_user_history, pet_name=pet_name):
+        user_just_gave_horoscope[user_id] = True
+        return
+    if re.search(r'(расскажи гороскоп|рассказать гороскоп|расскажи мне гороскоп|ты можешь рассказать гороскоп|ты можешь рассказать мне гороскоп|составь гороскоп|какой.*гороскоп|что говорят звёзды|предскажи гороскоп)', user_text, re.IGNORECASE):
+        if user_id in user_zodiac:
+            sign = user_zodiac[user_id]
+            horoscope.horoscope_cmd(message, bot, client, user_lang, user_zodiac, user_timezone, save_user_zodiac, add_message, save_user_history, user_sign=sign, pet_name=pet_name)
+        else:
+            try:
+                bot.send_message(message.chat.id, "Прости, но я не знаю твою дату рождения (можно просто день и месяц) или просто скажи мне свой знак зодиака... 😊")
+            except:
+                pass
+        user_just_gave_horoscope[user_id] = True
+        return
 
     # --- Определение даты/знака зодиака вне команды ---
     zodiac_list = ['овен','телец','близнецы','рак','лев','дева','весы','скорпион','стрелец','козерог','водолей','рыбы']
