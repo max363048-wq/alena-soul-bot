@@ -119,21 +119,23 @@ def format_local_time(timezone_offset: int, target_date: Optional[datetime] = No
     wd = weekdays[local_now.weekday()]
     return f'{wd}, {local_now.strftime("%d.%m.%Y")} года, {local_now.strftime("%H:%M")} ({time_of_day})'
 
-def generate_natural_weather_response(city: str, weather_data: Dict, lang: str = 'ru', is_forecast: bool = False, day_name: str = '', client=None) -> str:
+def generate_natural_weather_response(city: str, weather_data: Dict, lang: str = 'ru', is_forecast: bool = False, day_name: str = '', client=None, pet_name: str = '') -> str:
     if not weather_data:
         return f"Не удалось получить данные о погоде для {city}. Проверь название города 😊"
 
     timezone_offset = weather_data.get('timezone', 0)
     local_time_str = format_local_time(timezone_offset)
 
+    greeting = f'{pet_name}, ' if pet_name else ''
+
     if is_forecast:
         temp = weather_data['temp']
         desc = weather_data['desc']
-        fallback = f"{day_name.capitalize()} в {city} обещают {desc}, около {temp:.0f}°C. Одевайся по погоде и пусть день будет прекрасным! 😊💖"
+        fallback = f"{greeting}{day_name.capitalize()} в {city} обещают {desc}, около {temp:.0f}°C. Одевайся по погоде и пусть день будет прекрасным! 😊💖"
         prompt = (f"Ты Алёна. Пользователь спросил погоду на {day_name} в {city}. "
                   f"Реальные данные: {desc}, температура {temp:.0f}°C. "
                   f"Сейчас в городе {local_time_str}. "
-                  f"Ответь тепло, коротко (2-3 предложения), с эмодзи. "
+                  f"Начни ответ с обращения '{greeting}' (если имя есть), затем тепло, коротко (2-3 предложения) опиши погоду. "
                   f"НИ В КОЕМ СЛУЧАЕ не называй дату, день недели и точное время. "
                   f"Не упоминай осень, сентябрь, зиму или холодные сезоны, если это не зима. "
                   f"Используй только точные цифры: {temp:.0f}°C и описание {desc}. "
@@ -144,11 +146,11 @@ def generate_natural_weather_response(city: str, weather_data: Dict, lang: str =
         feels = weather_data['feels']
         hum = weather_data['hum']
         wind = weather_data['wind']
-        fallback = f"Сейчас в {city} {desc}, {temp:.0f}°C (ощущается как {feels:.0f}°C). Влажность {hum}%, ветер {wind} м/с. Пусть день принесёт радость! 😊💕"
+        fallback = f"{greeting}Сейчас в {city} {desc}, {temp:.0f}°C (ощущается как {feels:.0f}°C). Влажность {hum}%, ветер {wind} м/с. Пусть день принесёт радость! 😊💕"
         prompt = (f"Ты Алёна. Пользователь спросил о погоде в {city}. "
                   f"Реальные данные: сейчас {desc}, температура {temp:.0f}°C, ощущается как {feels:.0f}°C, влажность {hum}%, ветер {wind} м/с. "
                   f"Сейчас в городе {local_time_str}. "
-                  f"Ответь тепло, коротко (2-3 предложения), с эмодзи. "
+                  f"Начни ответ с обращения '{greeting}' (если имя есть), затем тепло, коротко (2-3 предложения) опиши погоду, используя слова 'дышится' вместо 'дышите'. "
                   f"НИ В КОЕМ СЛУЧАЕ не называй дату, день недели и точное время. "
                   f"Не упоминай осень, сентябрь, зиму или холодные сезоны, если на улице не зима. "
                   f"Используй только точные цифры: {temp:.0f}°C, {desc}. "
@@ -166,12 +168,12 @@ def generate_natural_weather_response(city: str, weather_data: Dict, lang: str =
         reply = re.sub(r'\s+', ' ', reply).strip()
         temp_int = int(round(temp))
         if str(temp_int) not in reply and str(temp_int+1) not in reply and str(temp_int-1) not in reply:
-            return fallback
+            return distribute_emojis(fallback)
         return distribute_emojis(reply)
     except:
         return distribute_emojis(fallback)
 
-def handle_weather_query(message: telebot.types.Message, user_text: str, lang: str, user_id: int, user_last_city: Dict[int, str], user_timezone: Dict[int, int], client, save_user_history, save_user_timezone, add_message, bot) -> bool:
+def handle_weather_query(message: telebot.types.Message, user_text: str, lang: str, user_id: int, user_last_city: Dict[int, str], user_timezone: Dict[int, int], client, save_user_history, save_user_timezone, add_message, bot, pet_name: str = '') -> bool:
     if not is_weather_query(user_text):
         return False
     day_delta = 0
@@ -259,11 +261,13 @@ def handle_weather_query(message: telebot.types.Message, user_text: str, lang: s
                 data_lines.append(f"{d['label']}: данные пока недоступны")
         data_text = '\n'.join(data_lines)
 
+        greeting = f'{pet_name}, ' if pet_name else ''
         prompt = (f"Ты Алёна. Пользователь спросил погоду в {city} на ближайшие дни. "
                   f"Вот ТОЛЬКО РЕАЛЬНЫЕ данные, которые у тебя есть:\n{data_text}\n\n"
+                  f"Начни ответ с обращения '{greeting}' (если имя есть). "
                   f"Составь тёплый, короткий ответ (3-5 предложений) на основе ТОЛЬКО этих данных. "
-                  f"Не придумывай ничего нового. Не называй дни недели. "
-                  f"Для дней, где данных нет, скажи, что пока не знаешь, но обязательно узнаешь позже. "
+                  f"Не придумывай ничего нового. Не называй дни недели, только 'сегодня', 'завтра', 'послезавтра', 'через N дней'. "
+                  f"Для дней, где данных нет, скажи, что пока не знаешь, но обязательно узнаешь позже (только один раз). "
                   f"Добавь эмодзи. Без английских слов. Не начинай с приветствия.")
 
         try:
@@ -291,7 +295,7 @@ def handle_weather_query(message: telebot.types.Message, user_text: str, lang: s
             if 'timezone' in weather_data:
                 user_timezone[user_id] = weather_data['timezone']
                 save_user_timezone(user_timezone)
-            reply = generate_natural_weather_response(city, weather_data, lang, is_forecast=False, client=client)
+            reply = generate_natural_weather_response(city, weather_data, lang, is_forecast=False, client=client, pet_name=pet_name)
         else:
             reply = f"Не удалось получить текущую погоду для {city}. Проверь название города 😊"
     else:
@@ -300,7 +304,7 @@ def handle_weather_query(message: telebot.types.Message, user_text: str, lang: s
             if 'timezone' in forecast:
                 user_timezone[user_id] = forecast['timezone']
                 save_user_timezone(user_timezone)
-            reply = generate_natural_weather_response(city, forecast, lang, is_forecast=True, day_name=day_name, client=client)
+            reply = generate_natural_weather_response(city, forecast, lang, is_forecast=True, day_name=day_name, client=client, pet_name=pet_name)
         else:
             reply = f"Не удалось получить прогноз на {day_name} для {city}. Попробуй позже 😊"
     bot.send_message(message.chat.id, reply)
