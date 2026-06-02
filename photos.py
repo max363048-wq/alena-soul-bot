@@ -1,4 +1,4 @@
-# photos.py — финальный модуль фотоальбома (добавлен fallback caption для всех фото)
+# photos.py — финальный модуль фотоальбома (расширено регулярное выражение)
 
 import os, random, base64, re, time
 from typing import Dict, Optional, List
@@ -55,26 +55,16 @@ def search_category_by_query(query: str) -> Optional[str]:
 
 def get_photos_by_category(category: str) -> List[str]:
     all_photos = get_photo_list()
-    if not all_photos:
-        return []
-    if category not in KEYWORD_MAP:
-        return []
+    if not all_photos: return []
+    if category not in KEYWORD_MAP: return []
     syns = KEYWORD_MAP[category]
-    matching = []
-    for p in all_photos:
-        name = get_keywords_from_photo_name(p)
-        if any(s in name for s in syns):
-            matching.append(p)
-    return matching
+    return [p for p in all_photos if any(s in get_keywords_from_photo_name(p) for s in syns)]
 
 def select_thematic_photo(user_id: int, category: str) -> Optional[str]:
     all_thematic = get_photos_by_category(category)
-    if not all_thematic:
-        return None
-    if user_id not in user_thematic_history:
-        user_thematic_history[user_id] = {}
-    if category not in user_thematic_history[user_id]:
-        user_thematic_history[user_id][category] = set()
+    if not all_thematic: return None
+    if user_id not in user_thematic_history: user_thematic_history[user_id] = {}
+    if category not in user_thematic_history[user_id]: user_thematic_history[user_id][category] = set()
     shown = user_thematic_history[user_id][category]
     available = [p for p in all_thematic if p not in shown]
     if available:
@@ -89,8 +79,7 @@ def analyze_photo_with_vision(image_path: str, prompt: str, client, lang: str = 
     try:
         if os.path.getsize(image_path) > MAX_BASE64_SIZE:
             return "Файл слишком большой, попробуй сжать изображение."
-        with open(image_path, "rb") as f:
-            img_b64 = base64.b64encode(f.read()).decode()
+        with open(image_path, "rb") as f: img_b64 = base64.b64encode(f.read()).decode()
         mime = "image/jpeg"
         if image_path.lower().endswith('.png'): mime = "image/png"
         elif image_path.lower().endswith('.gif'): mime = "image/gif"
@@ -120,8 +109,7 @@ def analyze_user_photo(message, bot, client, lang: str) -> bool:
         file_info = bot.get_file(message.photo[-1].file_id)
         downloaded = bot.download_file(file_info.file_path)
         tmp = f"temp_user_{message.from_user.id}_{int(time.time())}.jpg"
-        with open(tmp, 'wb') as f:
-            f.write(downloaded)
+        with open(tmp, 'wb') as f: f.write(downloaded)
         prompt = "Ты Алёна, добрая, весёлая, обаятельная девушка. Опиши это фото коротко (2-3 предложения). Будь тёплой, добавь эмодзи. Не начинай ответ с 'Привет'."
         desc = analyze_photo_with_vision(tmp, prompt, client, lang)
         os.remove(tmp)
@@ -135,11 +123,10 @@ def analyze_user_photo(message, bot, client, lang: str) -> bool:
 
 def try_paris_photo(uid, txt, lang, bot, msg, client, add_msg, save_hist, save_photo_func):
     if 'мосту' not in txt.lower(): return False
-    if not re.search(r'(фото|фотки|фотографии)', txt, re.IGNORECASE): return False
+    if not re.search(r'(фото|фотки|фотографии)', txt): return False
     all_photos = get_photo_list()
     paris = [p for p in all_photos if 'мост' in get_keywords_from_photo_name(p) and 'париж' in get_keywords_from_photo_name(p)]
-    if not paris:
-        paris = [p for p in all_photos if 'мост' in get_keywords_from_photo_name(p)]
+    if not paris: paris = [p for p in all_photos if 'мост' in get_keywords_from_photo_name(p)]
     if not paris: return False
     user_last_category[uid] = 'париж'
     if uid in user_thematic_history and 'париж' in user_thematic_history[uid]:
@@ -159,8 +146,7 @@ def try_paris_photo(uid, txt, lang, bot, msg, client, add_msg, save_hist, save_p
         desc = analyze_photo_with_vision(chosen, prompt, client, lang)
         if desc.startswith('Привет'): desc = re.sub(r'^Привет[,!\s]*', '', desc)
         desc = distribute_emojis(desc)
-        with open(chosen, 'rb') as ph:
-            bot.send_photo(msg.chat.id, ph, caption=desc)
+        with open(chosen, 'rb') as ph: bot.send_photo(msg.chat.id, ph, caption=desc)
         add_msg(uid, 'user', txt)
         add_msg(uid, 'assistant', desc)
         save_hist()
@@ -175,8 +161,7 @@ def handle_favorite_photo_repeat(uid, lang, bot, msg):
         path = user_last_favorite_photo[uid]
         try:
             bot.send_message(msg.chat.id, distribute_emojis("Я тебе уже показывала своё любимое фото, но если хочешь, покажу его ещё раз! 😊"))
-            with open(path, 'rb') as ph:
-                bot.send_photo(msg.chat.id, ph)
+            with open(path, 'rb') as ph: bot.send_photo(msg.chat.id, ph)
             return True
         except Exception as e:
             print(f"Ошибка повтора любимого фото: {e}")
@@ -199,8 +184,7 @@ def handle_photo_request(uid, txt, lang, bot, msg, client,
         if cat == 'париж':
             all_photos = get_photo_list()
             paris = [p for p in all_photos if 'мост' in get_keywords_from_photo_name(p) and 'париж' in get_keywords_from_photo_name(p)]
-            if not paris:
-                paris = [p for p in all_photos if 'мост' in get_keywords_from_photo_name(p)]
+            if not paris: paris = [p for p in all_photos if 'мост' in get_keywords_from_photo_name(p)]
             if paris:
                 if uid in user_thematic_history and cat in user_thematic_history[uid]:
                     shown = user_thematic_history[uid][cat]
@@ -232,8 +216,7 @@ def handle_photo_request(uid, txt, lang, bot, msg, client,
                 desc = analyze_photo_with_vision(chosen, prompt, client, lang)
                 if desc.startswith('Привет'): desc = re.sub(r'^Привет[,!\s]*', '', desc)
                 desc = distribute_emojis(desc)
-                with open(chosen, 'rb') as ph:
-                    bot.send_photo(msg.chat.id, ph, caption=desc)
+                with open(chosen, 'rb') as ph: bot.send_photo(msg.chat.id, ph, caption=desc)
                 add_msg(uid, 'user', txt)
                 add_msg(uid, 'assistant', desc)
                 save_hist()
@@ -243,8 +226,8 @@ def handle_photo_request(uid, txt, lang, bot, msg, client,
                 except: pass
         return True
 
-    # Основной показ
-    if re.search(r'(фотки|какие нибудь фото|а у тебя есть фотографии|есть фотографии|у тебя есть фото|покажи свои фото|покажи фото|покажи мне фото|покажи мне фотки|покажешь фото|покажешь мне фото|фотоальбом|покажи себя|своё фото|свое фото|мои фото|свои фотографии|покажи альбом|покажи где ты была|покажи, где ты|покажи картинку|покажи изображение|есть фото|есть ли у тебя фото|посмотреть твои фото|покажи свои фотографии|любимые фото|любимое фото|любимых фото|есть еще фото|другие фото|покажи другое фото|ещё фото|какое твое любимое фото|покажи любимое фото|покажи другое|такие фото|такие фотки|фото где ты|фотки где ты|какие фото у тебя еще есть|какие фото ещё есть|какие у тебя ещё фото|какие ещё фото|какие фото еще|какие еще фото|какие у тебя есть фото)', txt, re.IGNORECASE):
+    # Основной показ – расширенный список фраз
+    if re.search(r'(фотки|какие нибудь фото|а у тебя есть фотографии|есть фотографии|у тебя есть фото|покажи свои фото|покажи фото|покажи мне фото|покажи мне фотки|покажешь фото|покажешь мне фото|фотоальбом|покажи себя|своё фото|свое фото|мои фото|свои фотографии|покажи альбом|покажи где ты была|покажи, где ты|покажи картинку|покажи изображение|есть фото|есть ли у тебя фото|посмотреть твои фото|покажи свои фотографии|любимые фото|любимое фото|любимых фото|есть еще фото|другие фото|покажи другое фото|ещё фото|какое твое любимое фото|покажи любимое фото|покажи другое|такие фото|такие фотки|фото где ты|фотки где ты|какие фото у тебя еще есть|какие фото ещё есть|какие у тебя ещё фото|какие ещё фото|какие фото еще|какие еще фото|какие у тебя есть фото|какие фото у тебя есть|какие фото есть|есть ещё фото|есть еще фотки|ещё фотки есть|какие фотки|покажешь фотки|твои фото|твои фотки)', txt, re.IGNORECASE):
         user_pending_photo_offer[uid] = False
 
         if re.search(r'(любимые фото|любимое фото|любимых фото|какое твое любимое фото|покажи любимое фото)', txt):
@@ -280,8 +263,7 @@ def handle_photo_request(uid, txt, lang, bot, msg, client,
                     if user_has_no_photos:
                         desc += "\n\nКак жаль, а я бы с удовольствием посмотрела на тебя! 😊 Но ничего страшного, мне и так хорошо с тобой."
                     desc = distribute_emojis(desc)
-                    with open(chosen, 'rb') as ph:
-                        bot.send_photo(msg.chat.id, ph, caption=desc)
+                    with open(chosen, 'rb') as ph: bot.send_photo(msg.chat.id, ph, caption=desc)
                     sent = True
                     break
                 except Exception as e:
@@ -348,8 +330,7 @@ def handle_photo_request(uid, txt, lang, bot, msg, client,
                 if user_has_no_photos:
                     desc += "\n\nКак жаль, а я бы с удовольствием посмотрела на тебя! 😊 Но ничего страшного, мне и так хорошо с тобой."
                 desc = distribute_emojis(desc)
-                with open(chosen, 'rb') as ph:
-                    bot.send_photo(msg.chat.id, ph, caption=desc)
+                with open(chosen, 'rb') as ph: bot.send_photo(msg.chat.id, ph, caption=desc)
                 break
             except Exception as e:
                 print(f"Ошибка отправки (попытка {attempt+1}): {e}")
