@@ -1,4 +1,4 @@
-# main.py — Лёгкий диспетчер Алёны (усилено правило 13: не повторять гороскоп при похвале)
+# main.py — Лёгкий диспетчер Алёны (флаг гороскопа проверяется ДО регулярки)
 import os
 import telebot
 import re
@@ -498,26 +498,28 @@ def handle_message(message: telebot.types.Message) -> None:
                 pass
             return
 
-    # --- Гороскоп (натуральный, расширенный) ---
+    # --- Гороскоп (флаг проверяется ПЕРЕД регуляркой) ---
     if user_just_gave_horoscope.get(user_id) and re.search(r'гороскоп', user_text, re.IGNORECASE):
+        # Пользователь комментирует гороскоп – не генерируем новый, просто идём в обычный диалог
         user_just_gave_horoscope[user_id] = False
     else:
         user_just_gave_horoscope[user_id] = False
 
-    if horoscope.handle_natural_horoscope(message, bot, client, user_lang, user_zodiac, user_timezone, save_user_zodiac, add_message, save_user_history, pet_name=pet_name):
-        user_just_gave_horoscope[user_id] = True
-        return
-    if re.search(r'(расскажи гороскоп|рассказать гороскоп|расскажи мне гороскоп|ты можешь рассказать гороскоп|ты можешь рассказать мне гороскоп|составь гороскоп|какой.*гороскоп|что говорят звёзды|предскажи гороскоп)', user_text, re.IGNORECASE):
-        if user_id in user_zodiac:
-            sign = user_zodiac[user_id]
-            horoscope.horoscope_cmd(message, bot, client, user_lang, user_zodiac, user_timezone, save_user_zodiac, add_message, save_user_history, user_sign=sign, pet_name=pet_name)
-        else:
-            try:
-                bot.send_message(message.chat.id, "Прости, но я не знаю твою дату рождения (можно просто день и месяц) или просто скажи мне свой знак зодиака... 😊")
-            except:
-                pass
-        user_just_gave_horoscope[user_id] = True
-        return
+        # Только если флаг не активен, проверяем запрос на гороскоп
+        if horoscope.handle_natural_horoscope(message, bot, client, user_lang, user_zodiac, user_timezone, save_user_zodiac, add_message, save_user_history, pet_name=pet_name):
+            user_just_gave_horoscope[user_id] = True
+            return
+        if re.search(r'(расскажи гороскоп|рассказать гороскоп|расскажи мне гороскоп|ты можешь рассказать гороскоп|ты можешь рассказать мне гороскоп|составь гороскоп|какой.*гороскоп|что говорят звёзды|предскажи гороскоп)', user_text, re.IGNORECASE):
+            if user_id in user_zodiac:
+                sign = user_zodiac[user_id]
+                horoscope.horoscope_cmd(message, bot, client, user_lang, user_zodiac, user_timezone, save_user_zodiac, add_message, save_user_history, user_sign=sign, pet_name=pet_name)
+            else:
+                try:
+                    bot.send_message(message.chat.id, "Прости, но я не знаю твою дату рождения (можно просто день и месяц) или просто скажи мне свой знак зодиака... 😊")
+                except:
+                    pass
+            user_just_gave_horoscope[user_id] = True
+            return
 
     # --- Определение даты/знака зодиака вне команды ---
     zodiac_list = ['овен','телец','близнецы','рак','лев','дева','весы','скорпион','стрелец','козерог','водолей','рыбы']
