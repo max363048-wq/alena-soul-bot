@@ -68,14 +68,14 @@ def horoscope_cmd(message: telebot.types.Message, bot, client, user_lang, user_z
         local_time_str = format_local_time(user_timezone[user_id])
         local_time_note = f' Сейчас у пользователя {local_time_str}.'
 
-    # Подставляем ласковое имя, если оно есть
     greeting = f'{pet_name}, ' if pet_name else ''
     try:
         prompt = (f"Ты астролог. Составь короткое доброе предсказание для знака {sign.capitalize()} на {today}.{local_time_note} "
                   f"Начни ответ с обращения к пользователю: '{greeting}' (если имя есть, то используй его ласковую форму). "
                   f"Добавь в конце 2-3 эмодзи (😊✨💖). "
-                  f"Пиши на русском, без английских слов. НЕ начинай ответ с 'Здравствуй' или 'Привет'."
-                  f"Обращайся на 'ты'.")
+                  f"Пиши на русском, без английских слов. НЕ начинай ответ с 'Здравствуй' или 'Привет'. "
+                  f"НИ В КОЕМ СЛУЧАЕ не упоминай текущее время суток (утро, день, вечер, обед), не предполагай, что пользователь уже что-то сделал или не сделал. "
+                  f"Просто дай доброе предсказание на сегодня. Обращайся на 'ты'.")
         resp = client.chat.completions.create(
             model='llama-3.1-8b-instant',
             messages=[{'role': 'user', 'content': prompt}],
@@ -84,7 +84,6 @@ def horoscope_cmd(message: telebot.types.Message, bot, client, user_lang, user_z
         text = resp.choices[0].message.content.strip()
         text = clean_english_words(text)
         text = remove_non_russian(text)
-        # Если ответ не содержит имени пользователя, добавляем его в начало
         if pet_name and not text.startswith(pet_name):
             text = f"{pet_name}, {text[0].lower()}{text[1:]}" if text else text
         bot.send_message(message.chat.id, text)
