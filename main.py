@@ -1,4 +1,4 @@
-# main.py — с фиксом гороскопа и повтором любимого фото
+# main.py — полный код с исправлениями
 import os
 import telebot
 import re
@@ -38,7 +38,6 @@ user_timezone: Dict[int, int] = {}
 user_last_photo_request: Dict[int, Dict[str, str]] = {}
 user_pending_photo_offer: Dict[int, bool] = {}
 
-# ---------- НОВОЕ: словарь для хранения последнего любимого фото ----------
 user_last_favorite_photo: Dict[int, str] = {}
 
 # ---------- ФУНКЦИИ-ОБЁРТКИ ДЛЯ GIST ----------
@@ -63,7 +62,7 @@ memory.load_user_last_photo(photos.user_last_sent_photo)
 memory.load_user_history(user_history)
 memory.load_user_zodiac(user_zodiac)
 memory.load_user_timezone(user_timezone)
-memory.load_user_last_favorite_photo(user_last_favorite_photo)   # новая загрузка
+memory.load_user_last_favorite_photo(user_last_favorite_photo)
 
 # ---------- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ----------
 def get_history(user_id: int) -> Deque:
@@ -430,7 +429,7 @@ def handle_message(message: telebot.types.Message) -> None:
     if user_text.startswith('/'):
         return
 
-    # Сброс флага при явных запросах других функций
+    # Сброс флага при явных запросах других функций (добавлен "гороскоп")
     if re.search(r'(гороскоп|погода|погоду|погоде|историю|истории|история|творчеств|вдохнови|расскажи гороскоп|расскажи мне гороскоп|расскажи историю|расскажи мне историю|расскажи какую)', user_text, re.IGNORECASE):
         user_pending_photo_offer[user_id] = False
 
@@ -505,7 +504,7 @@ def handle_message(message: telebot.types.Message) -> None:
         user_pending_photo_offer[user_id] = False
         return
 
-    # --- Просьба "ещё такие же фото" ---
+    # --- Просьба "ещё такие же фото" (исправлено дублирование) ---
     if user_id in photos.user_last_category and photos.user_last_category[user_id] is not None and re.search(r'(еще такие фото|еще такие фотки|такие же фото|такие же фотки|похожие фото|похожие фотки|аналогичные фото|аналогичные фотки|другие фото|другое фото|ещё такие|еще такие|еще такое фото|ещё такое фото|такое же фото|ещё такие фотки)', user_text, re.IGNORECASE):
         user_pending_photo_offer[user_id] = False
         last_cat = photos.user_last_category[user_id]
@@ -608,7 +607,6 @@ def handle_message(message: telebot.types.Message) -> None:
     # --- Основной показ фото ---
     if re.search(r'(фотки|какие нибудь фото|а у тебя есть фотографии|есть фотографии|у тебя есть фото|покажи свои фото|покажи фото|покажи мне фото|покажи мне фотки|покажешь фото|покажешь мне фото|фотоальбом|покажи себя|своё фото|свое фото|мои фото|свои фотографии|покажи альбом|покажи где ты была|покажи, где ты|покажи картинку|покажи изображение|есть фото|есть ли у тебя фото|посмотреть твои фото|покажи свои фотографии|любимые фото|любимое фото|любимых фото|есть еще фото|другие фото|покажи другое фото|ещё фото|какое твое любимое фото|покажи любимое фото|покажи другое|такие фото|такие фотки|фото где ты|фотки где ты|какие фото у тебя еще есть|какие фото ещё есть|какие у тебя ещё фото|какие ещё фото|какие фото еще|какие еще фото|какие у тебя есть фото)', user_text, re.IGNORECASE):
         user_pending_photo_offer[user_id] = False
-        # Проверка на повтор любимого фото (НОВОЕ)
         if re.search(r'(любимые фото|любимое фото|любимых фото|какое твое любимое фото|покажи любимое фото)', user_text, re.IGNORECASE):
             if handle_favorite_photo_repeat(user_id, lang, bot, message):
                 add_message(user_id, 'user', user_text)
@@ -628,16 +626,13 @@ def handle_message(message: telebot.types.Message) -> None:
         if re.search(r'(красавица|красивая|умница|прекрасна|великолепна|шикарна|обалденная|потрясающая|чудесная|восхитительная|симпатичная|милашка|хорошенькая|обворожительная|божественно|как красиво|какая ты красивая|какая ты классная|какая ты хорошая)', user_text, re.IGNORECASE):
             compliment = True
 
-        # Любимое фото
         if re.search(r'(любимые фото|любимое фото|любимых фото|какое твое любимое фото|покажи любимое фото)', user_text, re.IGNORECASE):
             chosen_photo = random.choice(all_photos)
             apology = ""
             photos.user_last_sent_photo[user_id] = chosen_photo
             save_user_last_photo(user_id, chosen_photo)
-            # Запоминаем как последнее любимое фото
             user_last_favorite_photo[user_id] = chosen_photo
             save_user_last_favorite_photo()
-            # Определяем категорию и запоминаем её
             photo_name = photos.get_keywords_from_photo_name(chosen_photo)
             cat_found = False
             for cat, words in photos.KEYWORD_MAP.items():
@@ -875,7 +870,6 @@ def handle_message(message: telebot.types.Message) -> None:
     # --- Гороскоп (натуральный, расширенный) ---
     if horoscope.handle_natural_horoscope(message, bot, client, user_lang, user_zodiac, user_timezone, save_user_zodiac, add_message, save_user_history, pet_name=pet_name):
         return
-    # ФИКС: ловит "какой у меня сегодня гороскоп" и похожие
     if re.search(r'(расскажи гороскоп|рассказать гороскоп|расскажи мне гороскоп|ты можешь рассказать гороскоп|ты можешь рассказать мне гороскоп|составь гороскоп|какой.*гороскоп|что говорят звёзды|предскажи гороскоп)', user_text, re.IGNORECASE):
         if user_id in user_zodiac:
             sign = user_zodiac[user_id]
