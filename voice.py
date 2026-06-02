@@ -1,4 +1,4 @@
-# voice.py — Модуль голоса и слуха Алёны (синтез через gTTS)
+# voice.py — Модуль голоса и слуха Алёны (синтез через Cloudflare MeloTTS)
 
 import os
 import re
@@ -13,6 +13,7 @@ from typing import Optional, Tuple, List
 CF_ACCOUNT_ID = os.getenv('CF_ACCOUNT_ID')
 CF_API_TOKEN = os.getenv('CF_API_TOKEN')
 WHISPER_MODEL = '@cf/openai/whisper'
+TTS_MODEL = '@cf/myshell-ai/melotts'
 
 # YAMNet (загружается один раз)
 _YAMNET_MODEL = None
@@ -111,25 +112,31 @@ def speech_to_text(audio_bytes: bytes, lang: str = 'ru') -> Optional[str]:
         print(f"Ошибка распознавания речи: {e}")
         return None
 
-# ---------- СИНТЕЗ РЕЧИ (gTTS) ----------
+# ---------- СИНТЕЗ РЕЧИ (Cloudflare MeloTTS) ----------
 def text_to_speech(text: str, lang: str = 'ru') -> Optional[bytes]:
-    """Синтезирует голос Алёны через Google Text-to-Speech (бесплатно, без API-ключей)."""
+    """Синтезирует голос Алёны через Cloudflare MeloTTS."""
     try:
-        from gtts import gTTS
-        # gTTS использует коды языков: 'ru' для русского, 'en' для английского
-        tts = gTTS(text=text, lang=lang, slow=False)
-        with tempfile.NamedTemporaryFile(suffix='.mp3', delete=False) as tmp:
-            tmp_path = tmp.name
-        tts.save(tmp_path)
-        with open(tmp_path, 'rb') as f:
-            audio_bytes = f.read()
-        os.unlink(tmp_path)
-        return audio_bytes
-    except ImportError:
-        print("⚠️ gtts не установлен. pip install gtts")
+        url = f'https://api.cloudflare.com/client/v4/accounts/{CF_ACCOUNT_ID}/ai/run/{TTS_MODEL}'
+        headers = {
+            'Authorization': f'Bearer {CF_API_TOKEN}',
+            'Content-Type': 'application/json'
+        }
+        payload = {
+            'text': text,
+            'lang': lang,
+            'gender': 'female'
+        }
+        resp = requests.post(url, headers=headers, json=payload, timeout=20)
+        data = resp.json()
+        if data.get('success'):
+            result = data.get('result', {})
+            audio_base64 = result.get('audio', '')
+            if audio_base64:
+                return base64.b64decode(audio_base64)
+        print(f"Ошибка MeloTTS: {data}")
         return None
     except Exception as e:
-        print(f"Ошибка синтеза речи (gTTS): {e}")
+        print(f"Ошибка синтеза речи (MeloTTS): {e}")
         return None
 
 # ---------- ОСНОВНАЯ ОБРАБОТКА ГОЛОСОВОГО СООБЩЕНИЯ ----------
