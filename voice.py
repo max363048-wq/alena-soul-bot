@@ -1,4 +1,4 @@
-# voice.py — Модуль голоса и слуха Алёны (OpenAI TTS + очистка эмодзи, fallback gTTS)
+# voice.py — Модуль голоса и слуха Алёны (Edge TTS через воркер)
 
 import os
 import re
@@ -13,7 +13,9 @@ from typing import Optional, Tuple, List
 CF_ACCOUNT_ID = os.getenv('CF_ACCOUNT_ID')
 CF_API_TOKEN = os.getenv('CF_API_TOKEN')
 WHISPER_MODEL = '@cf/openai/whisper'
-TTS_MODEL = '@cf/openai/tts'
+
+# Твой рабочий воркер Edge TTS
+EDGE_TTS_WORKER_URL = 'https://alena-voice-worker.max363048.workers.dev'
 
 # YAMNet
 _YAMNET_MODEL = None
@@ -115,59 +117,30 @@ def speech_to_text(audio_bytes: bytes, lang: str = 'ru') -> Optional[str]:
 # ---------- ОЧИСТКА ТЕКСТА ОТ ЭМОДЗИ ----------
 def _clean_text_for_tts(text: str) -> str:
     """Удаляет все эмодзи и специальные символы, оставляя только речь."""
-    # Удаляем все, что не является буквами, цифрами, пробелами, знаками препинания
     cleaned = re.sub(r'[^\w\s.,!?:;—–-]', '', text)
-    # Убираем лишние пробелы
     cleaned = re.sub(r'\s+', ' ', cleaned).strip()
     return cleaned
 
-# ---------- СИНТЕЗ РЕЧИ (OpenAI TTS через Cloudflare + fallback gTTS) ----------
+# ---------- СИНТЕЗ РЕЧИ (Edge TTS через воркер) ----------
 def text_to_speech(text: str, lang: str = 'ru') -> Optional[bytes]:
-    """Синтезирует голос Алёны. Основной – OpenAI TTS, fallback – gTTS."""
-    # Очищаем текст от эмодзи
+    """Синтезирует голос Алёны через бесплатный Edge TTS (воркер)."""
     text = _clean_text_for_tts(text)
     if not text:
         return None
 
-    # --- Попытка через OpenAI TTS (Cloudflare) ---
     try:
-        url = f'https://api.cloudflare.com/client/v4/accounts/{CF_ACCOUNT_ID}/ai/run/{TTS_MODEL}'
-        headers = {
-            'Authorization': f'Bearer {CF_API_TOKEN}',
-            'Content-Type': 'application/json'
-        }
-        # Голос nova – естественный женский, подходит для обоих языков
-        payload = {
-            'model': 'tts-1',
-            'input': text,
-            'voice': 'nova',
-            'response_format': 'mp3'
-        }
-        resp = requests.post(url, headers=headers, json=payload, timeout=20)
-        data = resp.json()
-        if data.get('success'):
-            result = data.get('result', {})
-            audio_base64 = result.get('audio', '')
-            if audio_base64:
-                return base64.b64decode(audio_base64)
+        resp = requests.post(
+            EDGE_TTS_WORKER_URL,
+            json={'text': text},
+            timeout=20
+        )
+        if resp.status_code == 200:
+            return resp.content
         else:
-            print(f"OpenAI TTS error: {data}")
+            print(f"Ошибка воркера Edge TTS: {resp.status_code} {resp.text}")
+            return None
     except Exception as e:
-        print(f"Ошибка OpenAI TTS: {e}")
-
-    # --- Fallback: gTTS ---
-    try:
-        from gtts import gTTS
-        tts = gTTS(text=text, lang=lang, slow=False)
-        with tempfile.NamedTemporaryFile(suffix='.mp3', delete=False) as tmp:
-            tmp_path = tmp.name
-        tts.save(tmp_path)
-        with open(tmp_path, 'rb') as f:
-            audio_bytes = f.read()
-        os.unlink(tmp_path)
-        return audio_bytes
-    except Exception as e:
-        print(f"Ошибка gTTS: {e}")
+        print(f"Ошибка синтеза речи (Edge TTS): {e}")
         return None
 
 # ---------- ОСНОВНАЯ ОБРАБОТКА ГОЛОСОВОГО СООБЩЕНИЯ ----------
