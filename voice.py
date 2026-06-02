@@ -13,7 +13,7 @@ from typing import Optional, Tuple, List
 CF_ACCOUNT_ID = os.getenv('CF_ACCOUNT_ID')
 CF_API_TOKEN = os.getenv('CF_API_TOKEN')
 WHISPER_MODEL = '@cf/openai/whisper'
-TTS_MODEL = '@cf/myshell-ai/melotts'
+TTS_MODEL = '@cf/facebook/mms-tts'
 
 # YAMNet (загружается один раз)
 _YAMNET_MODEL = None
@@ -113,8 +113,7 @@ def speech_to_text(audio_bytes: bytes, lang: str = 'ru') -> Optional[str]:
         return None
 
 # ---------- СИНТЕЗ РЕЧИ (Cloudflare MeloTTS) ----------
-def text_to_speech(text: str, lang: str = 'ru') -> Optional[bytes]:
-    """Синтезирует голос Алёны через Cloudflare MeloTTS."""
+def text_to_speech(text: str) -> Optional[bytes]:
     try:
         url = f'https://api.cloudflare.com/client/v4/accounts/{CF_ACCOUNT_ID}/ai/run/{TTS_MODEL}'
         headers = {
@@ -123,8 +122,7 @@ def text_to_speech(text: str, lang: str = 'ru') -> Optional[bytes]:
         }
         payload = {
             'text': text,
-            'lang': lang,
-            'gender': 'female'
+            'language': 'rus'
         }
         resp = requests.post(url, headers=headers, json=payload, timeout=20)
         data = resp.json()
@@ -133,10 +131,10 @@ def text_to_speech(text: str, lang: str = 'ru') -> Optional[bytes]:
             audio_base64 = result.get('audio', '')
             if audio_base64:
                 return base64.b64decode(audio_base64)
-        print(f"Ошибка MeloTTS: {data}")
+        print(f"Ошибка MMS-TTS: {data}")
         return None
     except Exception as e:
-        print(f"Ошибка синтеза речи (MeloTTS): {e}")
+        print(f"Ошибка синтеза речи: {e}")
         return None
 
 # ---------- ОСНОВНАЯ ОБРАБОТКА ГОЛОСОВОГО СООБЩЕНИЯ ----------
