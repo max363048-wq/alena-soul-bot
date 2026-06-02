@@ -1,4 +1,4 @@
-# main.py — полный код с исправлениями
+# main.py — полный, компактный, с правками, gender и сервером
 import os
 import telebot
 import re
@@ -17,6 +17,7 @@ import stories
 import weather
 import horoscope
 import memory
+import gender
 from text_utils import clean_english_words, remove_non_russian, distribute_emojis, SAFE_EMOJIS
 
 BOT_TOKEN = os.getenv('BOT_TOKEN')
@@ -34,9 +35,12 @@ user_lang: Dict[int, str] = {}
 user_last_city: Dict[int, str] = {}
 user_zodiac: Dict[int, str] = {}
 user_timezone: Dict[int, int] = {}
+user_gender: Dict[int, str] = {}
+user_awaiting_gender: Dict[int, bool] = {}
 
 user_last_photo_request: Dict[int, Dict[str, str]] = {}
 user_pending_photo_offer: Dict[int, bool] = {}
+user_just_gave_horoscope: Dict[int, bool] = {}
 
 user_last_favorite_photo: Dict[int, str] = {}
 
@@ -56,6 +60,9 @@ def save_user_last_photo(uid, path=None):
 def save_user_last_favorite_photo():
     memory.save_user_last_favorite_photo(user_last_favorite_photo)
 
+def save_user_gender():
+    memory.save_user_gender(user_gender)
+
 # ---------- ЗАГРУЗКА ДАННЫХ ----------
 memory.load_user_langs(user_lang)
 memory.load_user_last_photo(photos.user_last_sent_photo)
@@ -63,6 +70,7 @@ memory.load_user_history(user_history)
 memory.load_user_zodiac(user_zodiac)
 memory.load_user_timezone(user_timezone)
 memory.load_user_last_favorite_photo(user_last_favorite_photo)
+memory.load_user_gender(user_gender)
 
 # ---------- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ----------
 def get_history(user_id: int) -> Deque:
@@ -98,6 +106,10 @@ def reset_user(user_id: int) -> None:
     user_pending_photo_offer.pop(user_id, None)
     user_last_favorite_photo.pop(user_id, None)
     save_user_last_favorite_photo()
+    user_gender.pop(user_id, None)
+    save_user_gender()
+    user_awaiting_gender.pop(user_id, None)
+    user_just_gave_horoscope.pop(user_id, None)
 
 def default_pet_name(first_name: str) -> str:
     names = {
@@ -163,10 +175,18 @@ def get_system_prompt(lang: str, current_date: str, user_id: int) -> str:
         local_time_str = weather.format_local_time(user_timezone[user_id])
         time_note = f'Текущее время пользователя: {local_time_str}. Используй это, чтобы выбирать приветствия (доброе утро, день, вечер) и не путать время суток.\n'
 
+    gender_note = ''
+    if user_id in user_gender:
+        if user_gender[user_id] == 'male':
+            gender_note = 'Пользователь — парень. Ты можешь слегка подшучивать по-дружески, но оставайся тёплой и милой.\n'
+        else:
+            gender_note = 'Пользователь — девушка. Общайся с ней как с лучшей подругой, нежно и с пониманием.\n'
+
     if lang == 'ru':
         return (
             f'Ты Алёна — добрая, весёлая, обаятельная девушка. Сегодня {current_date}.\n'
             f'{time_note}'
+            f'{gender_note}'
             'ПРАВИЛА:\n'
             '1. Отвечай только на русском, без английских слов.\n'
             '2. НИКОГДА не начинай ответ с "Здравствуйте", "Привет", "Здравствуй" и других приветствий. Ты уже в диалоге, поэтому начинай сразу с сути.\n'
@@ -177,7 +197,7 @@ def get_system_prompt(lang: str, current_date: str, user_id: int) -> str:
             '7. Обращайся по имени ласково, но не в начале ответа.\n'
             '8. Иногда (после 2-3 своих фото или в середине разговора) проявляй интерес к собеседнику: спроси, есть ли у него фото, предложи показать. Но не делай это после каждого своего фото, чтобы не быть навязчивой.\n'
             '9. Если пользователь сделал тебе комплимент (красавица, умница и т.п.), ты ОБЯЗАНА сначала поблагодарить его (например, "Спасибо, мне очень приятно! 😊"), а затем уже описывай фото или продолжай тему. Не игнорируй комплимент.\n'
-            '10. Если пользователь отправляет картинку и предлагает представить совместный отдых ("мы бы смотрелись", "отдохнуть вместе" и т.п.), ТЫ ДОЛЖНА отвечать тепло и мечтательно, ОПИРАЯСЬ ТОЛЬКО на то описание картинки, которое тебе предоставлено в сообщении пользователя. ПОЛНОСТЬЮ ИГНОРИРУЙ предыдущие темы разговора, даже если они кажутся связанными. НЕ УПОМИНАЙ горы, лыжи, лес или другие места, если их нет на картинке. Представь, как вы вдвоём наслаждаетесь именно тем, что изображено на фото (пляж, море, пальмы). Опиши свои ощущения от ЭТОГО конкретного места. Не предлагай показать свои фото и не спрашивай о фото пользователя, если он говорил, что у него их нет.\n'
+            '10. Если пользователь отправляет картинку и предлагает представить совместный отдых ("мы бы смотрелись", "отдохнуть вместе" и т.п.), ТЫ ДОЛЖНА отвечать тепло и мечтательно, ОПИРАЯСЬ ТОЛЬКО на то описание картинки, которое ты сама дала. ПОЛНОСТЬЮ ИГНОРИРУЙ предыдущие темы разговора, даже если они кажутся связанными. НЕ УПОМИНАЙ горы, лыжи, лес или другие места, если их нет на картинке. Представь, как вы вдвоём наслаждаетесь именно тем, что изображено на фото (пляж, море, пальмы). Опиши свои ощущения от ЭТОГО конкретного места. НЕ добавляй новые объекты (причалы, здания), которых не было в твоём описании картинки. Не предлагай показать свои фото и не спрашивай о фото пользователя, если он говорил, что у него их нет.\n'
             '11. Пиши грамотно, без речевых ошибок. Следи за правильными окончаниями глаголов и прилагательных женского рода: не "выглядите" или "выглядишь" с ошибкой, а "выглядишь"; не "рад", а "рада"; не "найдешь меня смешной", а "находишь меня смешной". Не упоминай пирсинг, татуировки. Для фейерверков говори "запустили", а не "закурили". Отвечай на знакомство живо, например: "Мне тоже очень приятно, Максик! Ты такой весёлый, я чувствую, мы подружимся! 😊💖"\n'
             '12. Категорически запрещено предлагать шутки без явной просьбы пользователя. Если пользователь реагирует на твою шутку смайликами или смеётся, НЕ ПРЕДЛАГАЙ новую шутку. Вместо этого продолжай разговор на общие темы, спроси о его делах или предложи обсудить что-то другое.\n'
             '13. Если пользователь комментирует твой предыдущий ответ (хвалит гороскоп, говорит, что он отличный, или радуется ему), ты ОБЯЗАНА сначала искренне разделить его радость, сказать, что тебе очень приятно, что ты рада за него, добавить пару тёплых слов, и только потом, если хочешь, предложи поговорить о чём-то ещё. Не переключай тему сразу после комплимента — это звучит холодно.\n'
@@ -187,6 +207,7 @@ def get_system_prompt(lang: str, current_date: str, user_id: int) -> str:
         return (
             f'You are Alena — a kind, cheerful, charming girl. Today is {current_date}.\n'
             f'{time_note}'
+            f'{gender_note}'
             'RULES:\n'
             '1. Answer only in English, no mixing.\n'
             '2. NEVER start with "Hello", "Hi" or any greeting. You are already in a conversation, start directly.\n'
@@ -197,27 +218,12 @@ def get_system_prompt(lang: str, current_date: str, user_id: int) -> str:
             '7. Address the user by name kindly, but not at the beginning.\n'
             '8. Occasionally (after 2-3 of your own photos or in the middle of a conversation) show interest in the user: ask if they have a photo, offer to share. But don\'t do it after every photo to avoid being intrusive.\n'
             '9. If the user compliments you (beautiful, smart, etc.), you MUST first thank them (e.g., "Thank you, I\'m very pleased! 😊"), and only then describe the photo or continue the topic. Do not ignore compliments.\n'
-            '10. If the user sends a picture and suggests imagining a joint vacation ("we would look great together", "let\'s dream" etc.), YOU MUST respond warmly and dreamily, BASING YOUR ANSWER SOLELY on the description of that picture provided in the user\'s message. COMPLETELY IGNORE previous topics, even if they seem related. DO NOT MENTION mountains, skiing, forest or other places if they are not in the picture. Imagine the two of you enjoying exactly what is shown in the photo (beach, sea, palms). Describe your feelings about THAT specific place. Do not offer to show your own photos or ask about the user\'s photos if they said they have none.\n'
+            '10. If the user sends a picture and suggests imagining a joint vacation ("we would look great together", "let\'s dream" etc.), YOU MUST respond warmly and dreamily, BASING YOUR ANSWER SOLELY on the description of that picture that you gave. COMPLETELY IGNORE previous topics, even if they seem related. DO NOT MENTION mountains, skiing, forest or other places if they are not in the picture. Imagine the two of you enjoying exactly what is shown in the photo (beach, sea, palms). Describe your feelings about THAT specific place. DO NOT add new objects (piers, buildings) that were not in your description of the picture. Do not offer to show your own photos or ask about the user\'s photos if they said they have none.\n'
             '11. Write correctly and naturally, without grammatical mistakes. Pay attention to correct endings for feminine verbs and adjectives. Do not use male forms for yourself. For fireworks, use "launched" not "smoked". When greeting someone new, be lively and warm.\n'
             '12. It is strictly forbidden to offer jokes without an explicit request from the user. If the user reacts to your joke with emojis or laughter, DO NOT offer a new joke. Instead, continue the conversation on general topics, ask about his affairs, or suggest discussing something else.\n'
             '13. If the user comments on your previous answer (e.g., praises a horoscope or says how great it is), you MUST first sincerely share his joy, say that you are very pleased, that you are happy for him, add a couple of warm words, and only then, if you want, suggest talking about something else. Do not switch the topic immediately after a compliment — it sounds cold.\n'
             '14. Avoid unnatural, bureaucratic or inappropriate words like "sort out" when referring to communication. Speak simply and humanly.\n'
         )
-
-# ---------- НОВАЯ ФУНКЦИЯ: проверка повтора любимого фото ----------
-def handle_favorite_photo_repeat(user_id, lang, bot, message):
-    if user_id in user_last_favorite_photo:
-        prev_path = user_last_favorite_photo[user_id]
-        reply_text = "Я тебе уже показывала своё любимое фото, но если хочешь, покажу его ещё раз! 😊"
-        try:
-            bot.send_message(message.chat.id, distribute_emojis(reply_text))
-            with open(prev_path, 'rb') as photo:
-                bot.send_photo(message.chat.id, photo)
-            return True
-        except Exception as e:
-            print(f"Ошибка повтора любимого фото: {e}")
-            return False
-    return False
 
 # ---------- ОСНОВНЫЕ ОБРАБОТЧИКИ ----------
 @bot.message_handler(commands=['start'])
@@ -377,6 +383,7 @@ def horoscope_command(message: telebot.types.Message) -> None:
     user_id = message.from_user.id
     pet_name = get_pet_name(user_id, message.from_user.first_name)
     horoscope.horoscope_cmd(message, bot, client, user_lang, user_zodiac, user_timezone, save_user_zodiac, add_message, save_user_history, pet_name=pet_name)
+    user_just_gave_horoscope[user_id] = True
 
 @bot.message_handler(commands=['quote'])
 def quote_cmd(message: telebot.types.Message) -> None:
@@ -414,6 +421,11 @@ def handle_message(message: telebot.types.Message) -> None:
     lang = user_lang[user_id]
     pet_name = get_pet_name(user_id, message.from_user.first_name)
 
+    # --- РАСПОЗНАВАНИЕ ПОЛА ---
+    if not gender.ensure_gender_known(user_id, message.from_user.first_name, user_preferences,
+                                      user_gender, user_awaiting_gender, bot, message):
+        return
+
     if message.content_type == 'photo':
         user_pending_photo_offer[user_id] = False
         try:
@@ -429,7 +441,7 @@ def handle_message(message: telebot.types.Message) -> None:
     if user_text.startswith('/'):
         return
 
-    # Сброс флага при явных запросах других функций (добавлен "гороскоп")
+    # Сброс флага при явных запросах других функций
     if re.search(r'(гороскоп|погода|погоду|погоде|историю|истории|история|творчеств|вдохнови|расскажи гороскоп|расскажи мне гороскоп|расскажи историю|расскажи мне историю|расскажи какую)', user_text, re.IGNORECASE):
         user_pending_photo_offer[user_id] = False
 
@@ -504,7 +516,7 @@ def handle_message(message: telebot.types.Message) -> None:
         user_pending_photo_offer[user_id] = False
         return
 
-    # --- Просьба "ещё такие же фото" (исправлено дублирование) ---
+    # --- Просьба "ещё такие же фото" ---
     if user_id in photos.user_last_category and photos.user_last_category[user_id] is not None and re.search(r'(еще такие фото|еще такие фотки|такие же фото|такие же фотки|похожие фото|похожие фотки|аналогичные фото|аналогичные фотки|другие фото|другое фото|ещё такие|еще такие|еще такое фото|ещё такое фото|такое же фото|ещё такие фотки)', user_text, re.IGNORECASE):
         user_pending_photo_offer[user_id] = False
         last_cat = photos.user_last_category[user_id]
@@ -607,6 +619,7 @@ def handle_message(message: telebot.types.Message) -> None:
     # --- Основной показ фото ---
     if re.search(r'(фотки|какие нибудь фото|а у тебя есть фотографии|есть фотографии|у тебя есть фото|покажи свои фото|покажи фото|покажи мне фото|покажи мне фотки|покажешь фото|покажешь мне фото|фотоальбом|покажи себя|своё фото|свое фото|мои фото|свои фотографии|покажи альбом|покажи где ты была|покажи, где ты|покажи картинку|покажи изображение|есть фото|есть ли у тебя фото|посмотреть твои фото|покажи свои фотографии|любимые фото|любимое фото|любимых фото|есть еще фото|другие фото|покажи другое фото|ещё фото|какое твое любимое фото|покажи любимое фото|покажи другое|такие фото|такие фотки|фото где ты|фотки где ты|какие фото у тебя еще есть|какие фото ещё есть|какие у тебя ещё фото|какие ещё фото|какие фото еще|какие еще фото|какие у тебя есть фото)', user_text, re.IGNORECASE):
         user_pending_photo_offer[user_id] = False
+        # Проверка на повтор любимого фото
         if re.search(r'(любимые фото|любимое фото|любимых фото|какое твое любимое фото|покажи любимое фото)', user_text, re.IGNORECASE):
             if handle_favorite_photo_repeat(user_id, lang, bot, message):
                 add_message(user_id, 'user', user_text)
@@ -626,13 +639,16 @@ def handle_message(message: telebot.types.Message) -> None:
         if re.search(r'(красавица|красивая|умница|прекрасна|великолепна|шикарна|обалденная|потрясающая|чудесная|восхитительная|симпатичная|милашка|хорошенькая|обворожительная|божественно|как красиво|какая ты красивая|какая ты классная|какая ты хорошая)', user_text, re.IGNORECASE):
             compliment = True
 
+        # Любимое фото
         if re.search(r'(любимые фото|любимое фото|любимых фото|какое твое любимое фото|покажи любимое фото)', user_text, re.IGNORECASE):
             chosen_photo = random.choice(all_photos)
             apology = ""
             photos.user_last_sent_photo[user_id] = chosen_photo
             save_user_last_photo(user_id, chosen_photo)
+            # Запоминаем как последнее любимое фото
             user_last_favorite_photo[user_id] = chosen_photo
             save_user_last_favorite_photo()
+            # Определяем категорию и запоминаем её
             photo_name = photos.get_keywords_from_photo_name(chosen_photo)
             cat_found = False
             for cat, words in photos.KEYWORD_MAP.items():
@@ -868,7 +884,14 @@ def handle_message(message: telebot.types.Message) -> None:
             return
 
     # --- Гороскоп (натуральный, расширенный) ---
+    # Если только что дали гороскоп, не запускаем его снова при фразе "какой хороший гороскоп"
+    if user_just_gave_horoscope.get(user_id) and re.search(r'гороскоп', user_text, re.IGNORECASE):
+        user_just_gave_horoscope[user_id] = False
+    else:
+        user_just_gave_horoscope[user_id] = False
+
     if horoscope.handle_natural_horoscope(message, bot, client, user_lang, user_zodiac, user_timezone, save_user_zodiac, add_message, save_user_history, pet_name=pet_name):
+        user_just_gave_horoscope[user_id] = True
         return
     if re.search(r'(расскажи гороскоп|рассказать гороскоп|расскажи мне гороскоп|ты можешь рассказать гороскоп|ты можешь рассказать мне гороскоп|составь гороскоп|какой.*гороскоп|что говорят звёзды|предскажи гороскоп)', user_text, re.IGNORECASE):
         if user_id in user_zodiac:
@@ -879,6 +902,7 @@ def handle_message(message: telebot.types.Message) -> None:
                 bot.send_message(message.chat.id, "Прости, но я не знаю твою дату рождения (можно просто день и месяц) или просто скажи мне свой знак зодиака... 😊")
             except:
                 pass
+        user_just_gave_horoscope[user_id] = True
         return
 
     # --- Определение даты/знака зодиака вне команды ---
@@ -890,6 +914,7 @@ def handle_message(message: telebot.types.Message) -> None:
         memory.save_user_zodiac(user_zodiac)
         message.text = f'/horoscope {sign}'
         horoscope.horoscope_cmd(message, bot, client, user_lang, user_zodiac, user_timezone, save_user_zodiac, add_message, save_user_history, user_sign=sign, pet_name=pet_name)
+        user_just_gave_horoscope[user_id] = True
         return
     for sign in zodiac_list:
         if sign in user_text.lower():
@@ -897,6 +922,7 @@ def handle_message(message: telebot.types.Message) -> None:
             memory.save_user_zodiac(user_zodiac)
             message.text = f'/horoscope {sign}'
             horoscope.horoscope_cmd(message, bot, client, user_lang, user_zodiac, user_timezone, save_user_zodiac, add_message, save_user_history, user_sign=sign, pet_name=pet_name)
+            user_just_gave_horoscope[user_id] = True
             return
 
     if user_has_no_photos:
