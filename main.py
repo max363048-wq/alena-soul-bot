@@ -1,4 +1,4 @@
-# main.py — полный код
+# main.py — полный код с исправлением логики показа "ещё такие"
 import os
 import telebot
 import re
@@ -621,6 +621,7 @@ def handle_message(message: telebot.types.Message) -> None:
             apology = ""
             photos.user_last_sent_photo[user_id] = chosen_photo
             save_user_last_photo(user_id, chosen_photo)
+            # НЕ переопределяем категорию! Оставляем старую логику.
 
             max_attempts = 3
             attempt = 0
