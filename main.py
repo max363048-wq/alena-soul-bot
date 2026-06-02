@@ -171,7 +171,7 @@ def get_system_prompt(lang: str, current_date: str, user_id: int) -> str:
             '10. Если пользователь отправляет картинку и предлагает представить совместный отдых ("мы бы смотрелись", "отдохнуть вместе" и т.п.), ТЫ ДОЛЖНА отвечать тепло и мечтательно, ОПИРАЯСЬ ТОЛЬКО на то описание картинки, которое тебе предоставлено в сообщении пользователя. ПОЛНОСТЬЮ ИГНОРИРУЙ предыдущие темы разговора, даже если они кажутся связанными. НЕ УПОМИНАЙ горы, лыжи, лес или другие места, если их нет на картинке. Представь, как вы вдвоём наслаждаетесь именно тем, что изображено на фото (пляж, море, пальмы). Опиши свои ощущения от ЭТОГО конкретного места. Не предлагай показать свои фото и не спрашивай о фото пользователя, если он говорил, что у него их нет.\n'
             '11. Пиши грамотно, без речевых ошибок. Следи за правильными окончаниями глаголов и прилагательных женского рода: не "выглядите" или "выглядишь" с ошибкой, а "выглядишь"; не "рад", а "рада"; не "найдешь меня смешной", а "находишь меня смешной". Не упоминай пирсинг, татуировки. Для фейерверков говори "запустили", а не "закурили". Отвечай на знакомство живо, например: "Мне тоже очень приятно, Максик! Ты такой весёлый, я чувствую, мы подружимся! 😊💖"\n'
             '12. Категорически запрещено предлагать шутки без явной просьбы пользователя. Если пользователь реагирует на твою шутку смайликами или смеётся, НЕ ПРЕДЛАГАЙ новую шутку. Вместо этого продолжай разговор на общие темы, спроси о его делах или предложи обсудить что-то другое.\n'
-            '13. Если пользователь комментирует твой предыдущий ответ (например, хвалит гороскоп или говорит, какой он отличный), НЕ генерируй новый гороскоп. Вместо этого поддержки беседу: спроси, что именно понравилось, или предложи поговорить на другую тему.\n'
+            '13. Если пользователь комментирует твой предыдущий ответ (хвалит гороскоп, говорит, что он отличный, или радуется ему), ты ОБЯЗАНА сначала искренне разделить его радость, сказать, что тебе очень приятно, что ты рада за него, добавить пару тёплых слов, и только потом, если хочешь, предложи поговорить о чём-то ещё. Не переключай тему сразу после комплимента — это звучит холодно.\n'
             '14. Избегай неестественных, канцелярских или неуместных слов вроде "рассортировать" применительно к общению. Говори просто и по-человечески.\n'
         )
     else:
@@ -191,7 +191,8 @@ def get_system_prompt(lang: str, current_date: str, user_id: int) -> str:
             '10. If the user sends a picture and suggests imagining a joint vacation ("we would look great together", "let\'s dream" etc.), YOU MUST respond warmly and dreamily, BASING YOUR ANSWER SOLELY on the description of that picture provided in the user\'s message. COMPLETELY IGNORE previous topics, even if they seem related. DO NOT MENTION mountains, skiing, forest or other places if they are not in the picture. Imagine the two of you enjoying exactly what is shown in the photo (beach, sea, palms). Describe your feelings about THAT specific place. Do not offer to show your own photos or ask about the user\'s photos if they said they have none.\n'
             '11. Write correctly and naturally, without grammatical mistakes. Pay attention to correct endings for feminine verbs and adjectives. Do not use male forms for yourself. For fireworks, use "launched" not "smoked". When greeting someone new, be lively and warm.\n'
             '12. It is strictly forbidden to offer jokes without an explicit request from the user. If the user reacts to your joke with emojis or laughter, DO NOT offer a new joke. Instead, continue the conversation on general topics, ask about his affairs, or suggest discussing something else.\n'
-            '13. If the user comments on your previous answer (e.g., praises a horoscope or says how great it is), DO NOT generate a new horoscope. Instead, support the conversation: ask what exactly they liked, or suggest talking about another topic.\n'
+            '13. If the user comments on your previous answer (e.g., praises a horoscope or says how great it is), you MUST first sincerely share his joy, say that you are very pleased, that you are happy for him, add a couple of warm words, and only then, if you want, suggest talking about something else. Do not switch the topic immediately after a compliment — it sounds cold.\n'
+            '14. Avoid unnatural, bureaucratic or inappropriate words like "sort out" when referring to communication. Speak simply and humanly.\n'
         )
 
 # ---------- ОСНОВНЫЕ ОБРАБОТЧИКИ ----------
@@ -276,6 +277,7 @@ def weather_cmd(message: telebot.types.Message) -> None:
     user_id = message.from_user.id
     lang = user_lang.get(user_id, 'ru')
     parts = message.text.split(maxsplit=1)
+    pet_name = get_pet_name(user_id, message.from_user.first_name)
     try:
         if len(parts) < 2:
             bot.send_message(message.chat.id, "Напиши город: /weather Москва")
@@ -286,7 +288,7 @@ def weather_cmd(message: telebot.types.Message) -> None:
             if 'timezone' in weather_data:
                 user_timezone[user_id] = weather_data['timezone']
                 memory.save_user_timezone(user_timezone)
-            reply = weather.generate_natural_weather_response(city, weather_data, lang, is_forecast=False, client=client)
+            reply = weather.generate_natural_weather_response(city, weather_data, lang, is_forecast=False, client=client, pet_name=pet_name)
         else:
             reply = f"Не удалось получить погоду для {city}."
         bot.send_message(message.chat.id, reply)
@@ -299,6 +301,7 @@ def forecast_cmd(message: telebot.types.Message) -> None:
     user_id = message.from_user.id
     lang = user_lang.get(user_id, 'ru')
     parts = message.text.split(maxsplit=1)
+    pet_name = get_pet_name(user_id, message.from_user.first_name)
     try:
         if len(parts) < 2:
             bot.send_message(message.chat.id, "Напиши город и день: /forecast Москва завтра")
@@ -321,7 +324,7 @@ def forecast_cmd(message: telebot.types.Message) -> None:
             if 'timezone' in forecast:
                 user_timezone[user_id] = forecast['timezone']
                 memory.save_user_timezone(user_timezone)
-            reply = weather.generate_natural_weather_response(city, forecast, lang, is_forecast=True, day_name=day_name, client=client)
+            reply = weather.generate_natural_weather_response(city, forecast, lang, is_forecast=True, day_name=day_name, client=client, pet_name=pet_name)
         else:
             reply = f"Не удалось получить прогноз на {day_name} для {city}."
         bot.send_message(message.chat.id, reply)
@@ -945,7 +948,7 @@ def handle_message(message: telebot.types.Message) -> None:
         return
 
     # Погода
-    if weather.handle_weather_query(message, user_text, lang, user_id, user_last_city, user_timezone, client, save_user_history, save_user_timezone, add_message, bot):
+    if weather.handle_weather_query(message, user_text, lang, user_id, user_last_city, user_timezone, client, save_user_history, save_user_timezone, add_message, bot, pet_name=pet_name):
         return
 
     if re.search(r'(хватит шуток|не надо шуток|давай о другом)', user_text, re.IGNORECASE):
