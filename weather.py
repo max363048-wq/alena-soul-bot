@@ -14,6 +14,10 @@ TEXT_NUMBERS = {
 }
 
 def extract_city(text: str, user_id: Optional[int] = None, user_last_city: Dict[int, str] = None) -> Optional[str]:
+    # Сначала проверяем косвенные указания – они имеют приоритет
+    if user_last_city and user_id in user_last_city and re.search(r'(у нас|в нашем городе|в моём городе|в своем городе|в этом городе|в этом|в нашем|здесь)', text, re.IGNORECASE):
+        return user_last_city[user_id]
+
     match = re.search(r'\b(?:в|во|в городе)\s+([А-Яа-я\-]+(?:[-\s]?[А-Яа-я]+)?)', text, re.IGNORECASE)
     if match:
         city = match.group(1).strip().lower()
@@ -33,12 +37,12 @@ def extract_city(text: str, user_id: Optional[int] = None, user_last_city: Dict[
             if city.endswith('ы'): city = city[:-1]
             city = city[0].upper() + city[1:]
         return city
-    # Добавлено "в этом городе"
-    if user_last_city and user_id in user_last_city and re.search(r'(у нас|в нашем городе|в моём городе|в своем городе|в этом городе|в нашем|здесь)', text, re.IGNORECASE):
-        return user_last_city[user_id]
-    if user_last_city and re.search(r'(завтра|послезавтра|будет|через \d+|на неделю|на (два|три|четыре|пять) дня|в ближайшие (два|три|четыре|пять) дня)', text, re.IGNORECASE) and re.search(r'(погод|температур|дождь|солнце|ветер|градусов)', text, re.IGNORECASE):
-        if user_id and user_id in user_last_city:
-            return user_last_city[user_id]
+
+    # Дополнительные проверки с прогнозными словами
+    if user_last_city and re.search(r'(завтра|послезавтра|будет|через \d+|на неделю|на (два|три|четыре|пять) дня|в ближайшие (два|три|четыре|пять) дня)', text, re.IGNORECASE):
+        if re.search(r'(погод|температур|дождь|солнце|ветер|градусов)', text, re.IGNORECASE):
+            if user_id and user_id in user_last_city:
+                return user_last_city[user_id]
     if user_last_city and re.search(r'(сколько градусов|температура|погода|градусов|холодно|тепло)', text, re.IGNORECASE):
         if user_id and user_id in user_last_city:
             return user_last_city[user_id]
@@ -118,18 +122,19 @@ def format_local_time(timezone_offset: int, target_date: Optional[datetime] = No
 def generate_natural_weather_response(city: str, weather_data: Dict, lang: str = 'ru', is_forecast: bool = False, day_name: str = '', client=None) -> str:
     if not weather_data:
         return f"Не удалось получить данные о погоде для {city}. Проверь название города 😊"
-    
+
     timezone_offset = weather_data.get('timezone', 0)
     local_time_str = format_local_time(timezone_offset)
-    
+
     if is_forecast:
         temp = weather_data['temp']
         desc = weather_data['desc']
-        fallback = f"На {day_name} в {city} ожидается {desc}, около {temp:.0f} градусов. Уютного дня! 😊"
+        # Тёплый fallback с эмодзи
+        fallback = f"{day_name.capitalize()} в {city} обещают {desc}, около {temp:.0f}°C. Одевайся по погоде и пусть день будет прекрасным! 😊💖"
         prompt = (f"Ты Алёна. Пользователь спросил погоду на {day_name} в {city}. "
                   f"Реальные данные: {desc}, температура {temp:.0f}°C. "
                   f"Сейчас в городе {local_time_str}. "
-                  f"Ответь тепло, коротко (2-3 предложения). "
+                  f"Ответь тепло, коротко (2-3 предложения), с эмодзи. "
                   f"НИ В КОЕМ СЛУЧАЕ не называй дату, день недели и точное время. "
                   f"Не упоминай осень, сентябрь, зиму или холодные сезоны, если это не зима. "
                   f"Используй только точные цифры: {temp:.0f}°C и описание {desc}. "
@@ -140,11 +145,11 @@ def generate_natural_weather_response(city: str, weather_data: Dict, lang: str =
         feels = weather_data['feels']
         hum = weather_data['hum']
         wind = weather_data['wind']
-        fallback = f"Сейчас в {city} {desc}, температура около {temp:.0f} градусов (ощущается как {feels:.0f}). Влажность {hum}%, ветер {wind} м/с. Хорошего дня! 😊"
+        fallback = f"Сейчас в {city} {desc}, {temp:.0f}°C (ощущается как {feels:.0f}°C). Влажность {hum}%, ветер {wind} м/с. Пусть день принесёт радость! 😊💕"
         prompt = (f"Ты Алёна. Пользователь спросил о погоде в {city}. "
                   f"Реальные данные: сейчас {desc}, температура {temp:.0f}°C, ощущается как {feels:.0f}°C, влажность {hum}%, ветер {wind} м/с. "
                   f"Сейчас в городе {local_time_str}. "
-                  f"Ответь тепло, коротко (2-3 предложения). "
+                  f"Ответь тепло, коротко (2-3 предложения), с эмодзи. "
                   f"НИ В КОЕМ СЛУЧАЕ не называй дату, день недели и точное время. "
                   f"Не упоминай осень, сентябрь, зиму или холодные сезоны, если на улице не зима. "
                   f"Используй только точные цифры: {temp:.0f}°C, {desc}. "
