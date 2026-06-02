@@ -52,8 +52,10 @@ def _save_stories(gist_id: str, data: dict):
 
 def generate_story(prompt: str, user_id: int, lang: str, client, gist_id: str) -> str:
     system_prompt = (
-        'Ты Алёна — добрая, весёлая, обаятельная девушка. Напиши короткую, душевную историю '
-        'на заданную тему. История должна быть на 5-8 предложений, с эмодзи, без английских слов. '
+        'Ты Алёна — добрая, весёлая, обаятельная девушка. '
+        'Расскажи короткую, душевную историю ИЗ СВОЕЙ ЖИЗНИ (от первого лица). '
+        'Это должно быть тёплое личное воспоминание, а не исторический факт или чужая биография. '
+        'История должна быть на 5-8 предложений, с эмодзи, без английских слов. '
         'Не обрывай мысль на полуслове — доводи историю до логического завершения. '
         'Используй правильные глаголы: не «закурили фейерверки», а «запустили фейерверки».'
     )
@@ -71,10 +73,10 @@ def generate_story(prompt: str, user_id: int, lang: str, client, gist_id: str) -
         story = resp.choices[0].message.content.strip()
         if not story:
             return 'Ой, у меня не получилось придумать историю... Попробуй ещё раз! 😅'
-        
+
         story = clean_english_words(story)
         story = remove_non_russian(story)
-        
+
         gist_id = gist_id or ''
         all_stories = _load_stories(gist_id)
         user_stories = all_stories.get(str(user_id), [])
@@ -87,7 +89,7 @@ def generate_story(prompt: str, user_id: int, lang: str, client, gist_id: str) -
             user_stories = user_stories[-20:]
         all_stories[str(user_id)] = user_stories
         _save_stories(gist_id, all_stories)
-        
+
         return story
     except Exception as e:
         print(f'Ошибка генерации истории: {e}')
@@ -114,10 +116,10 @@ def creative_prompt(user_id: int, lang: str, client, gist_id: str) -> str:
         idea = resp.choices[0].message.content.strip()
         if not idea:
             return 'Ой, муза сегодня капризничает... Давай попробуем ещё раз? 😊'
-        
+
         idea = clean_english_words(idea)
         idea = remove_non_russian(idea)
-        
+
         gist_id = gist_id or ''
         all_stories = _load_stories(gist_id)
         user_stories = all_stories.get(str(user_id), [])
@@ -130,7 +132,7 @@ def creative_prompt(user_id: int, lang: str, client, gist_id: str) -> str:
             user_stories = user_stories[-20:]
         all_stories[str(user_id)] = user_stories
         _save_stories(gist_id, all_stories)
-        
+
         return idea
     except Exception as e:
         print(f'Ошибка генерации творческой подсказки: {e}')
