@@ -92,6 +92,7 @@ def clean_english_words(text: str) -> str:
         r'\bbirds\b': 'птицы',
         r'\bvaluing\b': 'ценя',
         r'\bamong\b': 'среди',
+        r'\baccepting\b': 'принимая',
     }
     for eng, rus in reps.items():
         text = re.sub(eng, rus, text, flags=re.IGNORECASE)
