@@ -1,4 +1,4 @@
-# voice.py — финальный модуль (edge-tts через subprocess — стабильно)
+# voice.py — Модуль голоса и слуха Алёны (gTTS, стабильный)
 
 import os
 import re
@@ -7,7 +7,6 @@ import requests
 import tempfile
 import time
 import base64
-import subprocess
 from typing import Optional, Tuple, List
 
 # ---------- НАСТРОЙКИ ----------
@@ -18,7 +17,7 @@ WHISPER_MODEL = '@cf/openai/whisper'
 # YAMNet
 _YAMNET_MODEL = None
 
-# ... (функции _load_yamnet, _get_sound_comment, _get_yamnet_class_names – оставь без изменений, как в предыдущей версии)
+# ... (функции _load_yamnet, _get_sound_comment, _get_yamnet_class_names – оставь без изменений)
 
 # ---------- РАСПОЗНАВАНИЕ РЕЧИ (Whisper) ----------
 def speech_to_text(audio_bytes: bytes, lang: str = 'ru') -> Optional[str]:
@@ -50,34 +49,25 @@ def _clean_text_for_tts(text: str) -> str:
     cleaned = re.sub(r'\s+', ' ', cleaned).strip()
     return cleaned
 
-# ---------- СИНТЕЗ РЕЧИ (edge-tts через subprocess) ----------
+# ---------- СИНТЕЗ РЕЧИ (gTTS) ----------
 def text_to_speech(text: str, lang: str = 'ru') -> Optional[bytes]:
-    """Синтезирует голос Алёны через edge-tts (subprocess, без event loop)."""
+    """Синтезирует голос Алёны через Google Text-to-Speech (бесплатно, без API-ключей)."""
     text = _clean_text_for_tts(text)
     if not text:
         return None
 
-    # Голос: DariyaNeural для русского, AriaNeural для английского
-    voice = "ru-RU-DariyaNeural" if lang == 'ru' else "en-US-AriaNeural"
-
-    with tempfile.NamedTemporaryFile(suffix='.mp3', delete=False) as tmp:
-        tmp_path = tmp.name
-
     try:
-        # Вызываем edge-tts как команду, передаём текст через stdin
-        subprocess.run(
-            ['edge-tts', '--voice', voice, '--text', text, '--write-media', tmp_path],
-            capture_output=True,
-            timeout=30
-        )
+        from gtts import gTTS
+        tts = gTTS(text=text, lang=lang, slow=False)
+        with tempfile.NamedTemporaryFile(suffix='.mp3', delete=False) as tmp:
+            tmp_path = tmp.name
+        tts.save(tmp_path)
         with open(tmp_path, 'rb') as f:
-            audio = f.read()
-        return audio
+            audio_bytes = f.read()
+        os.unlink(tmp_path)
+        return audio_bytes
     except Exception as e:
-        print(f"Ошибка синтеза речи (edge-tts subprocess): {e}")
+        print(f"Ошибка синтеза речи (gTTS): {e}")
         return None
-    finally:
-        if os.path.exists(tmp_path):
-            os.unlink(tmp_path)
 
-# ... (process_voice_message – без изменений, как в предыдущей версии)
+# ... (process_voice_message – без изменений)
