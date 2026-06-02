@@ -1,4 +1,4 @@
-# voice.py — Модуль голоса и слуха Алёны (бесплатные модели Cloudflare Workers AI + YAMNet)
+# voice.py — Модуль голоса и слуха Алёны (исправлен синтез речи)
 
 import os
 import re
@@ -6,35 +6,31 @@ import json
 import requests
 import tempfile
 import time
+import base64
 from typing import Optional, Tuple, List
 
 # ---------- НАСТРОЙКИ ----------
-# Cloudflare Workers AI (бесплатно)
-CF_ACCOUNT_ID = os.getenv('CF_ACCOUNT_ID')          # твой Account ID
-CF_API_TOKEN = os.getenv('CF_API_TOKEN')            # API Token для Workers AI
-WHISPER_MODEL = '@cf/openai/whisper'                # распознавание речи
-TTS_MODEL = '@cf/myshell-ai/melotts'               # синтез речи
+CF_ACCOUNT_ID = os.getenv('CF_ACCOUNT_ID')
+CF_API_TOKEN = os.getenv('CF_API_TOKEN')
+WHISPER_MODEL = '@cf/openai/whisper'
+TTS_MODEL = '@cf/myshell-ai/melotts'
 
-# YAMNet (локально на Render)
-# Модель загружается один раз при старте бота
+# YAMNet (загружается один раз)
 _YAMNET_MODEL = None
 
 # ---------- ИНИЦИАЛИЗАЦИЯ YAMNet ----------
 def _load_yamnet():
-    """Загружает YAMNet один раз."""
     global _YAMNET_MODEL
     if _YAMNET_MODEL is None:
         try:
             import tensorflow_hub as hub
             import tensorflow as tf
-            # Используем легковесную версию YAMNet из TF Hub
             _YAMNET_MODEL = hub.load('https://tfhub.dev/google/yamnet/1')
         except ImportError:
             print("⚠️ TensorFlow или TensorFlow Hub не установлены. Анализ фоновых звуков будет отключён.")
             _YAMNET_MODEL = False
     return _YAMNET_MODEL
 
-# Карта звуков, которые интересуют Алёну
 SOUND_MAP = {
     'Bird': 'птиц',
     'Water': 'воду',
@@ -48,7 +44,6 @@ SOUND_MAP = {
 YAMNET_CLASSES_URL = 'https://raw.githubusercontent.com/nicolabernini/YAMNet/master/yamnet/yamnet_class_map.csv'
 
 def _get_sound_comment(audio_bytes: bytes) -> str:
-    """Анализирует аудио и возвращает комментарий о фоновых звуках."""
     model = _load_yamnet()
     if model is False:
         return ''
@@ -56,18 +51,14 @@ def _get_sound_comment(audio_bytes: bytes) -> str:
         import tensorflow as tf
         import csv
         import io
-        # Сохраняем байты во временный файл
         with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp:
             tmp.write(audio_bytes)
             tmp_path = tmp.name
-        # Читаем аудио
         waveform, sr = tf.audio.decode_wav(tf.io.read_file(tmp_path))
         waveform = tf.squeeze(waveform, axis=-1)
-        # YAMNet ожидает 16 кГц
         if sr != 16000:
             waveform = tf.image.resize(tf.expand_dims(waveform, 0), [16000])[0]
         scores, embeddings, spectrogram = model(waveform)
-        # Определяем самый вероятный звук
         class_names = _get_yamnet_class_names()
         mean_scores = tf.reduce_mean(scores, axis=0).numpy()
         top_idx = mean_scores.argsort()[-1]
@@ -81,7 +72,6 @@ def _get_sound_comment(audio_bytes: bytes) -> str:
     return ''
 
 def _get_yamnet_class_names() -> dict:
-    """Скачивает и парсит карту классов YAMNet."""
     try:
         resp = requests.get(YAMNET_CLASSES_URL, timeout=5)
         reader = csv.reader(io.StringIO(resp.text))
@@ -100,9 +90,7 @@ def _get_yamnet_class_names() -> dict:
 
 # ---------- РАСПОЗНАВАНИЕ РЕЧИ (Whisper) ----------
 def speech_to_text(audio_bytes: bytes, lang: str = 'ru') -> Optional[str]:
-    """Отправляет аудио в Cloudflare Whisper и возвращает текст."""
     try:
-        import base64
         audio_base64 = base64.b64encode(audio_bytes).decode('utf-8')
         url = f'https://api.cloudflare.com/client/v4/accounts/{CF_ACCOUNT_ID}/ai/run/{WHISPER_MODEL}'
         headers = {
@@ -126,7 +114,7 @@ def speech_to_text(audio_bytes: bytes, lang: str = 'ru') -> Optional[str]:
 
 # ---------- СИНТЕЗ РЕЧИ (MeloTTS) ----------
 def text_to_speech(text: str, lang: str = 'ru') -> Optional[bytes]:
-    """Синтезирует голос Алёны через MeloTTS и возвращает байты MP3."""
+    """Синтезирует голос Алёны через Cloudflare MeloTTS и возвращает байты MP3."""
     try:
         url = f'https://api.cloudflare.com/client/v4/accounts/{CF_ACCOUNT_ID}/ai/run/{TTS_MODEL}'
         headers = {
@@ -135,17 +123,19 @@ def text_to_speech(text: str, lang: str = 'ru') -> Optional[bytes]:
         }
         payload = {
             'text': text,
-            'language': lang,
+            'lang': lang,
             'gender': 'female',
             'style': 'warm'
         }
         resp = requests.post(url, headers=headers, json=payload, timeout=20)
         data = resp.json()
         if data.get('success'):
-            import base64
-            audio_base64 = data['result'].get('audio', '')
+            result = data.get('result', {})
+            # Cloudflare возвращает аудио в поле 'audio' как base64 строку
+            audio_base64 = result.get('audio', '')
             if audio_base64:
                 return base64.b64decode(audio_base64)
+        # Если success=False или нет поля 'audio', логируем ошибку
         print(f"Ошибка MeloTTS: {data}")
         return None
     except Exception as e:
@@ -179,7 +169,6 @@ def process_voice_message(message, bot, lang: str, pet_name: str) -> bool:
 
         # 3. Формируем ответ (имитируем обычный текст)
         from main import handle_message
-        # Сохраняем текст во временное сообщение
         message.text = text
         # Вызываем основной обработчик, который вернёт ответ
         # Но чтобы получить ответ, нам нужно перехватить его.
