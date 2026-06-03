@@ -1,96 +1,39 @@
-# voice.py — Модуль голоса и слуха Алёны (HF Space Piper + fallback gTTS)
+# voice.py — Модуль голоса и слуха Алёны (Edge TTS на Space, fallback gTTS)
 
 import os
 import re
-import json
-import requests
 import tempfile
 import time
 import base64
-from typing import Optional, Tuple, List
+from typing import Optional
+
+import requests
 
 # ---------- НАСТРОЙКИ ----------
 CF_ACCOUNT_ID = os.getenv('CF_ACCOUNT_ID')
 CF_API_TOKEN = os.getenv('CF_API_TOKEN')
 WHISPER_MODEL = '@cf/openai/whisper'
 
-# Твой работающий HF Space (замени, если отличается)
+# Твой HF Space с новым Edge TTS (или старый, но после обновления)
 HF_SPACE_URL = "https://max363048-alena-voice.hf.space"
 
-# YAMNet
-_YAMNET_MODEL = None
+# ---------- ОЧИСТКА ТЕКСТА ДЛЯ TTS (сохраняем пунктуацию!) ----------
+def clean_text_for_tts(text: str) -> str:
+    """
+    Подготавливает текст для синтезатора:
+    - удаляет эмодзи
+    - оставляет русские/английские буквы, цифры, пробелы и знаки препинания
+    - убирает лишние пробелы
+    """
+    # Удаляем эмодзи (все блоки Unicode)
+    text = re.sub(r'[\U0001F000-\U0001FFFF\u2600-\u27BF]', '', text)
+    # Разрешённые символы: буквы, цифры, пробелы, знаки препинания
+    text = re.sub(r'[^а-яА-Яa-zA-Z0-9\s\.\,\!\?\:\;\-\—\"\'\(\)]', '', text)
+    # Сжимаем множественные пробелы
+    text = re.sub(r'\s+', ' ', text).strip()
+    return text
 
-# ---------- ИНИЦИАЛИЗАЦИЯ YAMNet ----------
-def _load_yamnet():
-    global _YAMNET_MODEL
-    if _YAMNET_MODEL is None:
-        try:
-            import tensorflow_hub as hub
-            import tensorflow as tf
-            _YAMNET_MODEL = hub.load('https://tfhub.dev/google/yamnet/1')
-        except ImportError:
-            print("⚠️ TensorFlow или TensorFlow Hub не установлены. Анализ фоновых звуков будет отключён.")
-            _YAMNET_MODEL = False
-    return _YAMNET_MODEL
-
-SOUND_MAP = {
-    'Bird': 'птиц',
-    'Water': 'воду',
-    'Wind': 'ветер',
-    'Ocean': 'море',
-    'Forest': 'лес',
-    'Rain': 'дождь',
-    'Traffic': 'городской трафик',
-    'Music': 'музыку',
-}
-YAMNET_CLASSES_URL = 'https://raw.githubusercontent.com/nicolabernini/YAMNet/master/yamnet/yamnet_class_map.csv'
-
-def _get_sound_comment(audio_bytes: bytes) -> str:
-    model = _load_yamnet()
-    if model is False:
-        return ''
-    try:
-        import tensorflow as tf
-        import csv
-        import io
-        with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp:
-            tmp.write(audio_bytes)
-            tmp_path = tmp.name
-        waveform, sr = tf.audio.decode_wav(tf.io.read_file(tmp_path))
-        waveform = tf.squeeze(waveform, axis=-1)
-        if sr != 16000:
-            waveform = tf.image.resize(tf.expand_dims(waveform, 0), [16000])[0]
-        scores, embeddings, spectrogram = model(waveform)
-        class_names = _get_yamnet_class_names()
-        mean_scores = tf.reduce_mean(scores, axis=0).numpy()
-        top_idx = mean_scores.argsort()[-1]
-        top_score = mean_scores[top_idx]
-        top_class = class_names.get(top_idx, '')
-        os.unlink(tmp_path)
-        if top_score > 0.3 and top_class in SOUND_MAP:
-            return f'Ой, я слышу {SOUND_MAP[top_class]}! '
-    except Exception as e:
-        print(f"Ошибка анализа звуков: {e}")
-    return ''
-
-def _get_yamnet_class_names() -> dict:
-    try:
-        resp = requests.get(YAMNET_CLASSES_URL, timeout=5)
-        reader = csv.reader(io.StringIO(resp.text))
-        class_names = {}
-        for row in reader:
-            if len(row) >= 2:
-                try:
-                    idx = int(row[0])
-                    name = row[1].strip()
-                    class_names[idx] = name
-                except ValueError:
-                    continue
-        return class_names
-    except:
-        return {}
-
-# ---------- РАСПОЗНАВАНИЕ РЕЧИ (Whisper) ----------
+# ---------- РАСПОЗНАВАНИЕ РЕЧИ (Cloudflare Whisper) ----------
 def speech_to_text(audio_bytes: bytes, lang: str = 'ru') -> Optional[str]:
     try:
         audio_base64 = base64.b64encode(audio_bytes).decode('utf-8')
@@ -114,24 +57,18 @@ def speech_to_text(audio_bytes: bytes, lang: str = 'ru') -> Optional[str]:
         print(f"Ошибка распознавания речи: {e}")
         return None
 
-# ---------- ОЧИСТКА ТЕКСТА ОТ ЭМОДЗИ ----------
-def _clean_text_for_tts(text: str) -> str:
-    cleaned = re.sub(r'[^\w\s.,!?:;—–-]', '', text)
-    cleaned = re.sub(r'\s+', ' ', cleaned).strip()
-    return cleaned
-
 # ---------- СИНТЕЗ РЕЧИ (Space → MP3) ----------
 def text_to_speech(text: str, lang: str = 'ru') -> Optional[bytes]:
-    text = _clean_text_for_tts(text)
+    text = clean_text_for_tts(text)
     if not text:
         return None
 
-    # Пробуем Space
+    # Пробуем Space (Edge TTS или Piper, что там сейчас)
     try:
         resp = requests.post(
             f"{HF_SPACE_URL}/synthesize",
             json={"text": text},
-            timeout=30
+            timeout=45  # увеличил таймаут, так как Edge TTS может чуть дольше
         )
         if resp.status_code == 200 and resp.content:
             return resp.content
@@ -157,21 +94,33 @@ def text_to_speech(text: str, lang: str = 'ru') -> Optional[bytes]:
 
 # ---------- ОСНОВНАЯ ОБРАБОТКА ГОЛОСОВОГО СООБЩЕНИЯ ----------
 def process_voice_message(message, bot, lang: str, pet_name: str) -> bool:
+    """
+    Возвращает True, если голосовое обработано и ответ уже отправлен,
+    и False, если нужно дальше обрабатывать распознанный текст как обычное сообщение.
+    """
     user_id = message.from_user.id
     try:
         file_info = bot.get_file(message.voice.file_id)
         downloaded = bot.download_file(file_info.file_path)
-        audio_bytes = downloaded
 
-        text = speech_to_text(audio_bytes, lang)
+        # Распознаём речь
+        text = speech_to_text(downloaded, lang)
         if not text:
             bot.send_message(message.chat.id, "Прости, я не смогла разобрать твой голос... Может, напишешь? 😊")
             return True
 
-        sound_comment = _get_sound_comment(audio_bytes)
-        from main import handle_message
+        # (Опционально) анализ фоновых звуков — пока отключён, т.к. требует tensorflow
+        # sound_comment = _get_sound_comment(downloaded)
+        # if sound_comment:
+        #     bot.send_message(message.chat.id, sound_comment)
+
+        # Подменяем текст сообщения и отдаём управление основному обработчику
         message.text = text
-        return False
+        # Избегаем циклического импорта: импортируем handle_message только когда нужно
+        from main import handle_message
+        # Вызываем основную логику с этим сообщением
+        handle_message(message)
+        return True
     except Exception as e:
         print(f"Ошибка обработки голосового сообщения: {e}")
         try:
