@@ -1,4 +1,4 @@
-# voice.py — Модуль голоса и слуха Алёны (eSpeak NG + fallback gTTS)
+# voice.py — Модуль голоса и слуха Алёны (gTTS, стабильный)
 
 import os
 import re
@@ -7,7 +7,6 @@ import requests
 import tempfile
 import time
 import base64
-import subprocess
 from typing import Optional, Tuple, List
 
 # ---------- НАСТРОЙКИ ----------
@@ -118,50 +117,25 @@ def _clean_text_for_tts(text: str) -> str:
     cleaned = re.sub(r'\s+', ' ', cleaned).strip()
     return cleaned
 
-# ---------- СИНТЕЗ РЕЧИ (eSpeak NG → MP3) ----------
+# ---------- СИНТЕЗ РЕЧИ (gTTS) ----------
 def text_to_speech(text: str, lang: str = 'ru') -> Optional[bytes]:
     text = _clean_text_for_tts(text)
     if not text:
         return None
 
-    # Пробуем eSpeak NG
     try:
-        with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as wav_file:
-            wav_path = wav_file.name
-        # Голос mb-ru1 — русский женский, с ударениями
-        subprocess.run(
-            ['espeak-ng', '-v', 'mb-ru1', '-w', wav_path, text],
-            capture_output=True,
-            timeout=20
-        )
-        mp3_path = tempfile.NamedTemporaryFile(suffix='.mp3', delete=False).name
-        subprocess.run(
-            ['ffmpeg', '-i', wav_path, '-acodec', 'libmp3lame', '-ab', '64k', mp3_path],
-            capture_output=True, timeout=10
-        )
-        with open(mp3_path, 'rb') as f:
-            audio = f.read()
-        return audio
+        from gtts import gTTS
+        tts = gTTS(text=text, lang=lang, slow=False)
+        with tempfile.NamedTemporaryFile(suffix='.mp3', delete=False) as tmp:
+            tmp_path = tmp.name
+        tts.save(tmp_path)
+        with open(tmp_path, 'rb') as f:
+            audio_bytes = f.read()
+        os.unlink(tmp_path)
+        return audio_bytes
     except Exception as e:
-        print(f"Ошибка eSpeak NG: {e}")
-        # Fallback на gTTS
-        try:
-            from gtts import gTTS
-            tts = gTTS(text=text, lang='ru', slow=False)
-            with tempfile.NamedTemporaryFile(suffix='.mp3', delete=False) as tmp:
-                tmp_path = tmp.name
-            tts.save(tmp_path)
-            with open(tmp_path, 'rb') as f:
-                audio = f.read()
-            os.unlink(tmp_path)
-            return audio
-        except Exception as e2:
-            print(f"Ошибка gTTS: {e2}")
-            return None
-    finally:
-        for p in [wav_path, mp3_path]:
-            if os.path.exists(p):
-                os.unlink(p)
+        print(f"Ошибка синтеза речи (gTTS): {e}")
+        return None
 
 # ---------- ОСНОВНАЯ ОБРАБОТКА ГОЛОСОВОГО СООБЩЕНИЯ ----------
 def process_voice_message(message, bot, lang: str, pet_name: str) -> bool:
