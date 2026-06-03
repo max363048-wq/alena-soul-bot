@@ -3,35 +3,66 @@
 import os
 import re
 import tempfile
-import time
 import base64
-from typing import Optional
-
 import requests
+from typing import Optional
 
 # ---------- НАСТРОЙКИ ----------
 CF_ACCOUNT_ID = os.getenv('CF_ACCOUNT_ID')
 CF_API_TOKEN = os.getenv('CF_API_TOKEN')
 WHISPER_MODEL = '@cf/openai/whisper'
 
-# Твой HF Space с новым Edge TTS (или старый, но после обновления)
+# Твой Hugging Face Space (должен быть обновлён на Edge TTS)
 HF_SPACE_URL = "https://max363048-alena-voice.hf.space"
 
 # ---------- ОЧИСТКА ТЕКСТА ДЛЯ TTS (сохраняем пунктуацию!) ----------
 def clean_text_for_tts(text: str) -> str:
     """
-    Подготавливает текст для синтезатора:
-    - удаляет эмодзи
+    Подготавливает текст для Edge TTS:
+    - заменяет некоторые эмодзи на короткие слова
+    - удаляет все остальные эмодзи
     - оставляет русские/английские буквы, цифры, пробелы и знаки препинания
-    - убирает лишние пробелы
     """
-    # Удаляем эмодзи (все блоки Unicode)
-    text = re.sub(r'[\U0001F000-\U0001FFFF\u2600-\u27BF]', '', text)
-    # Разрешённые символы: буквы, цифры, пробелы, знаки препинания
-    text = re.sub(r'[^а-яА-Яa-zA-Z0-9\s\.\,\!\?\:\;\-\—\"\'\(\)]', '', text)
+    if not text:
+        return ""
+
+    # Заменяем часто встречающиеся эмодзи на слова (чтобы синтезатор их озвучил)
+    emoji_map = {
+        "😊": "улыбаюсь",
+        "💖": "сердечко",
+        "✨": "",
+        "😄": "смеюсь",
+        "😘": "чмок",
+        "🥰": "обнимаю",
+        "🤗": "обнимаю",
+        "😅": "смеюсь",
+        "😂": "смеюсь",
+        "😢": "грустно",
+        "😭": "плачу",
+        "😉": "подмигиваю",
+        "😍": "влюблена",
+    }
+    for emoji, word in emoji_map.items():
+        if word:
+            text = text.replace(emoji, f" {word} ")
+        else:
+            text = text.replace(emoji, " ")
+
+    # Удаляем все остальные эмодзи (все блоки Unicode)
+    text = re.sub(r'[\U0001F000-\U0001FFFF\u2600-\u27BF]', ' ', text)
+
+    # Разрешённые символы: буквы (рус/англ), цифры, пробелы, основные знаки препинания
+    text = re.sub(r'[^а-яА-Яa-zA-Z0-9\s\.\,\!\?\:\;\-\—\"\'\(\)]', ' ', text)
+
     # Сжимаем множественные пробелы
     text = re.sub(r'\s+', ' ', text).strip()
+
+    # Ограничиваем длину (Edge TTS не любит слишком длинные строки)
+    if len(text) > 1000:
+        text = text[:997] + "..."
+
     return text
+
 
 # ---------- РАСПОЗНАВАНИЕ РЕЧИ (Cloudflare Whisper) ----------
 def speech_to_text(audio_bytes: bytes, lang: str = 'ru') -> Optional[str]:
@@ -57,30 +88,38 @@ def speech_to_text(audio_bytes: bytes, lang: str = 'ru') -> Optional[str]:
         print(f"Ошибка распознавания речи: {e}")
         return None
 
+
 # ---------- СИНТЕЗ РЕЧИ (Space → MP3) ----------
 def text_to_speech(text: str, lang: str = 'ru') -> Optional[bytes]:
-    text = clean_text_for_tts(text)
     if not text:
         return None
 
-    # Пробуем Space (Edge TTS или Piper, что там сейчас)
+    clean_text = clean_text_for_tts(text)
+    if not clean_text:
+        print("Текст после очистки пуст")
+        return None
+
+    # Пытаемся синтезировать через Space (Edge TTS)
     try:
+        print(f"[TTS] Отправка в Space: {HF_SPACE_URL}/synthesize, текст: {clean_text[:100]}...")
         resp = requests.post(
             f"{HF_SPACE_URL}/synthesize",
-            json={"text": text},
-            timeout=45  # увеличил таймаут, так как Edge TTS может чуть дольше
+            json={"text": clean_text},
+            timeout=45  # Edge TTS может отвечать до 30 секунд
         )
         if resp.status_code == 200 and resp.content:
+            print("[TTS] Успешно получен MP3 от Space")
             return resp.content
         else:
-            print(f"Ошибка Space: {resp.status_code} {resp.text}")
+            print(f"[TTS] Ошибка Space: код {resp.status_code}, тело: {resp.text}")
     except Exception as e:
-        print(f"Ошибка подключения к Space: {e}")
+        print(f"[TTS] Ошибка подключения к Space: {e}")
 
-    # Fallback на gTTS
+    # Fallback на gTTS (если Space недоступен)
     try:
+        print("[TTS] Использую gTTS как fallback")
         from gtts import gTTS
-        tts = gTTS(text=text, lang='ru', slow=False)
+        tts = gTTS(text=clean_text, lang='ru', slow=False)
         with tempfile.NamedTemporaryFile(suffix='.mp3', delete=False) as tmp:
             tmp_path = tmp.name
         tts.save(tmp_path)
@@ -89,8 +128,9 @@ def text_to_speech(text: str, lang: str = 'ru') -> Optional[bytes]:
         os.unlink(tmp_path)
         return audio
     except Exception as e:
-        print(f"Ошибка gTTS: {e}")
+        print(f"[TTS] Ошибка gTTS: {e}")
         return None
+
 
 # ---------- ОСНОВНАЯ ОБРАБОТКА ГОЛОСОВОГО СООБЩЕНИЯ ----------
 def process_voice_message(message, bot, lang: str, pet_name: str) -> bool:
@@ -109,16 +149,10 @@ def process_voice_message(message, bot, lang: str, pet_name: str) -> bool:
             bot.send_message(message.chat.id, "Прости, я не смогла разобрать твой голос... Может, напишешь? 😊")
             return True
 
-        # (Опционально) анализ фоновых звуков — пока отключён, т.к. требует tensorflow
-        # sound_comment = _get_sound_comment(downloaded)
-        # if sound_comment:
-        #     bot.send_message(message.chat.id, sound_comment)
-
         # Подменяем текст сообщения и отдаём управление основному обработчику
         message.text = text
         # Избегаем циклического импорта: импортируем handle_message только когда нужно
         from main import handle_message
-        # Вызываем основную логику с этим сообщением
         handle_message(message)
         return True
     except Exception as e:
