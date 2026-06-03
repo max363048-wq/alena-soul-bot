@@ -1,4 +1,5 @@
-rhvoice
-rhvoice-english
-rhvoice-russian
+espeak-ng
+espeak-ng-data
 ffmpeg
+rhvoice
+rhvoice-russian
