@@ -1,4 +1,4 @@
-# main.py — Лёгкий диспетчер Алёны (исправлены петля фото, история, грамматика)
+# main.py — Лёгкий диспетчер Алёны (исправлен приоритет творческих функций)
 import os
 import telebot
 import re
@@ -41,7 +41,7 @@ user_gender: Dict[int, str] = {}
 user_awaiting_gender: Dict[int, bool] = {}
 
 user_just_gave_horoscope: Dict[int, bool] = {}
-user_photo_just_sent: Dict[int, bool] = {}     # защита от петли
+user_photo_just_sent: Dict[int, bool] = {}
 
 # ---------- ФУНКЦИИ-ОБЁРТКИ ДЛЯ GIST ----------
 def save_user_history():
@@ -511,7 +511,31 @@ def handle_message(message: telebot.types.Message) -> None:
         user_photo_just_sent[user_id] = True
         return
 
-    # --- Вопросы о последнем фото ---
+    # --- Творческие функции (ПРОВЕРЯЮТСЯ ДО ВОПРОСОВ О ФОТО) ---
+    if re.search(r'(расскажи историю|расскажи мне историю|расскажи какую-нибудь историю|расскажи какую нибудь историю|придумай историю|напиши рассказ|какие нибудь истории|знаешь истории|ты можешь рассказать историю)', user_text, re.IGNORECASE):
+        prompt = user_text
+        story = stories.generate_story(prompt, user_id, lang, client, os.getenv('GIST_ID'))
+        try:
+            bot.send_message(message.chat.id, distribute_emojis(story))
+        except:
+            pass
+        add_message(user_id, 'user', user_text)
+        add_message(user_id, 'assistant', story)
+        save_user_history()
+        return
+
+    if re.search(r'(дай идею для творчества|подскажи тему|что нарисовать|вдохнови на творчество|творческие идеи|творческую идею|идеи для творчества)', user_text, re.IGNORECASE):
+        idea = stories.creative_prompt(user_id, lang, client, os.getenv('GIST_ID'))
+        try:
+            bot.send_message(message.chat.id, distribute_emojis(idea))
+        except:
+            pass
+        add_message(user_id, 'user', user_text)
+        add_message(user_id, 'assistant', idea)
+        save_user_history()
+        return
+
+    # --- Вопросы о последнем фото (БЕЗ опасных фраз) ---
     lower_text = user_text.lower()
     is_photo_question = any(phrase in lower_text for phrase in [
         'где была сделана', 'какое место', 'что там за фон', 'где это', 'какой город',
@@ -520,8 +544,7 @@ def handle_message(message: telebot.types.Message) -> None:
         'где снято', 'а на каком пляже', 'в каком парке', 'в какой стране', 'это в россии',
         'за границей', 'в каком городе', 'на каком море', 'какой пляж', 'как называется',
         'поделись деталями', 'что ещё видно', 'расскажи подробнее', 'добавь деталей',
-        'опиши фон', 'что позади', 'какие люди',
-        'это фото', 'эта фотография', 'на этом фото', 'на этой фотографии'
+        'опиши фон', 'что позади', 'какие люди'
     ])
     if is_photo_question:
         if user_id in photos.user_last_sent_photo and photos.user_last_sent_photo[user_id]:
