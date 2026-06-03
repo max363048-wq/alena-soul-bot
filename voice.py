@@ -1,4 +1,4 @@
-# voice.py — Модуль голоса и слуха Алёны (Piper Irina-medium, улучшенная интонация)
+# voice.py — Модуль голоса и слуха Алёны (через Hugging Face Space + fallback gTTS)
 
 import os
 import re
@@ -7,8 +7,6 @@ import requests
 import tempfile
 import time
 import base64
-import subprocess
-from pathlib import Path
 from typing import Optional, Tuple, List
 
 # ---------- НАСТРОЙКИ ----------
@@ -16,14 +14,8 @@ CF_ACCOUNT_ID = os.getenv('CF_ACCOUNT_ID')
 CF_API_TOKEN = os.getenv('CF_API_TOKEN')
 WHISPER_MODEL = '@cf/openai/whisper'
 
-# Папка для моделей Piper
-MODELS_DIR = Path('piper_models')
-VOICE_NAME = 'ru_RU-irina-medium'
-MODEL_URL = f'https://huggingface.co/rhasspy/piper-voices/resolve/main/ru/ru_RU/irina/medium/{VOICE_NAME}.onnx'
-MODEL_CONFIG_URL = f'https://huggingface.co/rhasspy/piper-voices/resolve/main/ru/ru_RU/irina/medium/{VOICE_NAME}.onnx.json'
-
-# Кеш для голоса (ленивая загрузка)
-_piper_voice = None
+# URL твоего HF Space (замени, если отличается)
+HF_SPACE_URL = "https://max363048-alena-voice.hf.space"
 
 # YAMNet
 _YAMNET_MODEL = None
@@ -122,94 +114,48 @@ def speech_to_text(audio_bytes: bytes, lang: str = 'ru') -> Optional[str]:
         print(f"Ошибка распознавания речи: {e}")
         return None
 
-# ---------- ЗАГРУЗКА МОДЕЛИ PIPER (ЛЕНИВАЯ, БЕЗ INT8) ----------
-def _download_file(url, dest_path):
-    if not dest_path.exists():
-        print(f"Скачиваю {dest_path.name} из {url}...")
-        resp = requests.get(url, stream=True)
-        resp.raise_for_status()
-        with open(dest_path, 'wb') as f:
-            for chunk in resp.iter_content(chunk_size=8192):
-                f.write(chunk)
-        print(f"Файл {dest_path.name} успешно скачан.")
-    else:
-        print(f"Файл {dest_path.name} уже существует.")
-
-def _load_piper():
-    global _piper_voice
-    if _piper_voice is not None:
-        return _piper_voice
-
-    MODELS_DIR.mkdir(exist_ok=True)
-    model_path = MODELS_DIR / f'{VOICE_NAME}.onnx'
-    config_path = MODELS_DIR / f'{VOICE_NAME}.onnx.json'
-
-    try:
-        _download_file(MODEL_URL, model_path)
-        _download_file(MODEL_CONFIG_URL, config_path)
-
-        import piper_tts
-        print("Загружаю модель Piper (обычная, без INT8)...")
-        _piper_voice = piper_tts.PiperVoice(str(model_path), str(config_path))
-        # Настройки для более естественного звучания
-        _piper_voice.config.length_scale = 1.15
-        _piper_voice.config.noise_scale = 0.667
-        _piper_voice.config.noise_w = 0.8
-        print("✅ Модель Piper успешно загружена!")
-        return _piper_voice
-    except Exception as e:
-        print(f"❌ Ошибка загрузки Piper: {e}")
-        _piper_voice = None
-        return None
-
-# ---------- ПОДГОТОВКА ТЕКСТА С ЭМОЦИОНАЛЬНЫМИ МАРКЕРАМИ ----------
-def _prepare_text_for_piper(text: str) -> str:
-    # Заменяем эмодзи на эмоциональные знаки препинания
-    text = text.replace("🤗", "!!")
-    text = text.replace("🥰", "!!")
-    text = text.replace("😘", "...")
-    text = text.replace("😊", "!")
-    # Удаляем оставшиеся эмодзи и спецсимволы
+# ---------- ОЧИСТКА ТЕКСТА ОТ ЭМОДЗИ ----------
+def _clean_text_for_tts(text: str) -> str:
     cleaned = re.sub(r'[^\w\s.,!?:;—–-]', '', text)
     cleaned = re.sub(r'\s+', ' ', cleaned).strip()
-    # Разбиваем на фразы и добавляем длинные паузы
-    sentences = re.split(r'(?<=[.!?…]) +', cleaned)
-    return '... ... '.join(sentences)  # двойная пауза для выразительности
+    return cleaned
 
-# ---------- СИНТЕЗ РЕЧИ (Piper → OGG Opus 64k) ----------
+# ---------- СИНТЕЗ РЕЧИ (HF Space → MP3) ----------
 def text_to_speech(text: str, lang: str = 'ru') -> Optional[bytes]:
-    prepared_text = _prepare_text_for_piper(text)
-    if not prepared_text:
+    text = _clean_text_for_tts(text)
+    if not text:
         return None
 
-    voice = _load_piper()
-    if voice is not None:
-        wav_path = None
-        ogg_path = None
-        try:
-            with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as wav_file:
-                wav_path = wav_file.name
-            voice.say_to_file(prepared_text, wav_path)
-            ogg_path = tempfile.NamedTemporaryFile(suffix='.ogg', delete=False).name
-            subprocess.run(
-                ['ffmpeg', '-i', wav_path, '-acodec', 'libopus', '-b:a', '64k', ogg_path],
-                capture_output=True, timeout=15
-            )
-            with open(ogg_path, 'rb') as f:
-                audio = f.read()
-            return audio
-        except Exception as e:
-            print(f"Ошибка синтеза Piper: {e}")
-            return None
-        finally:
-            for p in [wav_path, ogg_path]:
-                if p and os.path.exists(p):
-                    os.unlink(p)
-    else:
-        # Fallback на gTTS
+    try:
+        resp = requests.post(
+            f"{HF_SPACE_URL}/synthesize",
+            json={"text": text},
+            timeout=30
+        )
+        if resp.status_code == 200:
+            return resp.content
+        else:
+            print(f"Ошибка HF Space: {resp.status_code} {resp.text}")
+            # Fallback на gTTS
+            try:
+                from gtts import gTTS
+                tts = gTTS(text=text, lang='ru', slow=False)
+                with tempfile.NamedTemporaryFile(suffix='.mp3', delete=False) as tmp:
+                    tmp_path = tmp.name
+                tts.save(tmp_path)
+                with open(tmp_path, 'rb') as f:
+                    audio = f.read()
+                os.unlink(tmp_path)
+                return audio
+            except Exception as e:
+                print(f"Ошибка gTTS: {e}")
+                return None
+    except Exception as e:
+        print(f"Ошибка запроса к HF: {e}")
+        # Fallback на gTTS при любой ошибке
         try:
             from gtts import gTTS
-            tts = gTTS(text=prepared_text, lang='ru', slow=False)
+            tts = gTTS(text=text, lang='ru', slow=False)
             with tempfile.NamedTemporaryFile(suffix='.mp3', delete=False) as tmp:
                 tmp_path = tmp.name
             tts.save(tmp_path)
@@ -217,8 +163,7 @@ def text_to_speech(text: str, lang: str = 'ru') -> Optional[bytes]:
                 audio = f.read()
             os.unlink(tmp_path)
             return audio
-        except Exception as e:
-            print(f"Ошибка gTTS: {e}")
+        except:
             return None
 
 # ---------- ОСНОВНАЯ ОБРАБОТКА ГОЛОСОВОГО СООБЩЕНИЯ ----------
