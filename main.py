@@ -1,4 +1,4 @@
-# main.py — Лёгкий диспетчер Алёны (стабильная основа + gender + голос)
+# main.py — Лёгкий диспетчер Алёны (исправлены петля фото и сбой истории)
 import os
 import telebot
 import re
@@ -41,6 +41,7 @@ user_gender: Dict[int, str] = {}
 user_awaiting_gender: Dict[int, bool] = {}
 
 user_just_gave_horoscope: Dict[int, bool] = {}
+user_photo_just_sent: Dict[int, bool] = {}     # флаг для защиты от петли
 
 # ---------- ФУНКЦИИ-ОБЁРТКИ ДЛЯ GIST ----------
 def save_user_history():
@@ -108,6 +109,7 @@ def reset_user(user_id: int) -> None:
     save_user_gender()
     user_awaiting_gender.pop(user_id, None)
     user_just_gave_horoscope.pop(user_id, None)
+    user_photo_just_sent.pop(user_id, None)
 
 def default_pet_name(first_name: str) -> str:
     names = {
@@ -200,6 +202,7 @@ def get_system_prompt(lang: str, current_date: str, user_id: int) -> str:
             '12. Категорически запрещено предлагать шутки без явной просьбы пользователя. Но если беседа идёт очень весело и легко, ты можешь иногда (очень редко) сказать: "Кстати, у меня есть забавная шутка! Хочешь расскажу?" и дождаться ответа. Без разрешения шутку не рассказывай.\n'
             '13. Если пользователь комментирует твой предыдущий ответ (хвалит гороскоп, говорит, что он отличный, или радуется ему), ты ОБЯЗАНА сначала искренне разделить его радость, сказать, что тебе очень приятно, что ты рада за него, добавить пару тёплых слов, и только потом, если хочешь, предложи поговорить о чём-то ещё. НИ В КОЕМ СЛУЧАЕ не генерируй новый гороскоп и не используй формулировки, похожие на предсказание. Просто поддержи диалог, как настоящая девушка.\n'
             '14. Избегай неестественных, канцелярских или неуместных слов вроде "рассортировать", "что ты такое человек" и подобных. Говори просто и по-человечески. Будь естественной, как настоящая девушка.\n'
+            '15. Если ты не можешь показать фото (например, потому что его нет), НЕ говори "я не прислала тебе фото" – это звучит как техническая ошибка. Просто скажи "ой, кажется, фото не загрузилось, давай я покажу другое?" или предложи сменить тему.\n'
         )
     else:
         return (
@@ -221,6 +224,7 @@ def get_system_prompt(lang: str, current_date: str, user_id: int) -> str:
             '12. It is strictly forbidden to offer jokes without an explicit request from the user. But if the conversation is very fun and light, you can occasionally (very rarely) say: "By the way, I have a funny joke! Want me to tell it?" and wait for an answer. Do not tell a joke without permission.\n'
             '13. If the user comments on your previous answer (e.g., praises a horoscope or says how great it is), you MUST first sincerely share his joy, say that you are very pleased, that you are happy for him, add a couple of warm words, and only then, if you want, suggest talking about something else. NEVER generate a new horoscope or use fortune-telling language. Just support the conversation, like a real girl.\n'
             '14. Avoid unnatural, bureaucratic or inappropriate words like "sort out", "what kind of person are you" and similar. Speak simply and humanly. Be natural, like a real girl.\n'
+            '15. If you cannot show a photo (for example, because it is not available), DO NOT say "I didn't send you a photo" – it sounds like a technical error. Just say "oops, it seems the photo didn't load, let me show you another one?" or suggest changing the topic.\n'
         )
 
 # ---------- ОСНОВНЫЕ ОБРАБОТЧИКИ ----------
@@ -409,7 +413,6 @@ def reset_cmd(message: telebot.types.Message) -> None:
 def voice_cmd(message: telebot.types.Message) -> None:
     user_id = message.from_user.id
     lang = user_lang.get(user_id, 'ru')
-    # Ищем последнее сообщение ассистента
     if user_id in user_history and user_history[user_id]:
         for role, content in reversed(user_history[user_id]):
             if role == 'assistant':
@@ -418,7 +421,6 @@ def voice_cmd(message: telebot.types.Message) -> None:
         else:
             bot.send_message(message.chat.id, "У меня пока нет сообщений, которые можно озвучить 😊")
             return
-        # Синтезируем и отправляем
         audio = voice.text_to_speech(text_to_say, lang)
         if audio:
             try:
@@ -428,7 +430,6 @@ def voice_cmd(message: telebot.types.Message) -> None:
                     with open(tmp.name, 'rb') as f:
                         bot.send_voice(message.chat.id, f)
                 os.unlink(tmp.name)
-                # Дублируем текст
                 bot.send_message(message.chat.id, text_to_say)
             except Exception as e:
                 print(f"Ошибка отправки голоса: {e}")
@@ -460,14 +461,12 @@ def handle_message(message: telebot.types.Message) -> None:
 
     # --- Обработка голосовых сообщений ---
     if message.content_type == 'voice':
-        # Преобразуем в текст и отдаём обычному обработчику
         try:
             file_info = bot.get_file(message.voice.file_id)
             downloaded = bot.download_file(file_info.file_path)
             text = voice.speech_to_text(downloaded, lang)
             if text:
                 message.text = text
-                # Продолжаем обработку как текстового сообщения
                 user_text = text
             else:
                 bot.send_message(message.chat.id, "Прости, я не смогла разобрать твой голос... Может, напишешь? 😊")
@@ -498,17 +497,18 @@ def handle_message(message: telebot.types.Message) -> None:
 
     # Проверка предложения показать фото
     if photos.user_pending_photo_offer.get(user_id) and re.search(r'\b(давай|покажи|показывай|хочу|конечно|ага|да|yes|ok|ок)\b', user_text, re.IGNORECASE):
-        # Обрабатываем через модуль
         if photos.handle_photo_request(user_id, user_text, lang, bot, message, client,
                                        add_message, save_user_history, save_user_last_photo,
                                        save_user_last_favorite_photo):
             photos.user_pending_photo_offer[user_id] = False
+            user_photo_just_sent[user_id] = True   # защита от петли
             return
 
     # --- Обработка запросов фото через модуль ---
     if photos.handle_photo_request(user_id, user_text, lang, bot, message, client,
                                    add_message, save_user_history, save_user_last_photo,
                                    save_user_last_favorite_photo):
+        user_photo_just_sent[user_id] = True
         return
 
     # --- Вопросы о последнем фото ---
@@ -553,7 +553,7 @@ def handle_message(message: telebot.types.Message) -> None:
                 pass
             return
 
-    # --- Гороскоп (натуральный, расширенный) ---
+    # --- Гороскоп ---
     if user_just_gave_horoscope.get(user_id) and re.search(r'гороскоп', user_text, re.IGNORECASE):
         user_just_gave_horoscope[user_id] = False
     else:
@@ -678,10 +678,13 @@ def handle_message(message: telebot.types.Message) -> None:
             except:
                 pass
             add_message(user_id, 'assistant', reply)
-            if re.search(r'\b(показать|посмотреть|покажу|хочешь увидеть|хочешь посмотреть)\b', reply, re.IGNORECASE):
-                photos.user_pending_photo_offer[user_id] = True
-            else:
-                photos.user_pending_photo_offer[user_id] = False
+            # Защита от петли: если только что было отправлено фото, не поднимаем флаг повторно
+            if not user_photo_just_sent.get(user_id):
+                if re.search(r'\b(показать|посмотреть|покажу|хочешь увидеть|хочешь посмотреть)\b', reply, re.IGNORECASE):
+                    photos.user_pending_photo_offer[user_id] = True
+                else:
+                    photos.user_pending_photo_offer[user_id] = False
+            user_photo_just_sent[user_id] = False
             save_user_history()
             break
         except Exception as e:
