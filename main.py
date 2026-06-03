@@ -1,4 +1,4 @@
-# main.py — Лёгкий диспетчер Алёны (пол, фото, голос, все правки)
+# main.py — Лёгкий диспетчер Алёны (исправлена мотивация + пунктуация для gTTS)
 
 import os
 import telebot
@@ -160,7 +160,7 @@ def get_motivation(lang: str = 'ru') -> str:
     try:
         resp = client.chat.completions.create(
             model='llama-3.1-8b-instant',
-            messages=[{'role': 'user', 'content': 'Ты Алёна. Напиши короткую тёплую вдохновляющую фразу для друга.'}],
+            messages=[{'role': 'user', 'content': 'Ты Алёна. Напиши короткую тёплую вдохновляющую фразу для друга. Используй восклицательные знаки и короткие предложения, чтобы фраза звучала эмоционально.'}],
             temperature=0.8, max_tokens=80, timeout=5
         )
         phrase = resp.choices[0].message.content.strip()
@@ -638,6 +638,7 @@ def handle_message(message: telebot.types.Message) -> None:
             pass
         return
 
+    # РАСШИРЕННАЯ МОТИВАЦИЯ
     if re.search(r'(вдохнов|мотивируй|мотивировать|мотиваци|подними дух|пожелай|скажи что-то хорошее)', user_text, re.IGNORECASE):
         try:
             bot.send_message(message.chat.id, distribute_emojis(get_motivation(lang)))
