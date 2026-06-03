@@ -179,7 +179,7 @@ def get_system_prompt(lang: str, current_date: str, user_id: int) -> str:
     gender_note = ''
     if user_id in user_gender:
         if user_gender[user_id] == 'male':
-            gender_note = 'Пользователь — парень. Ты можешь слегка подшучивать по-дружески, но оставайся тёплой и милой.\n'
+            gender_note = 'Пользователь — парень. Используй мужской род в глаголах и прилагательных, обращаясь к нему: "ты будешь продуктивен", "ты хороший", "ты добился", "ты умён". Никогда не используй женские окончания (например, "продуктивна", "добра", "умна"). Ты можешь слегка подшучивать по-дружески, но оставайся тёплой и милой.\n'
         else:
             gender_note = 'Пользователь — девушка. Общайся с ней как с лучшей подругой, нежно и с пониманием.\n'
 
@@ -496,7 +496,7 @@ def handle_message(message: telebot.types.Message) -> None:
     if re.search(r'(гороскоп|погода|погоду|погоде|историю|истории|история|творчеств|вдохнови|расскажи гороскоп|расскажи мне гороскоп|расскажи историю|расскажи мне историю|расскажи какую)', user_text, re.IGNORECASE):
         photos.user_pending_photo_offer[user_id] = False
 
-    # Проверка предложения показать фото (ИСПРАВЛЕНО)
+    # Проверка предложения показать фото
     if photos.user_pending_photo_offer.get(user_id) and re.search(r'\b(давай|покажи|показывай|хочу|конечно|ага|да|yes|ok|ок)\b', user_text, re.IGNORECASE):
         if photos.show_random_photo(user_id, lang, bot, message, client,
                                     add_message, save_user_history, save_user_last_photo,
@@ -519,7 +519,8 @@ def handle_message(message: telebot.types.Message) -> None:
         return
 
     # --- Творческие функции (проверяются ДО вопросов о фото) ---
-    if re.search(r'(расскажи историю|расскажи мне историю|расскажи какую-нибудь историю|расскажи какую нибудь историю|придумай историю|напиши рассказ|какие нибудь истории|знаешь истории|ты можешь рассказать историю)', user_text, re.IGNORECASE):
+    # РАСШИРЕННОЕ РЕГУЛЯРНОЕ ВЫРАЖЕНИЕ ДЛЯ ИСТОРИЙ
+    if re.search(r'(расскажи историю|расскажи мне историю|расскажи какую[- ]?нибудь историю|расскажи какую[- ]?либо историю|придумай историю|напиши рассказ|какие[- ]?нибудь истории|знаешь истории|ты можешь рассказать историю|давай историю|поделись историей)', user_text, re.IGNORECASE):
         prompt = user_text
         story = stories.generate_story(prompt, user_id, lang, client, os.getenv('GIST_ID'))
         try:
