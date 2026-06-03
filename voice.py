@@ -1,4 +1,4 @@
-# voice.py — Модуль голоса и слуха Алёны (Piper TTS с логами и MP3)
+# voice.py — Модуль голоса и слуха Алёны (предзагрузка Piper при старте)
 
 import os
 import re
@@ -122,7 +122,7 @@ def speech_to_text(audio_bytes: bytes, lang: str = 'ru') -> Optional[str]:
         print(f"Ошибка распознавания речи: {e}")
         return None
 
-# ---------- ЗАГРУЗКА МОДЕЛИ PIPER ----------
+# ---------- ЗАГРУЗКА МОДЕЛИ PIPER (ВЫЗЫВАЕТСЯ ПРИ СТАРТЕ) ----------
 def _download_file(url, dest_path):
     if not dest_path.exists():
         print(f"Скачиваю {dest_path.name} из {url}...")
@@ -135,31 +135,24 @@ def _download_file(url, dest_path):
     else:
         print(f"Файл {dest_path.name} уже существует.")
 
-def _load_piper_voice():
+def init_voice():
+    """Загружает модель Piper при старте бота. Вызвать из main.py."""
     global _piper_voice
-    if _piper_voice is not None:
-        return _piper_voice
-
     MODELS_DIR.mkdir(exist_ok=True)
     model_path = MODELS_DIR / f'{VOICE_NAME}.onnx'
     config_path = MODELS_DIR / f'{VOICE_NAME}.onnx.json'
 
-    _download_file(MODEL_URL, model_path)
-    _download_file(MODEL_CONFIG_URL, config_path)
-
     try:
+        _download_file(MODEL_URL, model_path)
+        _download_file(MODEL_CONFIG_URL, config_path)
+
         import piper_tts
         print("Загружаю модель Piper...")
-        voice = piper_tts.PiperVoice(str(model_path), str(config_path))
-        _piper_voice = voice
-        print("Модель Piper успешно загружена!")
-        return voice
-    except ImportError:
-        print("⚠️ piper-tts не установлен.")
-        return None
+        _piper_voice = piper_tts.PiperVoice(str(model_path), str(config_path))
+        print("✅ Модель Piper успешно загружена!")
     except Exception as e:
-        print(f"Ошибка загрузки модели Piper: {e}")
-        return None
+        print(f"❌ Ошибка загрузки модели Piper: {e}")
+        _piper_voice = None
 
 # ---------- ОЧИСТКА ТЕКСТА ОТ ЭМОДЗИ ----------
 def _clean_text_for_tts(text: str) -> str:
@@ -173,14 +166,12 @@ def text_to_speech(text: str, lang: str = 'ru') -> Optional[bytes]:
     if not text:
         return None
 
-    voice = _load_piper_voice()
-    if voice is not None:
-        # Генерация через Piper
+    if _piper_voice is not None:
         with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as wav_file:
             wav_path = wav_file.name
         mp3_path = tempfile.mktemp(suffix='.mp3')
         try:
-            voice.say_to_file(text, wav_path)
+            _piper_voice.say_to_file(text, wav_path)
             subprocess.run(
                 ['ffmpeg', '-i', wav_path, '-acodec', 'libmp3lame', '-ab', '64k', mp3_path],
                 capture_output=True, timeout=15
