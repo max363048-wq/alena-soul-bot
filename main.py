@@ -1,4 +1,4 @@
-# main.py — Лёгкий диспетчер Алёны (исправлены петля фото и сбой истории)
+# main.py — Лёгкий диспетчер Алёны (исправлены петля фото, история, грамматика)
 import os
 import telebot
 import re
@@ -41,7 +41,7 @@ user_gender: Dict[int, str] = {}
 user_awaiting_gender: Dict[int, bool] = {}
 
 user_just_gave_horoscope: Dict[int, bool] = {}
-user_photo_just_sent: Dict[int, bool] = {}     # флаг для защиты от петли
+user_photo_just_sent: Dict[int, bool] = {}     # защита от петли
 
 # ---------- ФУНКЦИИ-ОБЁРТКИ ДЛЯ GIST ----------
 def save_user_history():
@@ -224,7 +224,7 @@ def get_system_prompt(lang: str, current_date: str, user_id: int) -> str:
             '12. It is strictly forbidden to offer jokes without an explicit request from the user. But if the conversation is very fun and light, you can occasionally (very rarely) say: "By the way, I have a funny joke! Want me to tell it?" and wait for an answer. Do not tell a joke without permission.\n'
             '13. If the user comments on your previous answer (e.g., praises a horoscope or says how great it is), you MUST first sincerely share his joy, say that you are very pleased, that you are happy for him, add a couple of warm words, and only then, if you want, suggest talking about something else. NEVER generate a new horoscope or use fortune-telling language. Just support the conversation, like a real girl.\n'
             '14. Avoid unnatural, bureaucratic or inappropriate words like "sort out", "what kind of person are you" and similar. Speak simply and humanly. Be natural, like a real girl.\n'
-            '15. If you cannot show a photo (for example, because it is not available), DO NOT say "I didn't send you a photo" – it sounds like a technical error. Just say "oops, it seems the photo didn't load, let me show you another one?" or suggest changing the topic.\n'
+            '15. If you cannot show a photo (for example, because it is not available), DO NOT say "I didn\'t send you a photo" – it sounds like a technical error. Just say "oops, it seems the photo didn\'t load, let me show you another one?" or suggest changing the topic.\n'
         )
 
 # ---------- ОСНОВНЫЕ ОБРАБОТЧИКИ ----------
@@ -501,7 +501,7 @@ def handle_message(message: telebot.types.Message) -> None:
                                        add_message, save_user_history, save_user_last_photo,
                                        save_user_last_favorite_photo):
             photos.user_pending_photo_offer[user_id] = False
-            user_photo_just_sent[user_id] = True   # защита от петли
+            user_photo_just_sent[user_id] = True
             return
 
     # --- Обработка запросов фото через модуль ---
@@ -678,7 +678,6 @@ def handle_message(message: telebot.types.Message) -> None:
             except:
                 pass
             add_message(user_id, 'assistant', reply)
-            # Защита от петли: если только что было отправлено фото, не поднимаем флаг повторно
             if not user_photo_just_sent.get(user_id):
                 if re.search(r'\b(показать|посмотреть|покажу|хочешь увидеть|хочешь посмотреть)\b', reply, re.IGNORECASE):
                     photos.user_pending_photo_offer[user_id] = True
