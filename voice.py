@@ -1,4 +1,4 @@
-# voice.py — Модуль голоса и слуха Алёны (Silero TTS + fallback gTTS)
+# voice.py — Модуль голоса и слуха Алёны (RHVoice + fallback gTTS)
 
 import os
 import re
@@ -14,9 +14,6 @@ from typing import Optional, Tuple, List
 CF_ACCOUNT_ID = os.getenv('CF_ACCOUNT_ID')
 CF_API_TOKEN = os.getenv('CF_API_TOKEN')
 WHISPER_MODEL = '@cf/openai/whisper'
-
-# Silero TTS (загружается только при первом использовании)
-_silero_model = None
 
 # YAMNet
 _YAMNET_MODEL = None
@@ -115,72 +112,39 @@ def speech_to_text(audio_bytes: bytes, lang: str = 'ru') -> Optional[str]:
         print(f"Ошибка распознавания речи: {e}")
         return None
 
-# ---------- ЗАГРУЗКА SILERO (вызывается один раз при первом синтезе) ----------
-def _load_silero():
-    global _silero_model
-    if _silero_model is not None:
-        return _silero_model
-    try:
-        import torch
-        print("Загружаю модель Silero TTS...")
-        device = torch.device('cpu')
-        model, example_text = torch.hub.load(
-            repo_or_dir='snakers4/silero-models',
-            model='silero_tts',
-            language='ru',
-            speaker='kseniya'
-        )
-        model.to(device)
-        _silero_model = model
-        print("✅ Модель Silero TTS успешно загружена!")
-        return model
-    except Exception as e:
-        print(f"❌ Ошибка загрузки Silero: {e}")
-        _silero_model = None
-        return None
-
 # ---------- ОЧИСТКА ТЕКСТА ОТ ЭМОДЗИ ----------
 def _clean_text_for_tts(text: str) -> str:
     cleaned = re.sub(r'[^\w\s.,!?:;—–-]', '', text)
     cleaned = re.sub(r'\s+', ' ', cleaned).strip()
     return cleaned
 
-# ---------- СИНТЕЗ РЕЧИ (Silero → MP3) ----------
+# ---------- СИНТЕЗ РЕЧИ (RHVoice → MP3) ----------
 def text_to_speech(text: str, lang: str = 'ru') -> Optional[bytes]:
     text = _clean_text_for_tts(text)
     if not text:
         return None
 
-    model = _load_silero()
-    if model is not None:
-        wav_path = None
-        mp3_path = None
-        try:
-            # Silero возвращает тензор с аудио (16 кГц)
-            audio_tensor = model.apply_tts(text=text, speaker='kseniya')
-            audio_np = audio_tensor.numpy()
-            # Сохраняем WAV
-            with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as wav_file:
-                wav_path = wav_file.name
-            import scipy.io.wavfile
-            scipy.io.wavfile.write(wav_path, 16000, audio_np)
-            # Конвертируем в MP3
-            mp3_path = tempfile.NamedTemporaryFile(suffix='.mp3', delete=False).name
-            subprocess.run(
-                ['ffmpeg', '-i', wav_path, '-acodec', 'libmp3lame', '-ab', '64k', mp3_path],
-                capture_output=True, timeout=15
-            )
-            with open(mp3_path, 'rb') as f:
-                audio = f.read()
-            return audio
-        except Exception as e:
-            print(f"Ошибка синтеза Silero: {e}")
-            return None
-        finally:
-            for p in [wav_path, mp3_path]:
-                if p and os.path.exists(p):
-                    os.unlink(p)
-    else:
+    # Пробуем RHVoice через subprocess
+    try:
+        with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as wav_file:
+            wav_path = wav_file.name
+        # RHVoice-test или RHVoice-client, голос Anna (русский женский)
+        subprocess.run(
+            ['RHVoice-test', '-p', 'Anna', '-o', wav_path, '-i', '-'],
+            input=text.encode('utf-8'),
+            capture_output=True,
+            timeout=20
+        )
+        mp3_path = tempfile.NamedTemporaryFile(suffix='.mp3', delete=False).name
+        subprocess.run(
+            ['ffmpeg', '-i', wav_path, '-acodec', 'libmp3lame', '-ab', '64k', mp3_path],
+            capture_output=True, timeout=10
+        )
+        with open(mp3_path, 'rb') as f:
+            audio = f.read()
+        return audio
+    except Exception as e:
+        print(f"Ошибка RHVoice: {e}")
         # Fallback на gTTS
         try:
             from gtts import gTTS
@@ -192,9 +156,13 @@ def text_to_speech(text: str, lang: str = 'ru') -> Optional[bytes]:
                 audio = f.read()
             os.unlink(tmp_path)
             return audio
-        except Exception as e:
-            print(f"Ошибка gTTS: {e}")
+        except Exception as e2:
+            print(f"Ошибка gTTS: {e2}")
             return None
+    finally:
+        for p in [wav_path, mp3_path]:
+            if os.path.exists(p):
+                os.unlink(p)
 
 # ---------- ОСНОВНАЯ ОБРАБОТКА ГОЛОСОВОГО СООБЩЕНИЯ ----------
 def process_voice_message(message, bot, lang: str, pet_name: str) -> bool:
