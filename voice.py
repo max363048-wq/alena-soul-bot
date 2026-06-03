@@ -1,4 +1,4 @@
-# voice.py — Модуль голоса и слуха Алёны (RHVoice + fallback gTTS)
+# voice.py — Модуль голоса и слуха Алёны (gTTS, стабильный)
 
 import os
 import re
@@ -7,7 +7,6 @@ import requests
 import tempfile
 import time
 import base64
-import subprocess
 from typing import Optional, Tuple, List
 
 # ---------- НАСТРОЙКИ ----------
@@ -18,99 +17,7 @@ WHISPER_MODEL = '@cf/openai/whisper'
 # YAMNet
 _YAMNET_MODEL = None
 
-# ---------- ИНИЦИАЛИЗАЦИЯ YAMNet ----------
-def _load_yamnet():
-    global _YAMNET_MODEL
-    if _YAMNET_MODEL is None:
-        try:
-            import tensorflow_hub as hub
-            import tensorflow as tf
-            _YAMNET_MODEL = hub.load('https://tfhub.dev/google/yamnet/1')
-        except ImportError:
-            print("⚠️ TensorFlow или TensorFlow Hub не установлены. Анализ фоновых звуков будет отключён.")
-            _YAMNET_MODEL = False
-    return _YAMNET_MODEL
-
-SOUND_MAP = {
-    'Bird': 'птиц',
-    'Water': 'воду',
-    'Wind': 'ветер',
-    'Ocean': 'море',
-    'Forest': 'лес',
-    'Rain': 'дождь',
-    'Traffic': 'городской трафик',
-    'Music': 'музыку',
-}
-YAMNET_CLASSES_URL = 'https://raw.githubusercontent.com/nicolabernini/YAMNet/master/yamnet/yamnet_class_map.csv'
-
-def _get_sound_comment(audio_bytes: bytes) -> str:
-    model = _load_yamnet()
-    if model is False:
-        return ''
-    try:
-        import tensorflow as tf
-        import csv
-        import io
-        with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp:
-            tmp.write(audio_bytes)
-            tmp_path = tmp.name
-        waveform, sr = tf.audio.decode_wav(tf.io.read_file(tmp_path))
-        waveform = tf.squeeze(waveform, axis=-1)
-        if sr != 16000:
-            waveform = tf.image.resize(tf.expand_dims(waveform, 0), [16000])[0]
-        scores, embeddings, spectrogram = model(waveform)
-        class_names = _get_yamnet_class_names()
-        mean_scores = tf.reduce_mean(scores, axis=0).numpy()
-        top_idx = mean_scores.argsort()[-1]
-        top_score = mean_scores[top_idx]
-        top_class = class_names.get(top_idx, '')
-        os.unlink(tmp_path)
-        if top_score > 0.3 and top_class in SOUND_MAP:
-            return f'Ой, я слышу {SOUND_MAP[top_class]}! '
-    except Exception as e:
-        print(f"Ошибка анализа звуков: {e}")
-    return ''
-
-def _get_yamnet_class_names() -> dict:
-    try:
-        resp = requests.get(YAMNET_CLASSES_URL, timeout=5)
-        reader = csv.reader(io.StringIO(resp.text))
-        class_names = {}
-        for row in reader:
-            if len(row) >= 2:
-                try:
-                    idx = int(row[0])
-                    name = row[1].strip()
-                    class_names[idx] = name
-                except ValueError:
-                    continue
-        return class_names
-    except:
-        return {}
-
-# ---------- РАСПОЗНАВАНИЕ РЕЧИ (Whisper) ----------
-def speech_to_text(audio_bytes: bytes, lang: str = 'ru') -> Optional[str]:
-    try:
-        audio_base64 = base64.b64encode(audio_bytes).decode('utf-8')
-        url = f'https://api.cloudflare.com/client/v4/accounts/{CF_ACCOUNT_ID}/ai/run/{WHISPER_MODEL}'
-        headers = {
-            'Authorization': f'Bearer {CF_API_TOKEN}',
-            'Content-Type': 'application/json'
-        }
-        payload = {
-            'audio': audio_base64,
-            'language': lang
-        }
-        resp = requests.post(url, headers=headers, json=payload, timeout=15)
-        data = resp.json()
-        if data.get('success'):
-            return data['result'].get('text', '').strip()
-        else:
-            print(f"Ошибка Whisper: {data}")
-            return None
-    except Exception as e:
-        print(f"Ошибка распознавания речи: {e}")
-        return None
+# ... (функции _load_yamnet, _get_sound_comment, _get_yamnet_class_names, speech_to_text – оставь как в предыдущей gTTS-версии, без Silero/Piper)
 
 # ---------- ОЧИСТКА ТЕКСТА ОТ ЭМОДЗИ ----------
 def _clean_text_for_tts(text: str) -> str:
@@ -118,51 +25,27 @@ def _clean_text_for_tts(text: str) -> str:
     cleaned = re.sub(r'\s+', ' ', cleaned).strip()
     return cleaned
 
-# ---------- СИНТЕЗ РЕЧИ (RHVoice → MP3) ----------
+# ---------- СИНТЕЗ РЕЧИ (gTTS) ----------
 def text_to_speech(text: str, lang: str = 'ru') -> Optional[bytes]:
     text = _clean_text_for_tts(text)
     if not text:
         return None
 
-    # Пробуем RHVoice через subprocess
     try:
-        with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as wav_file:
-            wav_path = wav_file.name
-        # RHVoice-test или RHVoice-client, голос Anna (русский женский)
-        subprocess.run(
-            ['RHVoice-test', '-p', 'Anna', '-o', wav_path, '-i', '-'],
-            input=text.encode('utf-8'),
-            capture_output=True,
-            timeout=20
-        )
-        mp3_path = tempfile.NamedTemporaryFile(suffix='.mp3', delete=False).name
-        subprocess.run(
-            ['ffmpeg', '-i', wav_path, '-acodec', 'libmp3lame', '-ab', '64k', mp3_path],
-            capture_output=True, timeout=10
-        )
-        with open(mp3_path, 'rb') as f:
-            audio = f.read()
-        return audio
+        from gtts import gTTS
+        tts = gTTS(text=text, lang=lang, slow=False)
+        with tempfile.NamedTemporaryFile(suffix='.mp3', delete=False) as tmp:
+            tmp_path = tmp.name
+        tts.save(tmp_path)
+        with open(tmp_path, 'rb') as f:
+            audio_bytes = f.read()
+        os.unlink(tmp_path)
+        return audio_bytes
     except Exception as e:
-        print(f"Ошибка RHVoice: {e}")
-        # Fallback на gTTS
-        try:
-            from gtts import gTTS
-            tts = gTTS(text=text, lang='ru', slow=False)
-            with tempfile.NamedTemporaryFile(suffix='.mp3', delete=False) as tmp:
-                tmp_path = tmp.name
-            tts.save(tmp_path)
-            with open(tmp_path, 'rb') as f:
-                audio = f.read()
-            os.unlink(tmp_path)
-            return audio
-        except Exception as e2:
-            print(f"Ошибка gTTS: {e2}")
-            return None
-    finally:
-        for p in [wav_path, mp3_path]:
-            if os.path.exists(p):
-                os.unlink(p)
+        print(f"Ошибка синтеза речи (gTTS): {e}")
+        return None
+
+# ... (process_voice_message – без изменений)
 
 # ---------- ОСНОВНАЯ ОБРАБОТКА ГОЛОСОВОГО СООБЩЕНИЯ ----------
 def process_voice_message(message, bot, lang: str, pet_name: str) -> bool:
