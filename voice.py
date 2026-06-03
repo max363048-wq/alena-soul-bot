@@ -1,4 +1,4 @@
-# voice.py — Модуль голоса и слуха Алёны (через Hugging Face Space + fallback gTTS)
+# voice.py — Модуль голоса и слуха Алёны (HF Inference API Piper + ffmpeg)
 
 import os
 import re
@@ -7,6 +7,7 @@ import requests
 import tempfile
 import time
 import base64
+import subprocess
 from typing import Optional, Tuple, List
 
 # ---------- НАСТРОЙКИ ----------
@@ -14,8 +15,9 @@ CF_ACCOUNT_ID = os.getenv('CF_ACCOUNT_ID')
 CF_API_TOKEN = os.getenv('CF_API_TOKEN')
 WHISPER_MODEL = '@cf/openai/whisper'
 
-# URL твоего HF Space (замени, если отличается)
-HF_SPACE_URL = "https://max363048-alena-voice.hf.space"
+# Hugging Face Inference API (бесплатно, без сервера)
+HF_API_URL = "https://api-inference.huggingface.co/models/rhasspy/piper-voices"
+HF_API_TOKEN = os.getenv('HF_API_TOKEN')   # токен из https://huggingface.co/settings/tokens
 
 # YAMNet
 _YAMNET_MODEL = None
@@ -120,22 +122,47 @@ def _clean_text_for_tts(text: str) -> str:
     cleaned = re.sub(r'\s+', ' ', cleaned).strip()
     return cleaned
 
-# ---------- СИНТЕЗ РЕЧИ (HF Space → MP3) ----------
+# ---------- СИНТЕЗ РЕЧИ (HF Inference API → MP3 с ускорением) ----------
 def text_to_speech(text: str, lang: str = 'ru') -> Optional[bytes]:
     text = _clean_text_for_tts(text)
     if not text:
         return None
 
+    headers = {"Authorization": f"Bearer {HF_API_TOKEN}"}
+    payload = {
+        "inputs": text,
+        "parameters": {
+            "speaker_id": "irina",      # русский женский голос
+            "noise_scale": 0.85,
+            "length_scale": 1.0,
+            "noise_w": 0.8
+        }
+    }
+
     try:
-        resp = requests.post(
-            f"{HF_SPACE_URL}/synthesize",
-            json={"text": text},
-            timeout=30
-        )
-        if resp.status_code == 200:
-            return resp.content
+        resp = requests.post(HF_API_URL, headers=headers, json=payload, timeout=30)
+        if resp.status_code == 200 and resp.content:
+            # Сохраняем полученный WAV во временный файл
+            with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as wav_file:
+                wav_file.write(resp.content)
+                wav_path = wav_file.name
+
+            # Применяем ускорение и повышение тона
+            mp3_path = tempfile.NamedTemporaryFile(suffix='.mp3', delete=False).name
+            subprocess.run([
+                'ffmpeg', '-i', wav_path,
+                '-filter:a', 'atempo=1.35,asetrate=44100*1.25',
+                '-acodec', 'libmp3lame', '-ab', '64k', mp3_path
+            ], capture_output=True, timeout=15)
+
+            with open(mp3_path, 'rb') as f:
+                audio = f.read()
+
+            os.unlink(wav_path)
+            os.unlink(mp3_path)
+            return audio
         else:
-            print(f"Ошибка HF Space: {resp.status_code} {resp.text}")
+            print(f"Ошибка HF Inference API: {resp.status_code} {resp.text}")
             # Fallback на gTTS
             try:
                 from gtts import gTTS
@@ -151,20 +178,8 @@ def text_to_speech(text: str, lang: str = 'ru') -> Optional[bytes]:
                 print(f"Ошибка gTTS: {e}")
                 return None
     except Exception as e:
-        print(f"Ошибка запроса к HF: {e}")
-        # Fallback на gTTS при любой ошибке
-        try:
-            from gtts import gTTS
-            tts = gTTS(text=text, lang='ru', slow=False)
-            with tempfile.NamedTemporaryFile(suffix='.mp3', delete=False) as tmp:
-                tmp_path = tmp.name
-            tts.save(tmp_path)
-            with open(tmp_path, 'rb') as f:
-                audio = f.read()
-            os.unlink(tmp_path)
-            return audio
-        except:
-            return None
+        print(f"Ошибка запроса к HF API: {e}")
+        return None
 
 # ---------- ОСНОВНАЯ ОБРАБОТКА ГОЛОСОВОГО СООБЩЕНИЯ ----------
 def process_voice_message(message, bot, lang: str, pet_name: str) -> bool:
