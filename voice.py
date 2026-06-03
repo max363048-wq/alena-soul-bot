@@ -1,4 +1,4 @@
-# voice.py — Модуль голоса и слуха Алёны (предзагрузка Piper при старте)
+# voice.py — Полный модуль с UtrobinTTS и ruaccent
 
 import os
 import re
@@ -8,6 +8,7 @@ import tempfile
 import time
 import base64
 import subprocess
+import numpy as np
 from pathlib import Path
 from typing import Optional, Tuple, List
 
@@ -16,14 +17,15 @@ CF_ACCOUNT_ID = os.getenv('CF_ACCOUNT_ID')
 CF_API_TOKEN = os.getenv('CF_API_TOKEN')
 WHISPER_MODEL = '@cf/openai/whisper'
 
-# Путь к папке с моделями Piper
-MODELS_DIR = Path('piper_models')
-VOICE_NAME = 'ru_RU-irina-medium'
-MODEL_URL = f'https://huggingface.co/rhasspy/piper-voices/resolve/main/ru/ru_RU/irina/medium/{VOICE_NAME}.onnx'
-MODEL_CONFIG_URL = f'https://huggingface.co/rhasspy/piper-voices/resolve/main/ru/ru_RU/irina/medium/{VOICE_NAME}.onnx.json'
+# Путь для модели UtrobinTTS
+MODELS_DIR = Path('utrobin_models')
+MODEL_URL = 'https://huggingface.co/utrobinmv/tts_ru_free_hf_vits_low_multispeaker/resolve/main/model.onnx'
+TOKENIZER_NAME = 'utrobinmv/tts_ru_free_hf_vits_low_multispeaker'
 
-# Кеш голоса
-_piper_voice = None
+# Кеш для модели, токенизатора и акцентизатора
+_tts_session = None
+_tokenizer = None
+_accentizer = None
 
 # YAMNet
 _YAMNET_MODEL = None
@@ -122,7 +124,7 @@ def speech_to_text(audio_bytes: bytes, lang: str = 'ru') -> Optional[str]:
         print(f"Ошибка распознавания речи: {e}")
         return None
 
-# ---------- ЗАГРУЗКА МОДЕЛИ PIPER (ВЫЗЫВАЕТСЯ ПРИ СТАРТЕ) ----------
+# ---------- ЗАГРУЗКА МОДЕЛИ UTROBINTTS ----------
 def _download_file(url, dest_path):
     if not dest_path.exists():
         print(f"Скачиваю {dest_path.name} из {url}...")
@@ -136,23 +138,29 @@ def _download_file(url, dest_path):
         print(f"Файл {dest_path.name} уже существует.")
 
 def init_voice():
-    """Загружает модель Piper при старте бота. Вызвать из main.py."""
-    global _piper_voice
+    """Загружает модель UtrobinTTS, токенизатор и акцентизатор при старте."""
+    global _tts_session, _tokenizer, _accentizer
     MODELS_DIR.mkdir(exist_ok=True)
-    model_path = MODELS_DIR / f'{VOICE_NAME}.onnx'
-    config_path = MODELS_DIR / f'{VOICE_NAME}.onnx.json'
+    model_path = MODELS_DIR / 'model.onnx'
 
     try:
         _download_file(MODEL_URL, model_path)
-        _download_file(MODEL_CONFIG_URL, config_path)
 
-        import piper_tts
-        print("Загружаю модель Piper...")
-        _piper_voice = piper_tts.PiperVoice(str(model_path), str(config_path))
-        print("✅ Модель Piper успешно загружена!")
+        import onnxruntime
+        from transformers import AutoTokenizer
+        from ruaccent import RUAccent
+
+        print("Загружаю модель UtrobinTTS...")
+        _tts_session = onnxruntime.InferenceSession(str(model_path))
+        _tokenizer = AutoTokenizer.from_pretrained(TOKENIZER_NAME)
+        _accentizer = RUAccent()
+        _accentizer.load(omograph_model_size='turbo', use_dictionary=True)
+        print("✅ Модель UtrobinTTS успешно загружена!")
     except Exception as e:
-        print(f"❌ Ошибка загрузки модели Piper: {e}")
-        _piper_voice = None
+        print(f"❌ Ошибка загрузки UtrobinTTS: {e}")
+        _tts_session = None
+        _tokenizer = None
+        _accentizer = None
 
 # ---------- ОЧИСТКА ТЕКСТА ОТ ЭМОДЗИ ----------
 def _clean_text_for_tts(text: str) -> str:
@@ -160,18 +168,35 @@ def _clean_text_for_tts(text: str) -> str:
     cleaned = re.sub(r'\s+', ' ', cleaned).strip()
     return cleaned
 
-# ---------- СИНТЕЗ РЕЧИ (Piper → MP3) ----------
+# ---------- СИНТЕЗ РЕЧИ (UtrobinTTS) ----------
 def text_to_speech(text: str, lang: str = 'ru') -> Optional[bytes]:
     text = _clean_text_for_tts(text)
     if not text:
         return None
 
-    if _piper_voice is not None:
-        with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as wav_file:
-            wav_path = wav_file.name
-        mp3_path = tempfile.mktemp(suffix='.mp3')
+    if _tts_session is not None and _tokenizer is not None and _accentizer is not None:
+        wav_path = None
+        mp3_path = None
         try:
-            _piper_voice.say_to_file(text, wav_path)
+            # Расставляем ударения
+            text_with_stress = _accentizer.process_all(text)
+            # Токенизируем
+            inputs = _tokenizer(text_with_stress, return_tensors='np')
+            # Синтезируем (speaker_id=0 — женский голос)
+            outputs = _tts_session.run(None, {
+                'input_ids': inputs['input_ids'],
+                'attention_mask': inputs['attention_mask'],
+                'sid': np.array([0])
+            })
+            audio_np = outputs[0][0]
+            # Сохраняем во временный WAV
+            with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as wav_file:
+                wav_path = wav_file.name
+            import scipy.io.wavfile
+            scipy.io.wavfile.write(wav_path, 16000, audio_np)
+
+            # Конвертируем в MP3
+            mp3_path = tempfile.NamedTemporaryFile(suffix='.mp3', delete=False).name
             subprocess.run(
                 ['ffmpeg', '-i', wav_path, '-acodec', 'libmp3lame', '-ab', '64k', mp3_path],
                 capture_output=True, timeout=15
@@ -180,11 +205,11 @@ def text_to_speech(text: str, lang: str = 'ru') -> Optional[bytes]:
                 audio = f.read()
             return audio
         except Exception as e:
-            print(f"Ошибка синтеза Piper: {e}")
+            print(f"Ошибка синтеза UtrobinTTS: {e}")
             return None
         finally:
             for p in [wav_path, mp3_path]:
-                if os.path.exists(p):
+                if p and os.path.exists(p):
                     os.unlink(p)
     else:
         # Fallback на gTTS
