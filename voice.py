@@ -1,5 +1,3 @@
-# voice.py — Модуль голоса и слуха Алёны (Piper Irina-medium INT8 + ленивая загрузка, fallback gTTS)
-
 import os
 import re
 import json
@@ -21,17 +19,16 @@ MODELS_DIR = Path('piper_models')
 VOICE_NAME = 'ru_RU-irina-medium'
 MODEL_URL = f'https://huggingface.co/rhasspy/piper-voices/resolve/main/ru/ru_RU/irina/medium/{VOICE_NAME}.onnx'
 MODEL_CONFIG_URL = f'https://huggingface.co/rhasspy/piper-voices/resolve/main/ru/ru_RU/irina/medium/{VOICE_NAME}.onnx.json'
-INT8_MODEL_NAME = f'{VOICE_NAME}-int8.onnx'
 
-# Кеш для голоса (загружается только при первом синтезе)
+# Кеш для голоса (ленивая загрузка)
 _piper_voice = None
 
 # YAMNet
 _YAMNET_MODEL = None
 
-# ... (функции _load_yamnet, _get_sound_comment, _get_yamnet_class_names, speech_to_text – оставь без изменений, как в последней стабильной gTTS-версии)
+# ... (функции _load_yamnet, _get_sound_comment, _get_yamnet_class_names, speech_to_text – оставь без изменений)
 
-# ---------- ЗАГРУЗКА И КВАНТИЗАЦИЯ (ЛЕНИВАЯ) ----------
+# ---------- ЗАГРУЗКА МОДЕЛИ (ЛЕНИВАЯ, БЕЗ INT8) ----------
 def _download_file(url, dest_path):
     if not dest_path.exists():
         print(f"Скачиваю {dest_path.name} из {url}...")
@@ -52,73 +49,71 @@ def _load_piper():
     MODELS_DIR.mkdir(exist_ok=True)
     model_path = MODELS_DIR / f'{VOICE_NAME}.onnx'
     config_path = MODELS_DIR / f'{VOICE_NAME}.onnx.json'
-    int8_model_path = MODELS_DIR / INT8_MODEL_NAME
 
     try:
         _download_file(MODEL_URL, model_path)
         _download_file(MODEL_CONFIG_URL, config_path)
 
-        # Квантизация, если int8-версии ещё нет
-        if not int8_model_path.exists():
-            print("Выполняю квантизацию модели до INT8...")
-            from onnxruntime.quantization import quantize_dynamic, QuantType
-            quantize_dynamic(
-                str(model_path),
-                str(int8_model_path),
-                weight_type=QuantType.QInt8
-            )
-            print("Квантизация завершена.")
-
         import piper_tts
-        print("Загружаю модель Piper (INT8)...")
-        _piper_voice = piper_tts.PiperVoice(str(int8_model_path), str(config_path))
+        print("Загружаю модель Piper (обычная, без INT8)...")
+        _piper_voice = piper_tts.PiperVoice(str(model_path), str(config_path))
+        # Замедляем речь
+        _piper_voice.config.length_scale = 1.15
         print("✅ Модель Piper успешно загружена!")
         return _piper_voice
     except Exception as e:
-        print(f"❌ Ошибка загрузки/квантизации Piper: {e}")
+        print(f"❌ Ошибка загрузки Piper: {e}")
         _piper_voice = None
         return None
 
-# ---------- ОЧИСТКА ТЕКСТА ОТ ЭМОДЗИ ----------
-def _clean_text_for_tts(text: str) -> str:
+# ---------- ОЧИСТКА ТЕКСТА С ЭМОЦИОНАЛЬНЫМИ МАРКЕРАМИ ----------
+def _prepare_text_for_piper(text: str) -> str:
+    # Заменяем эмодзи на эмоциональные знаки препинания
+    text = text.replace("🤗", "!!")
+    text = text.replace("🥰", "!!")
+    text = text.replace("😘", "...")
+    text = text.replace("😊", "!")
+    # Удаляем оставшиеся эмодзи и спецсимволы
     cleaned = re.sub(r'[^\w\s.,!?:;—–-]', '', text)
     cleaned = re.sub(r'\s+', ' ', cleaned).strip()
-    return cleaned
+    # Разбиваем длинные фразы на короткие (для интонации)
+    sentences = re.split(r'(?<=[.!?…]) +', cleaned)
+    return '... '.join(sentences)  # добавляем паузы между фразами
 
-# ---------- СИНТЕЗ РЕЧИ (Piper → MP3, с fallback на gTTS) ----------
+# ---------- СИНТЕЗ РЕЧИ (Piper → OGG Opus) ----------
 def text_to_speech(text: str, lang: str = 'ru') -> Optional[bytes]:
-    text = _clean_text_for_tts(text)
-    if not text:
+    prepared_text = _prepare_text_for_piper(text)
+    if not prepared_text:
         return None
 
     voice = _load_piper()
     if voice is not None:
         wav_path = None
-        mp3_path = None
+        ogg_path = None
         try:
             with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as wav_file:
                 wav_path = wav_file.name
-            voice.say_to_file(text, wav_path)
-            mp3_path = tempfile.NamedTemporaryFile(suffix='.mp3', delete=False).name
+            voice.say_to_file(prepared_text, wav_path)
+            ogg_path = tempfile.NamedTemporaryFile(suffix='.ogg', delete=False).name
             subprocess.run(
-                ['ffmpeg', '-i', wav_path, '-acodec', 'libmp3lame', '-ab', '64k', mp3_path],
+                ['ffmpeg', '-i', wav_path, '-acodec', 'libopus', '-b:a', '32k', ogg_path],
                 capture_output=True, timeout=15
             )
-            with open(mp3_path, 'rb') as f:
+            with open(ogg_path, 'rb') as f:
                 audio = f.read()
             return audio
         except Exception as e:
             print(f"Ошибка синтеза Piper: {e}")
             return None
         finally:
-            for p in [wav_path, mp3_path]:
+            for p in [wav_path, ogg_path]:
                 if p and os.path.exists(p):
                     os.unlink(p)
     else:
         # Fallback на gTTS
         try:
             from gtts import gTTS
-            tts = gTTS(text=text, lang='ru', slow=False)
+            tts = gTTS(text=prepared_text, lang='ru', slow=False)
             with tempfile.NamedTemporaryFile(suffix='.mp3', delete=False) as tmp:
                 tmp_path = tmp.name
             tts.save(tmp_path)
