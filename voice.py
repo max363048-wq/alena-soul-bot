@@ -1,4 +1,4 @@
-# voice.py — Модуль голоса и слуха Алёны (Piper TTS, голос Irina)
+# voice.py — Модуль голоса и слуха Алёны (Piper TTS с логами и MP3)
 
 import os
 import re
@@ -16,13 +16,13 @@ CF_ACCOUNT_ID = os.getenv('CF_ACCOUNT_ID')
 CF_API_TOKEN = os.getenv('CF_API_TOKEN')
 WHISPER_MODEL = '@cf/openai/whisper'
 
-# Путь к папке с моделями Piper (создадим в корне репозитория)
+# Путь к папке с моделями Piper
 MODELS_DIR = Path('piper_models')
-VOICE_NAME = 'ru_RU-irina-medium'      # можно также ru_RU-irina-low для экономии ресурсов
+VOICE_NAME = 'ru_RU-irina-medium'
 MODEL_URL = f'https://huggingface.co/rhasspy/piper-voices/resolve/main/ru/ru_RU/irina/medium/{VOICE_NAME}.onnx'
 MODEL_CONFIG_URL = f'https://huggingface.co/rhasspy/piper-voices/resolve/main/ru/ru_RU/irina/medium/{VOICE_NAME}.onnx.json'
 
-# Переменные для кеша голосовой модели (загружается один раз)
+# Кеш голоса
 _piper_voice = None
 
 # YAMNet
@@ -124,17 +124,18 @@ def speech_to_text(audio_bytes: bytes, lang: str = 'ru') -> Optional[str]:
 
 # ---------- ЗАГРУЗКА МОДЕЛИ PIPER ----------
 def _download_file(url, dest_path):
-    """Скачивает файл, если его ещё нет."""
     if not dest_path.exists():
-        print(f"Скачиваю {dest_path.name}...")
+        print(f"Скачиваю {dest_path.name} из {url}...")
         resp = requests.get(url, stream=True)
         resp.raise_for_status()
         with open(dest_path, 'wb') as f:
             for chunk in resp.iter_content(chunk_size=8192):
                 f.write(chunk)
+        print(f"Файл {dest_path.name} успешно скачан.")
+    else:
+        print(f"Файл {dest_path.name} уже существует.")
 
 def _load_piper_voice():
-    """Загружает голос Piper (один раз)."""
     global _piper_voice
     if _piper_voice is not None:
         return _piper_voice
@@ -148,11 +149,16 @@ def _load_piper_voice():
 
     try:
         import piper_tts
+        print("Загружаю модель Piper...")
         voice = piper_tts.PiperVoice(str(model_path), str(config_path))
         _piper_voice = voice
+        print("Модель Piper успешно загружена!")
         return voice
     except ImportError:
-        print("⚠️ piper-tts не установлен. pip install piper-tts")
+        print("⚠️ piper-tts не установлен.")
+        return None
+    except Exception as e:
+        print(f"Ошибка загрузки модели Piper: {e}")
         return None
 
 # ---------- ОЧИСТКА ТЕКСТА ОТ ЭМОДЗИ ----------
@@ -161,16 +167,36 @@ def _clean_text_for_tts(text: str) -> str:
     cleaned = re.sub(r'\s+', ' ', cleaned).strip()
     return cleaned
 
-# ---------- СИНТЕЗ РЕЧИ (Piper) ----------
+# ---------- СИНТЕЗ РЕЧИ (Piper → MP3) ----------
 def text_to_speech(text: str, lang: str = 'ru') -> Optional[bytes]:
-    """Синтезирует голос Алёны через Piper TTS (голос Irina)."""
     text = _clean_text_for_tts(text)
     if not text:
         return None
 
     voice = _load_piper_voice()
-    if voice is None:
-        # fallback на gTTS, если piper не загрузился
+    if voice is not None:
+        # Генерация через Piper
+        with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as wav_file:
+            wav_path = wav_file.name
+        mp3_path = tempfile.mktemp(suffix='.mp3')
+        try:
+            voice.say_to_file(text, wav_path)
+            subprocess.run(
+                ['ffmpeg', '-i', wav_path, '-acodec', 'libmp3lame', '-ab', '64k', mp3_path],
+                capture_output=True, timeout=15
+            )
+            with open(mp3_path, 'rb') as f:
+                audio = f.read()
+            return audio
+        except Exception as e:
+            print(f"Ошибка синтеза Piper: {e}")
+            return None
+        finally:
+            for p in [wav_path, mp3_path]:
+                if os.path.exists(p):
+                    os.unlink(p)
+    else:
+        # Fallback на gTTS
         try:
             from gtts import gTTS
             tts = gTTS(text=text, lang='ru', slow=False)
@@ -182,30 +208,8 @@ def text_to_speech(text: str, lang: str = 'ru') -> Optional[bytes]:
             os.unlink(tmp_path)
             return audio
         except Exception as e:
-            print(f"Ошибка синтеза речи (gTTS fallback): {e}")
+            print(f"Ошибка gTTS: {e}")
             return None
-
-    # Генерация WAV через Piper
-    with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as wav_file:
-        wav_path = wav_file.name
-    try:
-        voice.say_to_file(text, wav_path)
-        # Конвертация WAV в OGG (Opus) для отправки голосового сообщения
-        ogg_path = tempfile.mktemp(suffix='.ogg')
-        subprocess.run(
-            ['ffmpeg', '-i', wav_path, '-acodec', 'libopus', '-b:a', '16k', ogg_path],
-            capture_output=True, timeout=15
-        )
-        with open(ogg_path, 'rb') as f:
-            audio = f.read()
-        return audio
-    except Exception as e:
-        print(f"Ошибка синтеза речи (Piper): {e}")
-        return None
-    finally:
-        for p in [wav_path, ogg_path]:
-            if os.path.exists(p):
-                os.unlink(p)
 
 # ---------- ОСНОВНАЯ ОБРАБОТКА ГОЛОСОВОГО СООБЩЕНИЯ ----------
 def process_voice_message(message, bot, lang: str, pet_name: str) -> bool:
