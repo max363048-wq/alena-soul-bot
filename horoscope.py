@@ -97,6 +97,13 @@ def horoscope_cmd(message: telebot.types.Message, bot, client, user_lang, user_z
 def handle_natural_horoscope(message: telebot.types.Message, bot, client, user_lang, user_zodiac, user_timezone, save_user_zodiac, add_message, save_user_history, pet_name: str = ''):
     user_id = message.from_user.id
     user_text = message.text
+    
+    # Защита от повторного гороскопа при похвале
+    if re.search(r'(отличный гороскоп|классный гороскоп|супер гороскоп|хороший гороскоп|спасибо за гороскоп|правда же\?|здорово|круто)', user_text, re.IGNORECASE):
+        # Если нет явной просьбы рассказать новый гороскоп
+        if not re.search(r'(расскажи|составь|какой будет|предскажи|покажи|дай|напиши)', user_text, re.IGNORECASE):
+            return False
+    
     if re.search(r'(расскажи гороскоп|составь гороскоп|какой гороскоп|что говорят звёзды|предскажи гороскоп|расскажи мне гороскоп)', user_text, re.IGNORECASE):
         if user_id in user_zodiac:
             sign = user_zodiac[user_id]
