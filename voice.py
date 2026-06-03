@@ -21,8 +21,13 @@ _YAMNET_MODEL = None
 
 # ---------- ОЧИСТКА ТЕКСТА ОТ ЭМОДЗИ ----------
 def _clean_text_for_tts(text: str) -> str:
+    # Удаляем эмодзи
     cleaned = re.sub(r'[^\w\s.,!?:;—–-]', '', text)
     cleaned = re.sub(r'\s+', ' ', cleaned).strip()
+    # Добавляем эмоциональные знаки в конце восклицательных фраз
+    # Если текст заканчивается на "!" и не имеет "..." или "?" в конце, добавляем паузу
+    if cleaned.endswith('!') and not cleaned.endswith('...'):
+        cleaned += '...'
     return cleaned
 
 # ---------- СИНТЕЗ РЕЧИ (gTTS) ----------
