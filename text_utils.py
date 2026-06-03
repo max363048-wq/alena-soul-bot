@@ -44,6 +44,7 @@ def clean_english_words(text: str) -> str:
         r'\bnot\b': 'не',
         r'\blater\b': 'позже',
         r'\bmaybe\b': 'возможно',
+        r'\binside\b': 'внутри',
         r'\bjust\b': 'просто',
         r'\bnow\b': 'сейчас',
         r'\bwell\b': 'ну',
