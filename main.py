@@ -1,4 +1,5 @@
-# main.py — Лёгкий диспетчер Алёны (исправлен приоритет творческих функций)
+# main.py — Лёгкий диспетчер Алёны (пол, фото, голос, все правки)
+
 import os
 import telebot
 import re
@@ -495,14 +496,20 @@ def handle_message(message: telebot.types.Message) -> None:
     if re.search(r'(гороскоп|погода|погоду|погоде|историю|истории|история|творчеств|вдохнови|расскажи гороскоп|расскажи мне гороскоп|расскажи историю|расскажи мне историю|расскажи какую)', user_text, re.IGNORECASE):
         photos.user_pending_photo_offer[user_id] = False
 
-    # Проверка предложения показать фото
+    # Проверка предложения показать фото (ИСПРАВЛЕНО)
     if photos.user_pending_photo_offer.get(user_id) and re.search(r'\b(давай|покажи|показывай|хочу|конечно|ага|да|yes|ok|ок)\b', user_text, re.IGNORECASE):
-        if photos.handle_photo_request(user_id, user_text, lang, bot, message, client,
-                                       add_message, save_user_history, save_user_last_photo,
-                                       save_user_last_favorite_photo):
+        if photos.show_random_photo(user_id, lang, bot, message, client,
+                                    add_message, save_user_history, save_user_last_photo,
+                                    save_user_last_favorite_photo):
             photos.user_pending_photo_offer[user_id] = False
             user_photo_just_sent[user_id] = True
-            return
+        else:
+            try:
+                bot.send_message(message.chat.id, "Ой, не получилось показать фото 😅 Давай попробуем позже?")
+            except:
+                pass
+            photos.user_pending_photo_offer[user_id] = False
+        return
 
     # --- Обработка запросов фото через модуль ---
     if photos.handle_photo_request(user_id, user_text, lang, bot, message, client,
@@ -511,7 +518,7 @@ def handle_message(message: telebot.types.Message) -> None:
         user_photo_just_sent[user_id] = True
         return
 
-    # --- Творческие функции (ПРОВЕРЯЮТСЯ ДО ВОПРОСОВ О ФОТО) ---
+    # --- Творческие функции (проверяются ДО вопросов о фото) ---
     if re.search(r'(расскажи историю|расскажи мне историю|расскажи какую-нибудь историю|расскажи какую нибудь историю|придумай историю|напиши рассказ|какие нибудь истории|знаешь истории|ты можешь рассказать историю)', user_text, re.IGNORECASE):
         prompt = user_text
         story = stories.generate_story(prompt, user_id, lang, client, os.getenv('GIST_ID'))
@@ -535,7 +542,7 @@ def handle_message(message: telebot.types.Message) -> None:
         save_user_history()
         return
 
-    # --- Вопросы о последнем фото (БЕЗ опасных фраз) ---
+    # --- Вопросы о последнем фото (без опасных фраз) ---
     lower_text = user_text.lower()
     is_photo_question = any(phrase in lower_text for phrase in [
         'где была сделана', 'какое место', 'что там за фон', 'где это', 'какой город',
@@ -732,7 +739,7 @@ def run_web():
 
 threading.Thread(target=run_web, daemon=True).start()
 
-voice.init_voice()   # <-- загрузка модели Piper при старте
+voice.init_voice()   # загрузка модели Piper при старте
 
 if __name__ == '__main__':
     print('✅ Алёна — финальная, язык в Gist, шутки без повторов, Render-ready, история в Gist')
