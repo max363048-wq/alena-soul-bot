@@ -732,6 +732,8 @@ def run_web():
 
 threading.Thread(target=run_web, daemon=True).start()
 
+voice.init_voice()   # <-- загрузка модели Piper при старте
+
 if __name__ == '__main__':
     print('✅ Алёна — финальная, язык в Gist, шутки без повторов, Render-ready, история в Gist')
     try:
