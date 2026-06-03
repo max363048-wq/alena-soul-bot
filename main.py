@@ -638,7 +638,7 @@ def handle_message(message: telebot.types.Message) -> None:
             pass
         return
 
-    if re.search(r'(вдохнов|мотивируй|подними дух|пожелай|скажи что-то хорошее)', user_text, re.IGNORECASE):
+    if re.search(r'(вдохнов|мотивируй|мотивировать|мотиваци|подними дух|пожелай|скажи что-то хорошее)', user_text, re.IGNORECASE):
         try:
             bot.send_message(message.chat.id, distribute_emojis(get_motivation(lang)))
         except:
