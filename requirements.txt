@@ -5,3 +5,4 @@ flask
 gtts
 piper-tts
 onnxruntime
+requests
