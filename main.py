@@ -1,4 +1,4 @@
-# main.py — Лёгкий диспетчер Алёны (грубость блокирует, опасные темы — мягкий уход, голос через Space с обрезанием)
+# main.py — финальная версия для работы с Silero TTS (без обрезания текста)
 
 import os
 import telebot
@@ -418,7 +418,7 @@ def reset_cmd(message: telebot.types.Message) -> None:
         print(f'Ошибка reset_cmd: {e}')
         traceback.print_exc()
 
-# --- Команда для голоса (с обрезанием длинного текста) ---
+# --- Команда для голоса (прямой вызов Space, без обрезания текста) ---
 @bot.message_handler(commands=['voice'])
 def voice_cmd(message: telebot.types.Message) -> None:
     user_id = message.from_user.id
@@ -436,17 +436,15 @@ def voice_cmd(message: telebot.types.Message) -> None:
         import traceback
         HF_SPACE_URL = "https://max363048-alena-voice.hf.space"
         try:
+            # Очищаем текст от эмодзи, но НЕ обрезаем по длине
             clean_text = re.sub(r'[\U0001F000-\U0001FFFF\u2600-\u27BF]', '', text_to_say)
             clean_text = re.sub(r'\s+', ' ', clean_text).strip()
-            # Обрезаем до 500 символов (защита от слишком длинных историй)
-            if len(clean_text) > 500:
-                clean_text = clean_text[:500] + "..."
             payload = {"text": clean_text}
-            print(f"[TTS] Отправка запроса в Space: {HF_SPACE_URL}/synthesize, текст: {clean_text[:100]}...")
+            print(f"[TTS] Отправка запроса в Space, длина текста: {len(clean_text)}")
             resp = requests.post(f"{HF_SPACE_URL}/synthesize", json=payload, timeout=45)
             print(f"[TTS] Ответ Space: статус {resp.status_code}, длина контента {len(resp.content) if resp.content else 0}")
             if resp.status_code == 200 and resp.content:
-                with tempfile.NamedTemporaryFile(suffix='.mp3', delete=False) as tmp:
+                with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp:
                     tmp.write(resp.content)
                     tmp.flush()
                     with open(tmp.name, 'rb') as f:
@@ -735,13 +733,13 @@ def handle_message(message: telebot.types.Message) -> None:
                 model='llama-3.1-8b-instant',
                 messages=messages,
                 temperature=0.8,
-                max_tokens=600,   # увеличено с 400 до 600
+                max_tokens=600,
                 timeout=10
             )
             reply = response.choices[0].message.content.strip()
             reply = clean_english_words(reply)
             reply = remove_non_russian(reply)
-            reply = clean_profanity(reply)   # фильтр мата в исходящих сообщениях
+            reply = clean_profanity(reply)
             reply = distribute_emojis(reply)
             try:
                 bot.send_message(message.chat.id, reply)
@@ -780,7 +778,7 @@ def run_web():
 threading.Thread(target=run_web, daemon=True).start()
 
 if __name__ == '__main__':
-    print('✅ Алёна — фильтр мата, увеличен max_tokens, пункт 18, обрезание текста для TTS')
+    print('✅ Алёна — Silero TTS (без обрезания текста), фильтры, увеличена длина ответов')
     try:
         bot.infinity_polling()
     except Exception as e:
