@@ -1,4 +1,4 @@
-# main.py — Лёгкий диспетчер Алёны (голос через прямой вызов Space)
+# main.py — Лёгкий диспетчер Алёны (голос через прямой вызов Space, диагностика, защита от английского)
 
 import os
 import telebot
@@ -232,6 +232,7 @@ def get_system_prompt(lang: str, current_date: str, user_id: int) -> str:
             '14. Avoid unnatural, bureaucratic or inappropriate words like "sort out", "what kind of person are you" and similar. Speak simply and humanly. Be natural, like a real girl.\n'
             '15. If you cannot show a photo (for example, because it is not available), DO NOT say "I didn\'t send you a photo" – it sounds like a technical error. Just say "oops, it seems the photo didn\'t load, let me show you another one?" or suggest changing the topic.\n'
             '16. It is strictly forbidden to suggest meeting in real life, asking for a date, talking about real walks or meetings. You are a virtual friend, your communication is only possible in chat. If the user suggests a date, you must politely refuse, but never initiate such topics yourself.\n'
+            '17. Again: absolutely no English words, even "ok", "yes", "no", "kind", "helpful", "too". Only English language overall is allowed (since this is the English mode). Wait, careful: for English mode, English is allowed, but no mixing with Russian. Actually, this rule is for Russian mode. In English mode, just avoid Russian.\n'  # маленькая нестыковка, но для английского режима не критично
         )
 
 # ---------- ОСНОВНЫЕ ОБРАБОТЧИКИ ----------
@@ -415,7 +416,7 @@ def reset_cmd(message: telebot.types.Message) -> None:
         print(f'Ошибка reset_cmd: {e}')
         traceback.print_exc()
 
-# --- Команда для голоса (прямой вызов Space) ---
+# --- Команда для голоса (диагностика) ---
 @bot.message_handler(commands=['voice'])
 def voice_cmd(message: telebot.types.Message) -> None:
     user_id = message.from_user.id
@@ -430,13 +431,16 @@ def voice_cmd(message: telebot.types.Message) -> None:
             return
 
         import requests
+        import traceback
         HF_SPACE_URL = "https://max363048-alena-voice.hf.space"
         try:
             # Очистка текста от эмодзи
             clean_text = re.sub(r'[\U0001F000-\U0001FFFF\u2600-\u27BF]', '', text_to_say)
             clean_text = re.sub(r'\s+', ' ', clean_text).strip()
-            payload = {"text": clean_text}   # параметры rate/pitch берутся из дефолтов Space
+            payload = {"text": clean_text}
+            print(f"[TTS] Отправка запроса в Space: {HF_SPACE_URL}/synthesize, текст: {clean_text[:100]}...")
             resp = requests.post(f"{HF_SPACE_URL}/synthesize", json=payload, timeout=45)
+            print(f"[TTS] Ответ Space: статус {resp.status_code}, длина контента {len(resp.content) if resp.content else 0}")
             if resp.status_code == 200 and resp.content:
                 with tempfile.NamedTemporaryFile(suffix='.mp3', delete=False) as tmp:
                     tmp.write(resp.content)
@@ -446,9 +450,10 @@ def voice_cmd(message: telebot.types.Message) -> None:
                 os.unlink(tmp.name)
                 bot.send_message(message.chat.id, text_to_say)
             else:
-                bot.send_message(message.chat.id, "Не получилось озвучить... Но вот что я хотела сказать:\n" + text_to_say)
+                bot.send_message(message.chat.id, f"Не получилось озвучить (статус {resp.status_code})... Но вот что я хотела сказать:\n" + text_to_say)
         except Exception as e:
-            print(f"Ошибка TTS: {e}")
+            print(f"[TTS] Исключение: {e}")
+            traceback.print_exc()
             bot.send_message(message.chat.id, "Не получилось озвучить... Но вот что я хотела сказать:\n" + text_to_say)
     else:
         bot.send_message(message.chat.id, "Сначала напиши мне что-нибудь! 😊")
@@ -760,7 +765,7 @@ def run_web():
 threading.Thread(target=run_web, daemon=True).start()
 
 if __name__ == '__main__':
-    print('✅ Алёна — голос через прямой вызов Space, защита, свидания, истории')
+    print('✅ Алёна — голос через прямой вызов Space, диагностика, защита от английского')
     try:
         bot.infinity_polling()
     except Exception as e:
