@@ -1,4 +1,4 @@
-# main.py — Лёгкий диспетчер Алёны (с защитой от грубости и свиданий)
+# main.py — Лёгкий диспетчер Алёны (с защитой и прямым вызовом TTS)
 
 import os
 import telebot
@@ -20,8 +20,8 @@ import weather
 import horoscope
 import memory
 import gender
-import voice
-import safety  # новый модуль фильтрации
+import stt          # вместо voice
+import safety
 from text_utils import clean_english_words, remove_non_russian, distribute_emojis, SAFE_EMOJIS
 
 BOT_TOKEN = os.getenv('BOT_TOKEN')
@@ -41,7 +41,7 @@ user_zodiac: Dict[int, str] = {}
 user_timezone: Dict[int, int] = {}
 user_gender: Dict[int, str] = {}
 user_awaiting_gender: Dict[int, bool] = {}
-user_dating_attempts: Dict[int, int] = {}  # для подсчёта предложений свиданий
+user_dating_attempts: Dict[int, int] = {}
 
 user_just_gave_horoscope: Dict[int, bool] = {}
 user_photo_just_sent: Dict[int, bool] = {}
@@ -414,7 +414,7 @@ def reset_cmd(message: telebot.types.Message) -> None:
         print(f'Ошибка reset_cmd: {e}')
         traceback.print_exc()
 
-# --- Команда для голоса ---
+# --- Команда для голоса (прямой вызов Space) ---
 @bot.message_handler(commands=['voice'])
 def voice_cmd(message: telebot.types.Message) -> None:
     user_id = message.from_user.id
@@ -427,20 +427,28 @@ def voice_cmd(message: telebot.types.Message) -> None:
         else:
             bot.send_message(message.chat.id, "У меня пока нет сообщений, которые можно озвучить 😊")
             return
-        audio = voice.text_to_speech(text_to_say, lang)
-        if audio:
-            try:
+
+        # Прямой вызов Space (Edge TTS)
+        import requests
+        HF_SPACE_URL = "https://max363048-alena-voice.hf.space"
+        try:
+            # Очищаем текст от эмодзи (простая очистка)
+            clean_text = re.sub(r'[\U0001F000-\U0001FFFF\u2600-\u27BF]', '', text_to_say)
+            clean_text = re.sub(r'\s+', ' ', clean_text).strip()
+            payload = {"text": clean_text}
+            resp = requests.post(f"{HF_SPACE_URL}/synthesize", json=payload, timeout=45)
+            if resp.status_code == 200 and resp.content:
                 with tempfile.NamedTemporaryFile(suffix='.mp3', delete=False) as tmp:
-                    tmp.write(audio)
+                    tmp.write(resp.content)
                     tmp.flush()
                     with open(tmp.name, 'rb') as f:
                         bot.send_voice(message.chat.id, f)
                 os.unlink(tmp.name)
                 bot.send_message(message.chat.id, text_to_say)
-            except Exception as e:
-                print(f"Ошибка отправки голоса: {e}")
+            else:
                 bot.send_message(message.chat.id, "Не получилось озвучить... Но вот что я хотела сказать:\n" + text_to_say)
-        else:
+        except Exception as e:
+            print(f"Ошибка TTS: {e}")
             bot.send_message(message.chat.id, "Не получилось озвучить... Но вот что я хотела сказать:\n" + text_to_say)
     else:
         bot.send_message(message.chat.id, "Сначала напиши мне что-нибудь! 😊")
@@ -465,22 +473,10 @@ def handle_message(message: telebot.types.Message) -> None:
                                       user_gender, user_awaiting_gender, bot, message, save_user_gender):
         return
 
-    # --- Обработка голосовых сообщений ---
+    # --- Обработка голосовых сообщений (через stt) ---
     if message.content_type == 'voice':
-        try:
-            file_info = bot.get_file(message.voice.file_id)
-            downloaded = bot.download_file(file_info.file_path)
-            text = voice.speech_to_text(downloaded, lang)
-            if text:
-                message.text = text
-                user_text = text
-            else:
-                bot.send_message(message.chat.id, "Прости, я не смогла разобрать твой голос... Может, напишешь? 😊")
-                return
-        except Exception as e:
-            print(f"Ошибка получения голосового: {e}")
-            bot.send_message(message.chat.id, "Что-то не так с голосовым сообщением... Попробуй ещё раз 😊")
-            return
+        stt.process_voice_message(message, bot, lang, pet_name)
+        return
 
     if message.content_type == 'photo':
         photos.user_pending_photo_offer[user_id] = False
@@ -538,8 +534,7 @@ def handle_message(message: telebot.types.Message) -> None:
         user_photo_just_sent[user_id] = True
         return
 
-    # --- Творческие функции (проверяются ДО вопросов о фото) ---
-    # РАСШИРЕННОЕ РЕГУЛЯРНОЕ ВЫРАЖЕНИЕ ДЛЯ ИСТОРИЙ
+    # --- Творческие функции ---
     if re.search(r'\b(расскажи|поделись|напиши|придумай|дай).*(историю|рассказ|истории)\b|\bисторию\s*[\.\?!)]*$', user_text, re.IGNORECASE):
         prompt = user_text
         story = stories.generate_story(prompt, user_id, lang, client, os.getenv('GIST_ID'))
@@ -563,7 +558,7 @@ def handle_message(message: telebot.types.Message) -> None:
         save_user_history()
         return
 
-    # --- Вопросы о последнем фото (без опасных фраз) ---
+    # --- Вопросы о последнем фото ---
     lower_text = user_text.lower()
     is_photo_question = any(phrase in lower_text for phrase in [
         'где была сделана', 'какое место', 'что там за фон', 'где это', 'какой город',
@@ -765,7 +760,7 @@ def run_web():
 threading.Thread(target=run_web, daemon=True).start()
 
 if __name__ == '__main__':
-    print('✅ Алёна — с защитой от грубости и свиданий')
+    print('✅ Алёна — с защитой и прямым TTS')
     try:
         bot.infinity_polling()
     except Exception as e:
