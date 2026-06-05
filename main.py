@@ -1,4 +1,4 @@
-# main.py — Лёгкий диспетчер Алёны (с защитой и прямым вызовом TTS)
+# main.py — Лёгкий диспетчер Алёны (голос через прямой вызов Space)
 
 import os
 import telebot
@@ -20,7 +20,7 @@ import weather
 import horoscope
 import memory
 import gender
-import stt          # вместо voice
+import stt                     # вместо voice
 import safety
 from text_utils import clean_english_words, remove_non_russian, distribute_emojis, SAFE_EMOJIS
 
@@ -428,14 +428,13 @@ def voice_cmd(message: telebot.types.Message) -> None:
             bot.send_message(message.chat.id, "У меня пока нет сообщений, которые можно озвучить 😊")
             return
 
-        # Прямой вызов Space (Edge TTS)
         import requests
         HF_SPACE_URL = "https://max363048-alena-voice.hf.space"
         try:
-            # Очищаем текст от эмодзи (простая очистка)
+            # Очистка текста от эмодзи
             clean_text = re.sub(r'[\U0001F000-\U0001FFFF\u2600-\u27BF]', '', text_to_say)
             clean_text = re.sub(r'\s+', ' ', clean_text).strip()
-            payload = {"text": clean_text}
+            payload = {"text": clean_text}   # параметры rate/pitch берутся из дефолтов Space
             resp = requests.post(f"{HF_SPACE_URL}/synthesize", json=payload, timeout=45)
             if resp.status_code == 200 and resp.content:
                 with tempfile.NamedTemporaryFile(suffix='.mp3', delete=False) as tmp:
@@ -473,7 +472,7 @@ def handle_message(message: telebot.types.Message) -> None:
                                       user_gender, user_awaiting_gender, bot, message, save_user_gender):
         return
 
-    # --- Обработка голосовых сообщений (через stt) ---
+    # --- Обработка голосовых сообщений через stt ---
     if message.content_type == 'voice':
         stt.process_voice_message(message, bot, lang, pet_name)
         return
@@ -760,7 +759,7 @@ def run_web():
 threading.Thread(target=run_web, daemon=True).start()
 
 if __name__ == '__main__':
-    print('✅ Алёна — с защитой и прямым TTS')
+    print('✅ Алёна — голос через прямой вызов Space, защита, свидания, истории')
     try:
         bot.infinity_polling()
     except Exception as e:
