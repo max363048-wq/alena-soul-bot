@@ -1,14 +1,31 @@
-# text_utils.py — Общие функции очистки текста
+# text_utils.py — Общие функции очистки текста, включая фильтрацию мата
 import re
 import random
 
 SAFE_EMOJIS = ['😊', '💖', '✨', '😄', '😘', '🥰', '💕', '🤗']
 
+# Фильтр мата для исходящих сообщений (чтобы Алёна случайно не выдала нецензурное)
+PROFANITY_FILTER = {
+    r'хуй': '...', r'хуя': '...', r'хую': '...', r'хуём': '...', r'хуё': '...',
+    r'пизд': '...', r'пизж': '...', r'бляд': '...', r'блять': '...', r'бля': '...',
+    r'ебат': '...', r'ёбат': '...', r'ебу': '...', r'ёбу': '...', r'ебан': '...',
+    r'заеб': '...', r'заёб': '...', r'долбоеб': '...', r'мудак': '...', r'пидор': '...',
+    r'гандон': '...', r'шлюх': '...', r'проститутк': '...', r'сука': '...', r'сук[аи]': '...',
+    r'уеб': '...', r'уёб': '...', r'хуесос': '...', r'хер': '...', r'хрень': '...'
+}
+
+def clean_profanity(text: str) -> str:
+    """Заменяет матерные слова на '...' (для исходящих сообщений)."""
+    if not text:
+        return text
+    for pattern, repl in PROFANITY_FILTER.items():
+        text = re.sub(pattern, repl, text, flags=re.IGNORECASE)
+    return text
+
 def clean_english_words(text: str) -> str:
     if not text:
         return text
     
-    # Расширенный словарь замен (добавлены новые)
     reps = {
         r'\balmost\b': 'почти',
         r'\btemperature\b': 'температура',
@@ -103,14 +120,9 @@ def clean_english_words(text: str) -> str:
         r'\bsettlement\b': 'посёлок',
         r'\brootovat\b': 'болеть',
         r'\broot\b': 'болею',
-        # НОВЫЕ ЗАМЕНЫ (по результатам тестов)
         r'\bkind\b': 'добрый',
         r'\bhelpful\b': 'полезной',
         r'\btoo\b': 'слишком',
-        r'\bvery\b': 'очень',
-        r'\bso\b': 'так',
-        r'\bgood\b': 'хороший',
-        r'\bgreat\b': 'отлично',
         r'\bperfect\b': 'идеально',
         r'\bnice\b': 'мило',
         r'\bawesome\b': 'потрясающе',
@@ -159,134 +171,15 @@ def clean_english_words(text: str) -> str:
         r'\bcheerful\b': 'жизнерадостный',
         r'\bpositive\b': 'позитивный',
         r'\bnegative\b': 'негативный',
-        r'\boptimistic\b': 'оптимистичный',
-        r'\bpessimistic\b': 'пессимистичный',
         r'\breal\b': 'реальный',
         r'\bvirtual\b': 'виртуальный',
-        r'\bdigital\b': 'цифровой',
-        r'\bonline\b': 'онлайн',
-        r'\boffline\b': 'офлайн',
-        r'\bchat\b': 'чат',
-        r'\bmessage\b': 'сообщение',
-        r'\btext\b': 'текст',
-        r'\bvoice\b': 'голос',
-        r'\bphoto\b': 'фото',
-        r'\bpicture\b': 'картинка',
-        r'\bimage\b': 'изображение',
-        r'\bvideo\b': 'видео',
-        r'\bmusic\b': 'музыка',
-        r'\bfilm\b': 'фильм',
-        r'\bmovie\b': 'кино',
-        r'\bshow\b': 'шоу',
-        r'\bgame\b': 'игра',
-        r'\bplay\b': 'играть',
-        r'\bwork\b': 'работать',
-        r'\bstudy\b': 'учиться',
-        r'\blearn\b': 'учить',
-        r'\bknow\b': 'знать',
-        r'\bunderstand\b': 'понимать',
-        r'\bremember\b': 'помнить',
-        r'\bforget\b': 'забывать',
-        r'\bthink\b': 'думать',
-        r'\bbelieve\b': 'верить',
-        r'\bhope\b': 'надеяться',
-        r'\bwish\b': 'желать',
-        r'\blove\b': 'любить',
-        r'\blike\b': 'нравиться',
-        r'\bhate\b': 'ненавидеть',
-        r'\bfeel\b': 'чувствовать',
-        r'\bsee\b': 'видеть',
-        r'\blook\b': 'смотреть',
-        r'\bwatch\b': 'смотреть',
-        r'\blisten\b': 'слушать',
-        r'\bhear\b': 'слышать',
-        r'\bsay\b': 'сказать',
-        r'\btell\b': 'рассказать',
-        r'\bspeak\b': 'говорить',
-        r'\btalk\b': 'разговаривать',
-        r'\bask\b': 'спросить',
-        r'\banswer\b': 'ответить',
-        r'\bquestion\b': 'вопрос',
-        r'\banswer\b': 'ответ',
-        r'\bproblem\b': 'проблема',
-        r'\bsolution\b': 'решение',
-        r'\bidea\b': 'идея',
-        r'\bthought\b': 'мысль',
-        r'\bfeeling\b': 'чувство',
-        r'\bemotion\b': 'эмоция',
-        r'\bfriend\b': 'друг',
-        r'\bfamily\b': 'семья',
-        r'\bpeople\b': 'люди',
-        r'\bperson\b': 'человек',
-        r'\bman\b': 'мужчина',
-        r'\bwoman\b': 'женщина',
-        r'\bgirl\b': 'девушка',
-        r'\bboy\b': 'парень',
-        r'\bchild\b': 'ребёнок',
-        r'\bday\b': 'день',
-        r'\bnight\b': 'ночь',
-        r'\bmorning\b': 'утро',
-        r'\bevening\b': 'вечер',
-        r'\bafternoon\b': 'день',
-        r'\bweek\b': 'неделя',
-        r'\bmonth\b': 'месяц',
-        r'\byear\b': 'год',
-        r'\btoday\b': 'сегодня',
-        r'\byesterday\b': 'вчера',
-        r'\btomorrow\b': 'завтра',
-        r'\bnow\b': 'сейчас',
-        r'\bthen\b': 'тогда',
-        r'\balways\b': 'всегда',
-        r'\bnever\b': 'никогда',
-        r'\boften\b': 'часто',
-        r'\bsometimes\b': 'иногда',
-        r'\busually\b': 'обычно',
-        r'\balready\b': 'уже',
-        r'\bstill\b': 'всё ещё',
-        r'\byet\b': 'ещё',
-        r'\balso\b': 'также',
-        r'\bas well\b': 'также',
-        r'\bthen\b': 'затем',
-        r'\bfirst\b': 'сначала',
-        r'\bsecond\b': 'второй',
-        r'\blast\b': 'последний',
-        r'\bnext\b': 'следующий',
-        r'\bprevious\b': 'предыдущий',
-        r'\banother\b': 'другой',
-        r'\bother\b': 'другой',
-        r'\bsame\b': 'тот же',
-        r'\bdifferent\b': 'разный',
-        r'\bspecial\b': 'особенный',
-        r'\busual\b': 'обычный',
-        r'\bnormal\b': 'нормальный',
-        r'\bstrange\b': 'странный',
-        r'\bweird\b': 'странный',
-        r'\bfunny\b': 'смешной',
-        r'\bserious\b': 'серьёзный',
-        r'\beasy\b': 'легко',
-        r'\bdifficult\b': 'трудно',
-        r'\bhard\b': 'трудно',
-        r'\bsoft\b': 'мягкий',
-        r'\bhight\b': 'высокий',
-        r'\blow\b': 'низкий',
-        r'\bhot\b': 'горячий',
-        r'\bcold\b': 'холодный',
-        r'\bwarm\b': 'тёплый',
-        r'\bcool\b': 'прохладный',
-        r'\bsunny\b': 'солнечно',
-        r'\bcloudy\b': 'облачно',
-        r'\brainy\b': 'дождливо',
-        r'\bwindy\b': 'ветрено',
-        r'\bsnowy\b': 'снежно',
     }
     for eng, rus in reps.items():
         text = re.sub(eng, rus, text, flags=re.IGNORECASE)
     
-    # Удаляем любые оставшиеся английские слова (состоящие из букв a-z, возможно с дефисом)
+    # Удаляем любые оставшиеся английские слова
     text = re.sub(r'\b[a-zA-Z]+(?:-[a-zA-Z]+)*\b', '', text)
-    # Удаляем одиночные английские буквы (которые могли остаться)
     text = re.sub(r'\s+[a-zA-Z]\s+', ' ', text)
-    
     text = re.sub(r'\s+', ' ', text).strip()
     return text
 
