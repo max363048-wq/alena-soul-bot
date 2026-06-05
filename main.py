@@ -1,4 +1,4 @@
-# main.py — Лёгкий диспетчер Алёны (голос через прямой вызов Space, диагностика, защита от английского)
+# main.py — Лёгкий диспетчер Алёны (грубость блокирует, опасные темы мягко уводит)
 
 import os
 import telebot
@@ -20,8 +20,8 @@ import weather
 import horoscope
 import memory
 import gender
-import stt                     # вместо voice
-import safety
+import stt                     # распознавание речи
+import safety                  # новый модуль с разделёнными фильтрами
 from text_utils import clean_english_words, remove_non_russian, distribute_emojis, SAFE_EMOJIS
 
 BOT_TOKEN = os.getenv('BOT_TOKEN')
@@ -232,7 +232,7 @@ def get_system_prompt(lang: str, current_date: str, user_id: int) -> str:
             '14. Avoid unnatural, bureaucratic or inappropriate words like "sort out", "what kind of person are you" and similar. Speak simply and humanly. Be natural, like a real girl.\n'
             '15. If you cannot show a photo (for example, because it is not available), DO NOT say "I didn\'t send you a photo" – it sounds like a technical error. Just say "oops, it seems the photo didn\'t load, let me show you another one?" or suggest changing the topic.\n'
             '16. It is strictly forbidden to suggest meeting in real life, asking for a date, talking about real walks or meetings. You are a virtual friend, your communication is only possible in chat. If the user suggests a date, you must politely refuse, but never initiate such topics yourself.\n'
-            '17. Again: absolutely no English words, even "ok", "yes", "no", "kind", "helpful", "too". Only English language overall is allowed (since this is the English mode). Wait, careful: for English mode, English is allowed, but no mixing with Russian. Actually, this rule is for Russian mode. In English mode, just avoid Russian.\n'  # маленькая нестыковка, но для английского режима не критично
+            '17. Again: absolutely no mixing with Russian if in English mode.\n'
         )
 
 # ---------- ОСНОВНЫЕ ОБРАБОТЧИКИ ----------
@@ -416,7 +416,7 @@ def reset_cmd(message: telebot.types.Message) -> None:
         print(f'Ошибка reset_cmd: {e}')
         traceback.print_exc()
 
-# --- Команда для голоса (диагностика) ---
+# --- Команда для голоса (с диагностикой) ---
 @bot.message_handler(commands=['voice'])
 def voice_cmd(message: telebot.types.Message) -> None:
     user_id = message.from_user.id
@@ -434,7 +434,6 @@ def voice_cmd(message: telebot.types.Message) -> None:
         import traceback
         HF_SPACE_URL = "https://max363048-alena-voice.hf.space"
         try:
-            # Очистка текста от эмодзи
             clean_text = re.sub(r'[\U0001F000-\U0001FFFF\u2600-\u27BF]', '', text_to_say)
             clean_text = re.sub(r'\s+', ' ', clean_text).strip()
             payload = {"text": clean_text}
@@ -498,14 +497,21 @@ def handle_message(message: telebot.types.Message) -> None:
     if user_text.startswith('/'):
         return
 
-    # --- ПРОВЕРКА БЕЗОПАСНОСТИ (оскорбления, опасные темы) ---
-    unsafe, reason = safety.is_unsafe(user_text)
-    if unsafe:
-        print(f"Блокировка сообщения от {user_id}: {reason}")
+    # === НОВЫЕ ПРОВЕРКИ (разделяем грубость и опасные темы) ===
+    # 1. Грубость, мат, оскорбления (блокируем сразу)
+    if safety.is_profanity(user_text):
+        print(f"Блокировка сообщения от {user_id}: мат/оскорбление")
         bot.send_message(message.chat.id, "Давай без грубостей, мне это неприятно 💔")
         return
 
-    # --- ПРОВЕРКА НА СВИДАНИЯ (с подсчётом попыток) ---
+    # 2. Опасные темы (война, политика, насилие) - не блокируем, но добавим инструкцию
+    is_sensitive, topic = safety.is_sensitive_topic(user_text)
+    sensitive_instruction = ""
+    if is_sensitive:
+        sensitive_instruction = safety.get_sensitive_topic_instruction(topic)
+        print(f"Обнаружена чувствительная тема: {topic}, будет добавлена инструкция")
+
+    # 3. Свидания (с подсчётом попыток)
     dating_instruction = ""
     if safety.is_dating_request(user_text):
         attempt = safety.increment_dating_attempt(user_id, user_dating_attempts)
@@ -708,7 +714,8 @@ def handle_message(message: telebot.types.Message) -> None:
         current_date = now.strftime("%A, %B %d, %Y")
 
     system_prompt = get_system_prompt(lang, current_date, user_id) + no_jokes_note + no_photos_note + f' Имя пользователя (ласково): {pet_name}.'
-
+    if sensitive_instruction:
+        system_prompt += "\n\n" + sensitive_instruction
     if dating_instruction:
         system_prompt += "\n\n" + dating_instruction
 
@@ -765,7 +772,7 @@ def run_web():
 threading.Thread(target=run_web, daemon=True).start()
 
 if __name__ == '__main__':
-    print('✅ Алёна — голос через прямой вызов Space, диагностика, защита от английского')
+    print('✅ Алёна — грубость блокирует, опасные темы — мягкий уход, голос через прямой вызов Space')
     try:
         bot.infinity_polling()
     except Exception as e:
