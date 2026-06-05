@@ -1,4 +1,4 @@
-# main.py — Лёгкий диспетчер Алёны (исправлена мотивация + пунктуация для gTTS)
+# main.py — Лёгкий диспетчер Алёны (с защитой от грубости и свиданий)
 
 import os
 import telebot
@@ -21,6 +21,7 @@ import horoscope
 import memory
 import gender
 import voice
+import safety  # новый модуль фильтрации
 from text_utils import clean_english_words, remove_non_russian, distribute_emojis, SAFE_EMOJIS
 
 BOT_TOKEN = os.getenv('BOT_TOKEN')
@@ -40,6 +41,7 @@ user_zodiac: Dict[int, str] = {}
 user_timezone: Dict[int, int] = {}
 user_gender: Dict[int, str] = {}
 user_awaiting_gender: Dict[int, bool] = {}
+user_dating_attempts: Dict[int, int] = {}  # для подсчёта предложений свиданий
 
 user_just_gave_horoscope: Dict[int, bool] = {}
 user_photo_just_sent: Dict[int, bool] = {}
@@ -111,6 +113,7 @@ def reset_user(user_id: int) -> None:
     user_awaiting_gender.pop(user_id, None)
     user_just_gave_horoscope.pop(user_id, None)
     user_photo_just_sent.pop(user_id, None)
+    user_dating_attempts.pop(user_id, None)
 
 def default_pet_name(first_name: str) -> str:
     names = {
@@ -204,6 +207,7 @@ def get_system_prompt(lang: str, current_date: str, user_id: int) -> str:
             '13. Если пользователь комментирует твой предыдущий ответ (хвалит гороскоп, говорит, что он отличный, или радуется ему), ты ОБЯЗАНА сначала искренне разделить его радость, сказать, что тебе очень приятно, что ты рада за него, добавить пару тёплых слов, и только потом, если хочешь, предложи поговорить о чём-то ещё. НИ В КОЕМ СЛУЧАЕ не генерируй новый гороскоп и не используй формулировки, похожие на предсказание. Просто поддержи диалог, как настоящая девушка.\n'
             '14. Избегай неестественных, канцелярских или неуместных слов вроде "рассортировать", "что ты такое человек" и подобных. Говори просто и по-человечески. Будь естественной, как настоящая девушка.\n'
             '15. Если ты не можешь показать фото (например, потому что его нет), НЕ говори "я не прислала тебе фото" – это звучит как техническая ошибка. Просто скажи "ой, кажется, фото не загрузилось, давай я покажу другое?" или предложи сменить тему.\n'
+            '16. Категорически запрещено предлагать пользователю встретиться в реальной жизни, звать его на свидание, говорить о совместных прогулках или реальных встречах. Ты — виртуальная подруга, ваше общение возможно только в чате. Если пользователь сам предлагает свидание, ты должна мягко отказать, но сама никогда не инициируй такие темы.\n'
         )
     else:
         return (
@@ -226,6 +230,7 @@ def get_system_prompt(lang: str, current_date: str, user_id: int) -> str:
             '13. If the user comments on your previous answer (e.g., praises a horoscope or says how great it is), you MUST first sincerely share his joy, say that you are very pleased, that you are happy for him, add a couple of warm words, and only then, if you want, suggest talking about something else. NEVER generate a new horoscope or use fortune-telling language. Just support the conversation, like a real girl.\n'
             '14. Avoid unnatural, bureaucratic or inappropriate words like "sort out", "what kind of person are you" and similar. Speak simply and humanly. Be natural, like a real girl.\n'
             '15. If you cannot show a photo (for example, because it is not available), DO NOT say "I didn\'t send you a photo" – it sounds like a technical error. Just say "oops, it seems the photo didn\'t load, let me show you another one?" or suggest changing the topic.\n'
+            '16. It is strictly forbidden to suggest meeting in real life, asking for a date, talking about real walks or meetings. You are a virtual friend, your communication is only possible in chat. If the user suggests a date, you must politely refuse, but never initiate such topics yourself.\n'
         )
 
 # ---------- ОСНОВНЫЕ ОБРАБОТЧИКИ ----------
@@ -492,6 +497,21 @@ def handle_message(message: telebot.types.Message) -> None:
     if user_text.startswith('/'):
         return
 
+    # --- ПРОВЕРКА БЕЗОПАСНОСТИ (оскорбления, опасные темы) ---
+    unsafe, reason = safety.is_unsafe(user_text)
+    if unsafe:
+        print(f"Блокировка сообщения от {user_id}: {reason}")
+        bot.send_message(message.chat.id, "Давай без грубостей, мне это неприятно 💔")
+        return
+
+    # --- ПРОВЕРКА НА СВИДАНИЯ (с подсчётом попыток) ---
+    dating_instruction = ""
+    if safety.is_dating_request(user_text):
+        attempt = safety.increment_dating_attempt(user_id, user_dating_attempts)
+        dating_instruction = safety.get_dating_prompt_instruction(attempt)
+    else:
+        safety.reset_dating_attempts(user_id, user_dating_attempts)
+
     # Сброс флага при явных запросах других функций
     if re.search(r'(гороскоп|погода|погоду|погоде|историю|истории|история|творчеств|вдохнови|расскажи гороскоп|расскажи мне гороскоп|расскажи историю|расскажи мне историю|расскажи какую)', user_text, re.IGNORECASE):
         photos.user_pending_photo_offer[user_id] = False
@@ -519,7 +539,7 @@ def handle_message(message: telebot.types.Message) -> None:
         return
 
     # --- Творческие функции (проверяются ДО вопросов о фото) ---
-    # НОВОЕ РАСШИРЕННОЕ РЕГУЛЯРНОЕ ВЫРАЖЕНИЕ ДЛЯ ИСТОРИЙ (заменяет старый блок)
+    # РАСШИРЕННОЕ РЕГУЛЯРНОЕ ВЫРАЖЕНИЕ ДЛЯ ИСТОРИЙ
     if re.search(r'\b(расскажи|поделись|напиши|придумай|дай).*(историю|рассказ|истории)\b|\bисторию\s*[\.\?!)]*$', user_text, re.IGNORECASE):
         prompt = user_text
         story = stories.generate_story(prompt, user_id, lang, client, os.getenv('GIST_ID'))
@@ -689,6 +709,9 @@ def handle_message(message: telebot.types.Message) -> None:
 
     system_prompt = get_system_prompt(lang, current_date, user_id) + no_jokes_note + no_photos_note + f' Имя пользователя (ласково): {pet_name}.'
 
+    if dating_instruction:
+        system_prompt += "\n\n" + dating_instruction
+
     if user_id in photos.user_last_user_image_desc and re.search(r'(мы бы с тобой|смотрелись вместе|отдохнуть вместе|побыть вдвоём|представь|помечта)', user_text, re.IGNORECASE):
         system_prompt += f'\n\nПользователь показал картинку, которую ты описала так: "{photos.user_last_user_image_desc[user_id]}". ОТВЕЧАЙ ТОЛЬКО НА ОСНОВЕ ЭТОГО ОПИСАНИЯ, ИГНОРИРУЙ ВСЕ ПРЕДЫДУЩИЕ ТЕМЫ. Представь, что вы вдвоём находятся в этом месте, опиши ощущения.'
 
@@ -742,7 +765,7 @@ def run_web():
 threading.Thread(target=run_web, daemon=True).start()
 
 if __name__ == '__main__':
-    print('✅ Алёна — финальная, язык в Gist, шутки без повторов, Render-ready, история в Gist')
+    print('✅ Алёна — с защитой от грубости и свиданий')
     try:
         bot.infinity_polling()
     except Exception as e:
