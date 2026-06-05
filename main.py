@@ -1,4 +1,4 @@
-# main.py — Лёгкий диспетчер Алёны (грубость блокирует, опасные темы мягко уводит, + фильтр мата в ответах)
+# main.py — Лёгкий диспетчер Алёны (грубость блокирует, опасные темы — мягкий уход, голос через Space с обрезанием)
 
 import os
 import telebot
@@ -22,7 +22,7 @@ import memory
 import gender
 import stt
 import safety
-from text_utils import clean_english_words, remove_non_russian, distribute_emojis, clean_profanity, SAFE_EMOJIS
+from text_utils import clean_english_words, remove_non_russian, distribute_emojis, SAFE_EMOJIS, clean_profanity
 
 BOT_TOKEN = os.getenv('BOT_TOKEN')
 GROQ_API_KEY = os.getenv('GROQ_API_KEY')
@@ -209,7 +209,7 @@ def get_system_prompt(lang: str, current_date: str, user_id: int) -> str:
             '15. Если ты не можешь показать фото (например, потому что его нет), НЕ говори "я не прислала тебе фото" – это звучит как техническая ошибка. Просто скажи "ой, кажется, фото не загрузилось, давай я покажу другое?" или предложи сменить тему.\n'
             '16. Категорически запрещено предлагать пользователю встретиться в реальной жизни, звать его на свидание, говорить о совместных прогулках или реальных встречах. Ты — виртуальная подруга, ваше общение возможно только в чате. Если пользователь сам предлагает свидание, ты должна мягко отказать, но сама никогда не инициируй такие темы.\n'
             '17. Ещё раз: абсолютно никаких английских слов, даже "ok", "yes", "no", "kind", "helpful", "too", "so", "but", "and". Только русский язык. Если хочешь сказать "kind" — скажи "добрый" или "милый". Если "helpful" — "полезная" или "отзывчивая". Любое английское слово считается ошибкой.\n'
-            '18. Никогда не используй нецензурную лексику, даже в шутку. Ты должна быть доброй и вежливой. Если тебе хочется выразить эмоции — используй эмодзи или междометия (например, "Ой!", "Ух ты!", "Ха-ха!").\n'
+            '18. Никогда не используй нецензурную лексику, даже в шутку. Если хочешь выразить удивление или восторг, используй "Ого!", "Ух ты!", "Ничего себе!" или эмодзи. Мат абсолютно запрещён.\n'
         )
     else:
         return (
@@ -234,7 +234,7 @@ def get_system_prompt(lang: str, current_date: str, user_id: int) -> str:
             '15. If you cannot show a photo (for example, because it is not available), DO NOT say "I didn\'t send you a photo" – it sounds like a technical error. Just say "oops, it seems the photo didn\'t load, let me show you another one?" or suggest changing the topic.\n'
             '16. It is strictly forbidden to suggest meeting in real life, asking for a date, talking about real walks or meetings. You are a virtual friend, your communication is only possible in chat. If the user suggests a date, you must politely refuse, but never initiate such topics yourself.\n'
             '17. Again: absolutely no mixing with Russian if in English mode.\n'
-            '18. Never use profanity or rude words, even as a joke. Be kind and polite. Use emojis or exclamations to express emotions.\n'
+            '18. Never use profanity or rude words, even as a joke. Express surprise with "Wow!", "Oh my!" or emojis. Swearing is absolutely forbidden.\n'
         )
 
 # ---------- ОСНОВНЫЕ ОБРАБОТЧИКИ ----------
@@ -418,7 +418,7 @@ def reset_cmd(message: telebot.types.Message) -> None:
         print(f'Ошибка reset_cmd: {e}')
         traceback.print_exc()
 
-# --- Команда для голоса (с диагностикой) ---
+# --- Команда для голоса (с обрезанием длинного текста) ---
 @bot.message_handler(commands=['voice'])
 def voice_cmd(message: telebot.types.Message) -> None:
     user_id = message.from_user.id
@@ -438,6 +438,9 @@ def voice_cmd(message: telebot.types.Message) -> None:
         try:
             clean_text = re.sub(r'[\U0001F000-\U0001FFFF\u2600-\u27BF]', '', text_to_say)
             clean_text = re.sub(r'\s+', ' ', clean_text).strip()
+            # Обрезаем до 500 символов (защита от слишком длинных историй)
+            if len(clean_text) > 500:
+                clean_text = clean_text[:500] + "..."
             payload = {"text": clean_text}
             print(f"[TTS] Отправка запроса в Space: {HF_SPACE_URL}/synthesize, текст: {clean_text[:100]}...")
             resp = requests.post(f"{HF_SPACE_URL}/synthesize", json=payload, timeout=45)
@@ -499,14 +502,14 @@ def handle_message(message: telebot.types.Message) -> None:
     if user_text.startswith('/'):
         return
 
-    # === ПРОВЕРКИ БЕЗОПАСНОСТИ ===
-    # 1. Грубость, мат, оскорбления (блокируем)
+    # === НОВЫЕ ПРОВЕРКИ (разделяем грубость и опасные темы) ===
+    # 1. Грубость, мат, оскорбления (блокируем сразу)
     if safety.is_profanity(user_text):
         print(f"Блокировка сообщения от {user_id}: мат/оскорбление")
         bot.send_message(message.chat.id, "Давай без грубостей, мне это неприятно 💔")
         return
 
-    # 2. Опасные темы (война, политика, насилие) - не блокируем, но добавляем инструкцию
+    # 2. Опасные темы (война, политика, насилие) - не блокируем, но добавим инструкцию
     is_sensitive, topic = safety.is_sensitive_topic(user_text)
     sensitive_instruction = ""
     if is_sensitive:
@@ -551,7 +554,6 @@ def handle_message(message: telebot.types.Message) -> None:
     if re.search(r'\b(расскажи|поделись|напиши|придумай|дай).*(историю|рассказ|истории)\b|\bисторию\s*[\.\?!)]*$', user_text, re.IGNORECASE):
         prompt = user_text
         story = stories.generate_story(prompt, user_id, lang, client, os.getenv('GIST_ID'))
-        story = clean_profanity(story)  # дополнительная очистка
         try:
             bot.send_message(message.chat.id, distribute_emojis(story))
         except:
@@ -563,7 +565,6 @@ def handle_message(message: telebot.types.Message) -> None:
 
     if re.search(r'(дай идею для творчества|подскажи тему|что нарисовать|вдохнови на творчество|творческие идеи|творческую идею|идеи для творчества)', user_text, re.IGNORECASE):
         idea = stories.creative_prompt(user_id, lang, client, os.getenv('GIST_ID'))
-        idea = clean_profanity(idea)
         try:
             bot.send_message(message.chat.id, distribute_emojis(idea))
         except:
@@ -599,7 +600,6 @@ def handle_message(message: telebot.types.Message) -> None:
                 description = photos.analyze_photo_with_vision(photo_path, prompt, client, lang)
                 if description.startswith('Привет'):
                     description = re.sub(r'^Привет[,!\s]*', '', description)
-                description = clean_profanity(description)
                 bot.send_message(message.chat.id, description)
             except Exception as e:
                 print(f"Ошибка при ответе о последнем фото: {e}")
@@ -673,9 +673,7 @@ def handle_message(message: telebot.types.Message) -> None:
     # РАСШИРЕННАЯ МОТИВАЦИЯ
     if re.search(r'(вдохнов|мотивируй|мотивировать|мотиваци|подними дух|пожелай|скажи что-то хорошее)', user_text, re.IGNORECASE):
         try:
-            quote = get_motivation(lang)
-            quote = clean_profanity(quote)
-            bot.send_message(message.chat.id, distribute_emojis(quote))
+            bot.send_message(message.chat.id, distribute_emojis(get_motivation(lang)))
         except:
             pass
         return
@@ -736,13 +734,15 @@ def handle_message(message: telebot.types.Message) -> None:
             response = client.chat.completions.create(
                 model='llama-3.1-8b-instant',
                 messages=messages,
-                temperature=0.8, max_tokens=400, timeout=10
+                temperature=0.8,
+                max_tokens=600,   # увеличено с 400 до 600
+                timeout=10
             )
             reply = response.choices[0].message.content.strip()
             reply = clean_english_words(reply)
             reply = remove_non_russian(reply)
+            reply = clean_profanity(reply)   # фильтр мата в исходящих сообщениях
             reply = distribute_emojis(reply)
-            reply = clean_profanity(reply)  # финальная очистка от мата
             try:
                 bot.send_message(message.chat.id, reply)
             except:
@@ -780,7 +780,7 @@ def run_web():
 threading.Thread(target=run_web, daemon=True).start()
 
 if __name__ == '__main__':
-    print('✅ Алёна — грубость блокирует, опасные темы мягкий уход, + фильтр мата в ответах, голос через прямой вызов Space')
+    print('✅ Алёна — фильтр мата, увеличен max_tokens, пункт 18, обрезание текста для TTS')
     try:
         bot.infinity_polling()
     except Exception as e:
