@@ -393,7 +393,8 @@ def handle_photo_request(user_id: int, user_text: str, lang: str, bot, message, 
             compliment = True
 
         # Любимое фото (первый показ)
-        if re.search(r'(любимые фото|любимое фото|любимых фото|какое твое любимое фото|покажи любимое фото)', user_text, re.IGNORECASE):
+                # Любимое фото (первый показ)
+        if re.search(r'(любимые? фото|любимых? фото|какое твое любимое фото|покажи любимое фото|какая нибудь любимая фотка|есть ли у тебя любимая фотка|покажи любимую фотку|у тебя есть любимое фото|любимая фотка)', user_text, re.IGNORECASE):
             chosen_photo = random.choice(all_photos)
             apology = ""
             user_last_sent_photo[user_id] = chosen_photo
