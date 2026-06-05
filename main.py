@@ -1,4 +1,4 @@
-# main.py — финальная версия для работы с Silero TTS (без обрезания текста)
+# main.py — Лёгкий диспетчер Алёны
 
 import os
 import telebot
@@ -418,7 +418,7 @@ def reset_cmd(message: telebot.types.Message) -> None:
         print(f'Ошибка reset_cmd: {e}')
         traceback.print_exc()
 
-# --- Команда для голоса (прямой вызов Space, без обрезания текста) ---
+# --- Команда для голоса (теперь без обрезания текста) ---
 @bot.message_handler(commands=['voice'])
 def voice_cmd(message: telebot.types.Message) -> None:
     user_id = message.from_user.id
@@ -433,16 +433,13 @@ def voice_cmd(message: telebot.types.Message) -> None:
             return
 
         import requests
-        import traceback
         HF_SPACE_URL = "https://max363048-alena-voice.hf.space"
         try:
-            # Очищаем текст от эмодзи, но НЕ обрезаем по длине
+            # Очистка текста от эмодзи (только для TTS, без обрезания длины)
             clean_text = re.sub(r'[\U0001F000-\U0001FFFF\u2600-\u27BF]', '', text_to_say)
             clean_text = re.sub(r'\s+', ' ', clean_text).strip()
             payload = {"text": clean_text}
-            print(f"[TTS] Отправка запроса в Space, длина текста: {len(clean_text)}")
-            resp = requests.post(f"{HF_SPACE_URL}/synthesize", json=payload, timeout=45)
-            print(f"[TTS] Ответ Space: статус {resp.status_code}, длина контента {len(resp.content) if resp.content else 0}")
+            resp = requests.post(f"{HF_SPACE_URL}/synthesize", json=payload, timeout=90)
             if resp.status_code == 200 and resp.content:
                 with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp:
                     tmp.write(resp.content)
@@ -455,7 +452,6 @@ def voice_cmd(message: telebot.types.Message) -> None:
                 bot.send_message(message.chat.id, f"Не получилось озвучить (статус {resp.status_code})... Но вот что я хотела сказать:\n" + text_to_say)
         except Exception as e:
             print(f"[TTS] Исключение: {e}")
-            traceback.print_exc()
             bot.send_message(message.chat.id, "Не получилось озвучить... Но вот что я хотела сказать:\n" + text_to_say)
     else:
         bot.send_message(message.chat.id, "Сначала напиши мне что-нибудь! 😊")
@@ -778,7 +774,7 @@ def run_web():
 threading.Thread(target=run_web, daemon=True).start()
 
 if __name__ == '__main__':
-    print('✅ Алёна — Silero TTS (без обрезания текста), фильтры, увеличена длина ответов')
+    print('✅ Алёна — Silero TTS, защита, фильтры')
     try:
         bot.infinity_polling()
     except Exception as e:
