@@ -1,4 +1,4 @@
-# stt.py – распознавание через свой Space alena-stt
+# stt.py — распознавание через свой Space alena-stt
 
 import os
 import requests
@@ -7,24 +7,21 @@ from typing import Optional, List, Tuple
 STT_SPACE_URL = "https://max363048-alena-stt.hf.space"
 
 def speech_to_text(audio_bytes: bytes, lang: str = 'ru') -> Optional[str]:
-    print("[STT] Отправка аудио в Space...")
     try:
         files = {'audio': ('voice.ogg', audio_bytes, 'audio/ogg')}
         resp = requests.post(f"{STT_SPACE_URL}/transcribe", files=files, timeout=30)
-        print(f"[STT] Статус ответа: {resp.status_code}")
-        if resp.status_code == 200:
-            data = resp.json()
-            if 'text' in data:
-                text = data['text'].strip()
-                print(f"[STT] Распознано: {text}")
-                return text
-            else:
-                print(f"[STT] Нет текста в ответе: {data}")
+        data = resp.json()
+        print(f"[STT] Ответ: {data}")
+        if resp.status_code == 200 and 'text' in data:
+            text = data['text'].strip()
+            print(f"[STT] Распознано: {text}")
+            return text
         else:
-            print(f"[STT] Ошибка HTTP: {resp.status_code} {resp.text}")
+            print(f"[STT] Ошибка: {data}")
+            return None
     except Exception as e:
         print(f"[STT] Исключение: {e}")
-    return None
+        return None
 
 def speech_to_text_with_sounds(audio_bytes: bytes, lang: str = 'ru') -> Tuple[Optional[str], List]:
     text = speech_to_text(audio_bytes, lang)
