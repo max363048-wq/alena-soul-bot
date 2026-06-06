@@ -165,7 +165,7 @@ def get_random_joke(lang: str = 'ru') -> str:
         return "Why don't programmers like nature? Too many bugs! 😄"
     try:
         resp = client.chat.completions.create(
-            model='llama-3.1-8b-instant',
+            model='llama-3.3-70b-versatile',
             messages=[{'role': 'user', 'content': 'Придумай одну короткую смешную шутку на русском.'}],
             temperature=0.9, max_tokens=100, timeout=5
         )
@@ -181,7 +181,7 @@ def get_motivation(lang: str = 'ru') -> str:
         return 'Believe in yourself! 💖'
     try:
         resp = client.chat.completions.create(
-            model='llama-3.1-8b-instant',
+            model='llama-3.3-70b-versatile',
             messages=[{'role': 'user', 'content': 'Напиши короткую вдохновляющую фразу на русском.'}],
             temperature=0.8, max_tokens=80, timeout=5
         )
@@ -435,9 +435,9 @@ def handle_message(message: telebot.types.Message):
         reply = None
         for attempt in range(2):
             try:
-                print(f"[Groq] Попытка {attempt+1}, модель: llama-3.1-8b-instant")
+                print(f"[Groq] Попытка {attempt+1}, модель: llama-3.3-70b-versatile")
                 resp = client.chat.completions.create(
-                    model='llama-3.1-8b-instant',
+                    model='llama-3.3-70b-versatile',
                     messages=messages,
                     temperature=0.8,
                     max_tokens=600,
