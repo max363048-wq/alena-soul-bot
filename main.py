@@ -165,7 +165,7 @@ def get_random_joke(lang: str = 'ru') -> str:
         return "Why don't programmers like nature? Too many bugs! 😄"
     try:
         resp = client.chat.completions.create(
-            model='llama-3.3-70b-versatile',
+            model='gemma2-9b-it',
             messages=[{'role': 'user', 'content': 'Придумай одну короткую смешную шутку на русском.'}],
             temperature=0.9, max_tokens=100, timeout=5
         )
@@ -181,7 +181,7 @@ def get_motivation(lang: str = 'ru') -> str:
         return 'Believe in yourself! 💖'
     try:
         resp = client.chat.completions.create(
-            model='llama-3.3-70b-versatile',
+            model='gemma2-9b-it',
             messages=[{'role': 'user', 'content': 'Напиши короткую вдохновляющую фразу на русском.'}],
             temperature=0.8, max_tokens=80, timeout=5
         )
@@ -435,9 +435,9 @@ def handle_message(message: telebot.types.Message):
         reply = None
         for attempt in range(2):
             try:
-                print(f"[Groq] Попытка {attempt+1}, модель: llama-3.3-70b-versatile")
+                print(f"[Groq] Попытка {attempt+1}, модель: gemma2-9b-it")
                 resp = client.chat.completions.create(
-                    model='llama-3.3-70b-versatile',
+                    model='gemma2-9b-it',
                     messages=messages,
                     temperature=0.8,
                     max_tokens=600,
@@ -494,7 +494,7 @@ def run_web():
 threading.Thread(target=run_web, daemon=True).start()
 
 if __name__ == '__main__':
-    print('✅ Алёна — финальная версия с моделью llama-3.3-70b-versatile')
+    print('✅ Алёна — финальная версия с моделью gemma2-9b-it')
     try:
         bot.infinity_polling()
     except Exception as e:
