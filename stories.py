@@ -12,8 +12,7 @@ def _get_gist_headers():
     return {'Authorization': f'token {token}', 'Accept': 'application/vnd.github.v3+json'}
 
 def _get_gist_api_url():
-    gist_id = os.getenv('GIST_ID')
-    return f'https://api.github.com/gists/{gist_id}'
+    return f'https://api.github.com/gists/{os.getenv("GIST_ID")}'
 
 def _load_stories(gist_id):
     if not gist_id:
@@ -55,36 +54,32 @@ def fix_grammar(text):
         text = re.sub(pattern, repl, text, flags=re.IGNORECASE)
     return text
 
-def _fallback_story():
-    return "Мы с подругой в прошлое воскресенье пошли в парк кататься на роликах, и я так разогналась, что врезалась в куст сирени! 😄 Было смешно и немного стыдно, зато теперь я умею тормозить правильно 💕"
-
 def generate_story(prompt, user_id, lang, client, gist_id):
-    print(f"[STORY] Запрос истории для user {user_id}: {prompt[:100]}")
     system_prompt = (
-        'Ты Алёна — добрая, весёлая, обаятельная девушка 25 лет.\n'
-        'Расскажи короткую (4-6 предложений) историю из своей жизни от первого лица.\n'
-        'История должна быть тёплой, повседневной и правдоподобной: прогулка, встреча с друзьями, забавный случай.\n'
-        'ЗАПРЕЩЕНО: войны, политика, разведчики, странные предметы, неестественные числа.\n'
-        'Пиши на русском, с 2-3 эмодзи в конце. Не начинай с приветствия.'
+        'Ты Алёна — добрая, весёлая, обаятельная девушка 25 лет. '
+        'Расскажи короткую (4-6 предложений) историю из своей жизни от первого лица. '
+        'История должна быть тёплой, душевной и правдоподобной: прогулка с друзьями, забавный случай в кафе, поход в парк. '
+        'НЕ рассказывай анекдот, НЕ давай совет. Пиши естественно, с 2-3 эмодзи в конце. '
+        'Не начинай с приветствия. Не упоминай войну, политику, шпионов.'
     )
     try:
         resp = client.chat.completions.create(
             model='llama-3.1-8b-instant',
             messages=[
                 {'role': 'system', 'content': system_prompt},
-                {'role': 'user', 'content': prompt}
+                {'role': 'user', 'content': 'Расскажи какую-нибудь историю из своей жизни'}
             ],
-            temperature=0.75,
-            max_tokens=600,
-            timeout=15  # увеличен
+            temperature=0.85,
+            max_tokens=800,
+            timeout=30
         )
         story = resp.choices[0].message.content.strip()
-        print(f"[STORY] LLM ответ: {story[:150] if story else 'пусто'}")
         if not story:
-            return _fallback_story()
+            raise ValueError("Пустой ответ")
+        # Запрещённые темы
         forbidden = ['разведчик', 'шпион', 'секретная миссия', 'оружие', 'война', 'принцесс', 'солдат', 'командир', 'документы', 'крепость', 'враг', 'захват', 'компас', 'свадьбе сестры']
         if any(word in story.lower() for word in forbidden):
-            return _fallback_story()
+            raise ValueError("Запрещённая тема")
         story = clean_english_words(story)
         story = remove_non_russian(story)
         story = fix_grammar(story)
@@ -99,24 +94,22 @@ def generate_story(prompt, user_id, lang, client, gist_id):
         return story
     except Exception as e:
         print(f"[STORY] Ошибка: {e}")
-        return _fallback_story()
+        return "В прошлую субботу мы с подругой решили устроить пикник в парке. Взяли плед, фрукты, сок. Погода была тёплая, и вдруг подул ветер, сдул наши салфетки. Мы смеялись, бегали за ними. А потом к нам подошёл кот и съел кусочек яблока. Было так уютно и весело! 🍏😸💕"
 
 def creative_prompt(user_id, lang, client, gist_id):
     system_prompt = (
-        'Ты Алёна — вдохновляющая, творческая девушка. Придумай одну короткую, конкретную идею для творчества '
-        '(например: «нарисуй закат на море акварелью» или «напиши стих о летнем дожде»). '
-        'Пиши с эмодзи, без английских слов, не предлагай создавать ботов или проекты — только идеи для рисования, стихов, поделок. '
-        'Сразу выдай идею, не спрашивай пользователя о его планах.'
+        'Ты Алёна — творческая девушка. Придумай одну короткую идею для творчества: рисование, стихи, поделки. '
+        'Например: «нарисуй закат на море акварелью». Пиши с эмодзи, только идею, без лишних слов.'
     )
     try:
         resp = client.chat.completions.create(
             model='llama-3.1-8b-instant',
-            messages=[{'role': 'system', 'content': system_prompt}, {'role': 'user', 'content': 'Дай мне творческую подсказку на сегодня'}],
-            temperature=0.95, max_tokens=300, timeout=10
+            messages=[{'role': 'system', 'content': system_prompt}, {'role': 'user', 'content': 'Дай идею'}],
+            temperature=0.95, max_tokens=200, timeout=10
         )
         idea = resp.choices[0].message.content.strip()
         if not idea:
-            return 'Ой, муза сегодня капризничает... Давай попробуем ещё раз? 😊'
+            return 'Нарисуй уютный вечер у камина с чашкой чая 🔥☕'
         idea = clean_english_words(idea)
         idea = remove_non_russian(idea)
         all_stories = _load_stories(gist_id)
@@ -129,4 +122,4 @@ def creative_prompt(user_id, lang, client, gist_id):
         return idea
     except Exception as e:
         print(f'Ошибка творческой подсказки: {e}')
-        return 'Что-то моя фантазия разыгралась не на шутку... Попробуем позже? 😅'
+        return 'Попробуй нарисовать звёздное небо над городом 🌃✨'
