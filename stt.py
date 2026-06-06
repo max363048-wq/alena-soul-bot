@@ -9,7 +9,7 @@ from typing import Optional, List, Tuple
 
 CF_ACCOUNT_ID = os.getenv('CF_ACCOUNT_ID')
 CF_API_TOKEN = os.getenv('CF_API_TOKEN')
-WHISPER_MODEL = '@cf/openai/whisper'
+WHISPER_MODEL = '@cf/openai/whisper-large-v3-turbo'
 
 # Google Speech (fallback)
 try:
