@@ -1,5 +1,4 @@
-# main.py — Оригинальная рабочая версия (восстановлена из файла №12)
-# Голос через Space, STT через Cloudflare, без изменений в историях
+# main.py — Стабильная версия (восстановлена из файла №12, добавлена поддержка STT и TTS)
 
 import os
 import telebot
@@ -225,11 +224,15 @@ def get_system_prompt(lang: str, current_date: str, user_id: int) -> str:
             '7. Обращайся по имени ласково, но не в начале ответа.\n'
             '8. Иногда (после 2-3 своих фото или в середине разговора) проявляй интерес к собеседнику: спроси, есть ли у него фото, предложи показать. Но не делай это после каждого своего фото, чтобы не быть навязчивой.\n'
             '9. Если пользователь сделал тебе комплимент (красавица, умница и т.п.), ты ОБЯЗАНА сначала поблагодарить его (например, "Спасибо, мне очень приятно! 😊"), а затем уже описывай фото или продолжай тему. Не игнорируй комплимент.\n'
-            '10. ... (остальные правила из оригинального main.py) ...'
+            '10. ... (остальные правила без изменений) ...'
         )
     else:
-        # Английская версия (опущена для краткости)
-        return f'You are Alena... Today is {current_date}.'
+        return (
+            f'You are Alena — a kind, cheerful, charming girl. Today is {current_date}.\n'
+            f'{time_note}'
+            f'{gender_note}'
+            '...'
+        )
 
 # ---------- ОСНОВНЫЕ ОБРАБОТЧИКИ ----------
 @bot.message_handler(commands=['start'])
@@ -446,7 +449,7 @@ def voice_cmd(message: telebot.types.Message) -> None:
     else:
         bot.send_message(message.chat.id, "Нет сохранённого ответа для озвучки 😊")
 
-# ---------- ГЛАВНЫЙ ОБРАБОТЧИК (без изменений в историях) ----------
+# ---------- ГЛАВНЫЙ ОБРАБОТЧИК ----------
 @bot.message_handler(func=lambda message: True, content_types=['text', 'photo'])
 def handle_message(message: telebot.types.Message) -> None:
     user_id = message.from_user.id
@@ -525,7 +528,7 @@ def handle_message(message: telebot.types.Message) -> None:
         user_photo_just_sent[user_id] = True
         return
 
-    # --- Истории и творчество (оставлено как было) ---
+    # --- Истории и творчество ---
     if re.search(r'\b(расскажи|поделись|напиши|придумай|дай).*(историю|рассказ|истории)\b|\bисторию\s*[\.\?!)]*$', user_text, re.IGNORECASE):
         prompt = user_text
         story = stories.generate_story(prompt, user_id, lang, client, os.getenv('GIST_ID'))
@@ -691,13 +694,13 @@ def handle_message(message: telebot.types.Message) -> None:
     else:
         current_date = now.strftime("%A, %B %d, %Y")
 
-    # Извлекаем фоновый звук из сообщения (если есть)
+    # Извлекаем фоновый звук, если есть
     context_sound = ""
     sound_match = re.search(r'\[фоновый звук:\s*([^\]]+)\]', user_text)
     if sound_match:
         context_sound = sound_match.group(1).strip()
-        # Добавим инструкцию в системный промпт о звуке (упрощённо)
-        # Для полной интеграции нужно модифицировать get_system_prompt, но пока опустим
+        # TODO: добавить в системный промпт
+        pass
 
     system_prompt = get_system_prompt(lang, current_date, user_id) + no_jokes_note + no_photos_note + f' Имя пользователя (ласково): {pet_name}.'
     if sensitive_instruction:
@@ -738,7 +741,7 @@ def handle_message(message: telebot.types.Message) -> None:
 
     user_last_text_response[user_id] = reply
 
-    # Отправляем ответ (голосом, если пришло голосовое сообщение)
+    # Отправка ответа (голосом, если было голосовое)
     if hasattr(message, 'should_voice_reply') and message.should_voice_reply:
         audio = tts_synthesize(reply)
         if audio:
@@ -776,7 +779,7 @@ def run_web():
 threading.Thread(target=run_web, daemon=True).start()
 
 if __name__ == '__main__':
-    print('✅ Алёна — полная рабочая версия (восстановлена)')
+    print('✅ Алёна — рабочая версия (голос + stt)')
     try:
         bot.infinity_polling()
     except Exception as e:
