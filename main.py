@@ -1,4 +1,4 @@
-# main.py — полная рабочая версия с Groq и fallback на случай ошибки
+# main.py — финальная версия с рабочей моделью llama-3.3-70b-versatile
 
 import os
 import telebot
@@ -494,7 +494,7 @@ def run_web():
 threading.Thread(target=run_web, daemon=True).start()
 
 if __name__ == '__main__':
-    print('✅ Алёна — полная версия с Groq (llama-3.1-8b-instant) и fallback')
+    print('✅ Алёна — финальная версия с моделью llama-3.3-70b-versatile')
     try:
         bot.infinity_polling()
     except Exception as e:
