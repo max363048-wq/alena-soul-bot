@@ -1,4 +1,4 @@
-# main.py — Финальная стабильная версия с собственным Space для STT
+# main.py — финальная версия с собственным STT Space и Groq LLM
 
 import os
 import telebot
@@ -288,7 +288,6 @@ def handle_voice(message: telebot.types.Message):
     if not text:
         bot.send_message(message.chat.id, "Не разобрала твой голос... Попробуй ещё раз или напиши 😊")
         return
-    # Подменяем текст и выставляем флаг, что ответ нужно озвучить
     message.text = text
     message.should_voice_reply = True
     handle_message(message)
@@ -323,7 +322,7 @@ def weather_cmd(message: telebot.types.Message):
 
 @bot.message_handler(commands=['forecast'])
 def forecast_cmd(message: telebot.types.Message):
-    # аналогично weather, можно оставить заглушку или реализовать
+    # аналогично weather
     pass
 
 @bot.message_handler(commands=['date'])
@@ -379,12 +378,10 @@ def handle_message(message: telebot.types.Message):
     lang = user_lang[user_id]
     pet_name = get_pet_name(user_id, message.from_user.first_name)
 
-    # Распознавание пола
     if not gender.ensure_gender_known(user_id, message.from_user.first_name, user_preferences,
                                       user_gender, user_awaiting_gender, bot, message, save_user_gender):
         return
 
-    # Обработка фото (если пользователь прислал картинку)
     if message.content_type == 'photo':
         photos.analyze_user_photo(message, bot, client, lang)
         return
@@ -392,10 +389,10 @@ def handle_message(message: telebot.types.Message):
     if user_text.startswith('/'):
         return
 
-    # Безопасность
     if safety.is_profanity(user_text):
         bot.send_message(message.chat.id, "Давай без грубостей, мне это неприятно 💔")
         return
+
     is_sensitive, topic = safety.is_sensitive_topic(user_text)
     sensitive_instruction = safety.get_sensitive_topic_instruction(topic) if is_sensitive else ""
     dating_instruction = ""
@@ -405,7 +402,6 @@ def handle_message(message: telebot.types.Message):
     else:
         safety.reset_dating_attempts(user_id, user_dating_attempts)
 
-    # --- ЗАПРОС ФОТО (расширенное распознавание) ---
     if re.search(r'(покажи|покажешь|хочу увидеть|хочу посмотреть|показать|дай|есть ли у тебя|свои фото|свои фотки|фото где ты|фотки где ты|свои фотографии|альбом|покажи себя|покажи свои фото|покажи свои картинки|покажи изображение|покажи фотку|покажи фото|какие у тебя есть фото|какие есть фото)', user_text, re.IGNORECASE):
         print(f"[PHOTO] Запрос фото: {user_text}")
         if photos.handle_photo_request(user_id, user_text, lang, bot, message, client,
@@ -420,13 +416,11 @@ def handle_message(message: telebot.types.Message):
                 user_photo_just_sent[user_id] = True
                 return
 
-    # --- ИСТОРИИ (расширенное распознавание) ---
     if re.search(r'(расскажи|поделись|придумай|дай|хочешь рассказать).*?(историю|рассказ|случай|байку|истории)\b|какую(?:-?нибудь|-?то)?\s+историю', user_text, re.IGNORECASE):
         print(f"[STORY] Генерация истории по запросу: {user_text[:100]}")
         story = stories.generate_story(user_text, user_id, lang, client, os.getenv('GIST_ID'))
         reply = story
     else:
-        # Обычный диалог через LLM с повторными попытками
         add_message(user_id, 'user', user_text)
         now = datetime.now()
         current_date = now.strftime('%d.%m.%Y')
@@ -463,12 +457,10 @@ def handle_message(message: telebot.types.Message):
         if reply is None:
             reply = "Не удалось сгенерировать ответ 😅"
 
-    # Сохраняем ответ для команды /repeat
     user_last_text_response[user_id] = reply
     add_message(user_id, 'assistant', reply)
     save_user_history()
 
-    # Отправка ответа (голосом, если пришло голосовое)
     if hasattr(message, 'should_voice_reply') and message.should_voice_reply:
         audio = tts_synthesize(reply)
         if audio:
@@ -497,7 +489,7 @@ def run_web():
 threading.Thread(target=run_web, daemon=True).start()
 
 if __name__ == '__main__':
-    print('✅ Алёна — финальная версия (собственный STT Space)')
+    print('✅ Алёна — финальная версия (собственный STT Space, Groq LLM)')
     try:
         bot.infinity_polling()
     except Exception as e:
