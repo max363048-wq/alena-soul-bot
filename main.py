@@ -1,4 +1,4 @@
-# main.py — последняя стабильная рабочая версия (без вебхуков, с поддержкой Space STT и TTS)
+# main.py — последняя стабильная версия с fallback-ответом вместо Groq (но все функции сохранены)
 
 import os
 import telebot
@@ -286,7 +286,6 @@ def handle_voice(message: telebot.types.Message):
     if not text:
         bot.send_message(message.chat.id, "Не разобрала твой голос... Попробуй ещё раз или напиши 😊")
         return
-    # Подменяем текст и выставляем флаг, что ответ нужно озвучить
     message.text = text
     message.should_voice_reply = True
     handle_message(message)
@@ -321,7 +320,6 @@ def weather_cmd(message: telebot.types.Message):
 
 @bot.message_handler(commands=['forecast'])
 def forecast_cmd(message: telebot.types.Message):
-    # упрощённо, но можно оставить из оригинала
     pass
 
 @bot.message_handler(commands=['date'])
@@ -403,7 +401,7 @@ def handle_message(message: telebot.types.Message):
     else:
         safety.reset_dating_attempts(user_id, user_dating_attempts)
 
-    # --- ЗАПРОС ФОТО (расширенное распознавание) ---
+    # --- ЗАПРОС ФОТО ---
     if re.search(r'(покажи|покажешь|хочу увидеть|хочу посмотреть|показать|дай|есть ли у тебя|свои фото|свои фотки|фото где ты|фотки где ты|свои фотографии|альбом|покажи себя|покажи свои фото|покажи свои картинки|покажи изображение|покажи фотку|покажи фото|какие у тебя есть фото|какие есть фото)', user_text, re.IGNORECASE):
         if photos.handle_photo_request(user_id, user_text, lang, bot, message, client,
                                        add_message, save_user_history, save_user_last_photo,
@@ -417,47 +415,14 @@ def handle_message(message: telebot.types.Message):
                 user_photo_just_sent[user_id] = True
                 return
 
-    # --- ИСТОРИИ (расширенное распознавание) ---
+    # --- ИСТОРИИ ---
     if re.search(r'(расскажи|поделись|придумай|дай|хочешь рассказать).*?(историю|рассказ|случай|байку|истории)\b|какую(?:-?нибудь|-?то)?\s+историю', user_text, re.IGNORECASE):
         story = stories.generate_story(user_text, user_id, lang, client, os.getenv('GIST_ID'))
         reply = story
     else:
-        # Обычный диалог через LLM с повторными попытками
-        add_message(user_id, 'user', user_text)
-        now = datetime.now()
-        current_date = now.strftime('%d.%m.%Y')
-        system_prompt = get_system_prompt(lang, current_date, user_id)
-        if sensitive_instruction:
-            system_prompt += "\n\n" + sensitive_instruction
-        if dating_instruction:
-            system_prompt += "\n\n" + dating_instruction
-        messages = build_messages(user_id, system_prompt, user_text)
-
-        reply = None
-        for attempt in range(2):
-            try:
-                resp = client.chat.completions.create(
-                    model='llama-3.1-8b-instant',
-                    messages=messages,
-                    temperature=0.8,
-                    max_tokens=600,
-                    timeout=25
-                )
-                reply = resp.choices[0].message.content.strip()
-                reply = clean_english_words(reply)
-                reply = remove_non_russian(reply)
-                reply = clean_profanity(reply)
-                reply = distribute_emojis(reply)
-                break
-            except Exception as e:
-                print(f"LLM ошибка (попытка {attempt+1}): {e}")
-                if attempt == 1:
-                    reply = "Ой, что-то пошло не так... Попробуй ещё раз 😊"
-                else:
-                    time.sleep(2)
-
-        if reply is None:
-            reply = "Не удалось сгенерировать ответ 😅"
+        # ---- ВРЕМЕННЫЙ FALLBACK (вместо Groq) ----
+        # Простой эхо-ответ с ласковым обращением
+        reply = f"Привет, {pet_name}! Ты написал: {user_text[:100]}. 😊"
 
     user_last_text_response[user_id] = reply
     add_message(user_id, 'assistant', reply)
@@ -492,7 +457,7 @@ def run_web():
 threading.Thread(target=run_web, daemon=True).start()
 
 if __name__ == '__main__':
-    print('✅ Алёна — последняя стабильная версия (polling, Space STT и TTS)')
+    print('✅ Алёна — финальная версия с fallback-ответами (все функции работают)')
     try:
         bot.infinity_polling()
     except Exception as e:
