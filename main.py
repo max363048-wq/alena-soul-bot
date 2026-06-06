@@ -1,4 +1,4 @@
-# main.py — последняя стабильная версия с fallback-ответом вместо Groq (но все функции сохранены)
+# main.py — полная рабочая версия с Groq и fallback на случай ошибки
 
 import os
 import telebot
@@ -33,6 +33,7 @@ client = OpenAI(api_key=GROQ_API_KEY, base_url='https://api.groq.com/openai/v1')
 
 BOT_USERNAME = 'AlenaSoul_bot'
 
+# ---------- Словари ----------
 user_history: Dict[int, Deque] = {}
 user_no_jokes: Dict[int, bool] = {}
 user_preferences: Dict[int, str] = {}
@@ -191,7 +192,7 @@ def get_motivation(lang: str = 'ru') -> str:
     except:
         return "Ты сможешь всё! 💖"
 
-# ---------- Системный промпт (с женским родом) ----------
+# ---------- Системный промпт ----------
 def get_system_prompt(lang: str, current_date: str, user_id: int) -> str:
     time_note = ''
     if user_id in user_timezone:
@@ -420,9 +421,45 @@ def handle_message(message: telebot.types.Message):
         story = stories.generate_story(user_text, user_id, lang, client, os.getenv('GIST_ID'))
         reply = story
     else:
-        # ---- ВРЕМЕННЫЙ FALLBACK (вместо Groq) ----
-        # Простой эхо-ответ с ласковым обращением
-        reply = f"Привет, {pet_name}! Ты написал: {user_text[:100]}. 😊"
+        # Обычный диалог через Groq с повторными попытками и fallback
+        add_message(user_id, 'user', user_text)
+        now = datetime.now()
+        current_date = now.strftime('%d.%m.%Y')
+        system_prompt = get_system_prompt(lang, current_date, user_id)
+        if sensitive_instruction:
+            system_prompt += "\n\n" + sensitive_instruction
+        if dating_instruction:
+            system_prompt += "\n\n" + dating_instruction
+        messages = build_messages(user_id, system_prompt, user_text)
+
+        reply = None
+        for attempt in range(2):
+            try:
+                print(f"[Groq] Попытка {attempt+1}, модель: llama-3.1-8b-instant")
+                resp = client.chat.completions.create(
+                    model='llama-3.1-8b-instant',
+                    messages=messages,
+                    temperature=0.8,
+                    max_tokens=600,
+                    timeout=25
+                )
+                reply = resp.choices[0].message.content.strip()
+                reply = clean_english_words(reply)
+                reply = remove_non_russian(reply)
+                reply = clean_profanity(reply)
+                reply = distribute_emojis(reply)
+                print(f"[Groq] Успешно получен ответ: {reply[:100]}")
+                break
+            except Exception as e:
+                print(f"[Groq] Ошибка (попытка {attempt+1}): {type(e).__name__}: {str(e)}")
+                if attempt == 1:
+                    # fallback: тёплый ответ, чтобы бот не молчал
+                    reply = f"Привет, {pet_name}! Я тебя слышу, но сейчас что-то с моим умом. Давай просто поболтаем: {user_text[:80]}... 😊"
+                else:
+                    time.sleep(2)
+
+        if reply is None:
+            reply = "Не удалось сгенерировать ответ 😅"
 
     user_last_text_response[user_id] = reply
     add_message(user_id, 'assistant', reply)
@@ -457,7 +494,7 @@ def run_web():
 threading.Thread(target=run_web, daemon=True).start()
 
 if __name__ == '__main__':
-    print('✅ Алёна — финальная версия с fallback-ответами (все функции работают)')
+    print('✅ Алёна — полная версия с Groq (llama-3.1-8b-instant) и fallback')
     try:
         bot.infinity_polling()
     except Exception as e:
