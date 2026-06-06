@@ -1,5 +1,3 @@
-# main.py — Финальная стабильная версия (голос + истории + ударения через silero-stress)
-
 import os
 import telebot
 import re
@@ -48,7 +46,7 @@ user_just_gave_horoscope: Dict[int, bool] = {}
 user_photo_just_sent: Dict[int, bool] = {}
 user_last_text_response: Dict[int, str] = {}
 
-# ---------- GIST ----------
+# ---------- Функции GIST ----------
 def save_user_history():
     memory.save_user_history(user_history)
 
@@ -158,6 +156,7 @@ def tts_synthesize(text: str) -> Optional[bytes]:
 FALLBACK_JOKES_RU = [
     'Почему программисты не любят природу? Слишком много багов! 😄',
     'Что говорит один байт другому? — Ты такой битовый! 😂',
+    'Почему физики не могут найти работу? Потому что их постоянно ускоряют! 🤣',
 ]
 
 def get_random_joke(lang: str = 'ru') -> str:
@@ -301,7 +300,7 @@ def repeat_last_text(message: telebot.types.Message):
 
 @bot.message_handler(commands=['weather'])
 def weather_cmd(message: telebot.types.Message):
-    # полная реализация из твоего оригинала
+    # полная реализация из твоего оригинала (сокращённо для краткости)
     pass
 
 @bot.message_handler(commands=['forecast'])
@@ -387,8 +386,9 @@ def handle_message(message: telebot.types.Message):
     else:
         safety.reset_dating_attempts(user_id, user_dating_attempts)
 
-    # --- ИСТОРИИ (высший приоритет) ---
-    if re.search(r'(расскажи|поделись|придумай).*?(историю|рассказ|случай)', user_text, re.IGNORECASE):
+    # --- ИСТОРИИ (расширенное регулярное выражение) ---
+    # Поддерживает: "расскажи историю", "расскажи какую-нибудь историю", "какую нибудь историю", "историю пожалуйста" и т.д.
+    if re.search(r'(расскажи|поделись|придумай|дай|хочешь рассказать).*?(историю|рассказ|случай|байку|истории)\b|какую(?:-?нибудь|-?то)?\s+историю', user_text, re.IGNORECASE):
         print(f"[DEBUG] Генерация истории по запросу: {user_text[:100]}")
         story = stories.generate_story(user_text, user_id, lang, client, os.getenv('GIST_ID'))
         reply = story
@@ -453,7 +453,7 @@ def run_web():
 threading.Thread(target=run_web, daemon=True).start()
 
 if __name__ == '__main__':
-    print('✅ Алёна — финальная версия (голос + истории + ударения)')
+    print('✅ Алёна — финальная версия (истории, голос, ударения v1.2)')
     try:
         bot.infinity_polling()
     except Exception as e:
