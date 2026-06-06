@@ -1,4 +1,4 @@
-# main.py — Финальная стабильная версия (голос + истории + ударения через silero-stress)
+# main.py — Финальная стабильная версия с собственным Space для STT
 
 import os
 import telebot
@@ -214,9 +214,9 @@ def get_system_prompt(lang: str, current_date: str, user_id: int) -> str:
             f'{time_note}{gender_note}{alena_gender_rule}'
             'ПРАВИЛА:\n'
             '1. Отвечай только на русском, без английских слов.\n'
-            '2. НИКОГДА не начинай ответ с "Здравствуйте", "Привет", "Здравствуй". Ты уже в диалоге, начинай сразу с сути.\n'
+            '2. НИКОГДА не начинай ответ с "Здравствуйте", "Привет", "Здравствуй".\n'
             '3. Используй эмодзи 😊😄💖, но не перегружай. Отвечай коротко (2-3 предложения).\n'
-            '4. Если просят историю — расскажи короткую историю из своей жизни (4-6 предложений) от первого лица.\n'
+            '4. Если просят историю — расскажи живую историю из своей жизни (4-8 предложений).\n'
             '5. Если просят шутку — дай одну короткую шутку.\n'
             '6. Если спрашивают гороскоп — составь доброе предсказание.\n'
             '7. Обращайся к пользователю по имени ласково, но не в начале фразы.\n'
@@ -271,6 +271,7 @@ def set_language(message: telebot.types.Message):
 
 @bot.message_handler(content_types=['voice'])
 def handle_voice(message: telebot.types.Message):
+    print("[VOICE] Получено голосовое сообщение")
     user_id = message.from_user.id
     if user_id not in user_lang or user_lang[user_id] is None:
         bot.send_message(message.chat.id, 'Пожалуйста, выбери язык: напиши "Русский" или "English"')
@@ -287,6 +288,7 @@ def handle_voice(message: telebot.types.Message):
     if not text:
         bot.send_message(message.chat.id, "Не разобрала твой голос... Попробуй ещё раз или напиши 😊")
         return
+    # Подменяем текст и выставляем флаг, что ответ нужно озвучить
     message.text = text
     message.should_voice_reply = True
     handle_message(message)
@@ -301,11 +303,27 @@ def repeat_last_text(message: telebot.types.Message):
 
 @bot.message_handler(commands=['weather'])
 def weather_cmd(message: telebot.types.Message):
-    # полная реализация из твоего оригинала
-    pass
+    user_id = message.from_user.id
+    lang = user_lang.get(user_id, 'ru')
+    parts = message.text.split(maxsplit=1)
+    if len(parts) < 2:
+        bot.send_message(message.chat.id, "Напиши город: /weather Москва")
+        return
+    city = parts[1].strip()
+    weather_data = weather.get_current_weather(city, lang)
+    if weather_data:
+        if 'timezone' in weather_data:
+            user_timezone[user_id] = weather_data['timezone']
+            memory.save_user_timezone(user_timezone)
+        pet_name = get_pet_name(user_id, message.from_user.first_name)
+        reply = weather.generate_natural_weather_response(city, weather_data, lang, client=client, pet_name=pet_name)
+    else:
+        reply = f"Не удалось получить погоду для {city}."
+    bot.send_message(message.chat.id, reply)
 
 @bot.message_handler(commands=['forecast'])
 def forecast_cmd(message: telebot.types.Message):
+    # аналогично weather, можно оставить заглушку или реализовать
     pass
 
 @bot.message_handler(commands=['date'])
@@ -361,12 +379,12 @@ def handle_message(message: telebot.types.Message):
     lang = user_lang[user_id]
     pet_name = get_pet_name(user_id, message.from_user.first_name)
 
-    # Пол
+    # Распознавание пола
     if not gender.ensure_gender_known(user_id, message.from_user.first_name, user_preferences,
                                       user_gender, user_awaiting_gender, bot, message, save_user_gender):
         return
 
-    # Фото
+    # Обработка фото (если пользователь прислал картинку)
     if message.content_type == 'photo':
         photos.analyze_user_photo(message, bot, client, lang)
         return
@@ -387,13 +405,28 @@ def handle_message(message: telebot.types.Message):
     else:
         safety.reset_dating_attempts(user_id, user_dating_attempts)
 
-    # --- ИСТОРИИ (высший приоритет) ---
-    if re.search(r'(расскажи|поделись|придумай).*?(историю|рассказ|случай)', user_text, re.IGNORECASE):
-        print(f"[DEBUG] Генерация истории по запросу: {user_text[:100]}")
+    # --- ЗАПРОС ФОТО (расширенное распознавание) ---
+    if re.search(r'(покажи|покажешь|хочу увидеть|хочу посмотреть|показать|дай|есть ли у тебя|свои фото|свои фотки|фото где ты|фотки где ты|свои фотографии|альбом|покажи себя|покажи свои фото|покажи свои картинки|покажи изображение|покажи фотку|покажи фото|какие у тебя есть фото|какие есть фото)', user_text, re.IGNORECASE):
+        print(f"[PHOTO] Запрос фото: {user_text}")
+        if photos.handle_photo_request(user_id, user_text, lang, bot, message, client,
+                                       add_message, save_user_history, save_user_last_photo,
+                                       save_user_last_favorite_photo):
+            user_photo_just_sent[user_id] = True
+            return
+        else:
+            if photos.show_random_photo(user_id, lang, bot, message, client,
+                                        add_message, save_user_history, save_user_last_photo,
+                                        save_user_last_favorite_photo):
+                user_photo_just_sent[user_id] = True
+                return
+
+    # --- ИСТОРИИ (расширенное распознавание) ---
+    if re.search(r'(расскажи|поделись|придумай|дай|хочешь рассказать).*?(историю|рассказ|случай|байку|истории)\b|какую(?:-?нибудь|-?то)?\s+историю', user_text, re.IGNORECASE):
+        print(f"[STORY] Генерация истории по запросу: {user_text[:100]}")
         story = stories.generate_story(user_text, user_id, lang, client, os.getenv('GIST_ID'))
         reply = story
     else:
-        # Обычный диалог через LLM
+        # Обычный диалог через LLM с повторными попытками
         add_message(user_id, 'user', user_text)
         now = datetime.now()
         current_date = now.strftime('%d.%m.%Y')
@@ -403,28 +436,39 @@ def handle_message(message: telebot.types.Message):
         if dating_instruction:
             system_prompt += "\n\n" + dating_instruction
         messages = build_messages(user_id, system_prompt, user_text)
-        try:
-            resp = client.chat.completions.create(
-                model='llama-3.1-8b-instant',
-                messages=messages,
-                temperature=0.8,
-                max_tokens=600,
-                timeout=10
-            )
-            reply = resp.choices[0].message.content.strip()
-            reply = clean_english_words(reply)
-            reply = remove_non_russian(reply)
-            reply = clean_profanity(reply)
-            reply = distribute_emojis(reply)
-        except Exception as e:
-            print(f"LLM ошибка: {e}")
-            reply = "Ой, что-то пошло не так... Попробуй ещё раз 😊"
 
+        reply = None
+        for attempt in range(2):
+            try:
+                resp = client.chat.completions.create(
+                    model='llama-3.1-8b-instant',
+                    messages=messages,
+                    temperature=0.8,
+                    max_tokens=600,
+                    timeout=25
+                )
+                reply = resp.choices[0].message.content.strip()
+                reply = clean_english_words(reply)
+                reply = remove_non_russian(reply)
+                reply = clean_profanity(reply)
+                reply = distribute_emojis(reply)
+                break
+            except Exception as e:
+                print(f"LLM ошибка (попытка {attempt+1}): {e}")
+                if attempt == 1:
+                    reply = "Ой, что-то пошло не так... Попробуй ещё раз 😊"
+                else:
+                    time.sleep(2)
+
+        if reply is None:
+            reply = "Не удалось сгенерировать ответ 😅"
+
+    # Сохраняем ответ для команды /repeat
     user_last_text_response[user_id] = reply
     add_message(user_id, 'assistant', reply)
     save_user_history()
 
-    # Отправка (голосом, если нужно)
+    # Отправка ответа (голосом, если пришло голосовое)
     if hasattr(message, 'should_voice_reply') and message.should_voice_reply:
         audio = tts_synthesize(reply)
         if audio:
@@ -453,7 +497,7 @@ def run_web():
 threading.Thread(target=run_web, daemon=True).start()
 
 if __name__ == '__main__':
-    print('✅ Алёна — финальная версия (голос + истории + ударения)')
+    print('✅ Алёна — финальная версия (собственный STT Space)')
     try:
         bot.infinity_polling()
     except Exception as e:
