@@ -1,4 +1,4 @@
-# stt.py — Распознавание речи: сначала Cloudflare Whisper, при ошибке Google Speech (бесплатно)
+# stt.py — Распознавание речи с диагностикой (Cloudflare + Google Fallback)
 
 import os
 import base64
@@ -7,51 +7,69 @@ import tempfile
 import subprocess
 from typing import Optional, List, Tuple
 
-# ---------- Cloudflare Whisper ----------
+print("[STT] Модуль загружается...")
+
 CF_ACCOUNT_ID = os.getenv('CF_ACCOUNT_ID')
 CF_API_TOKEN = os.getenv('CF_API_TOKEN')
 WHISPER_MODEL = '@cf/openai/whisper'
 
-# ---------- Google Speech (fallback) ----------
+# Проверка ffmpeg
+def check_ffmpeg():
+    try:
+        result = subprocess.run(['ffmpeg', '-version'], capture_output=True, text=True)
+        if result.returncode == 0:
+            print("[FFmpeg] OK")
+            return True
+        else:
+            print("[FFmpeg] НЕ ДОСТУПЕН")
+            return False
+    except FileNotFoundError:
+        print("[FFmpeg] НЕ НАЙДЕН")
+        return False
+
+FFMPEG_OK = check_ffmpeg()
+
+# Google Speech
 try:
     import speech_recognition as sr
     from pydub import AudioSegment
     GOOGLE_SPEECH_AVAILABLE = True
-    print("[STT] Google Speech Recognition доступен как резерв")
-except ImportError:
+    print("[STT] Google Speech Recognition доступен")
+except ImportError as e:
     GOOGLE_SPEECH_AVAILABLE = False
-    print("[STT] Google Speech Recognition не установлен, fallback недоступен")
+    print(f"[STT] Google Speech не установлен: {e}")
 
-# Адрес Space для анализа звуков
 SOUND_SPACE_URL = "https://max363048-alena-sound.hf.space"
 
 def convert_ogg_to_wav(ogg_bytes: bytes) -> Optional[bytes]:
-    """Конвертирует OGG Opus в WAV 16 kHz mono с помощью ffmpeg."""
+    if not FFMPEG_OK:
+        print("[convert] ffmpeg не найден, конвертация невозможна")
+        return None
     try:
         with tempfile.NamedTemporaryFile(suffix='.ogg', delete=False) as f_in:
             f_in.write(ogg_bytes)
             in_path = f_in.name
         out_path = tempfile.NamedTemporaryFile(suffix='.wav', delete=False).name
-        subprocess.run([
-            'ffmpeg', '-i', in_path,
-            '-acodec', 'pcm_s16le', '-ac', '1', '-ar', '16000',
-            out_path, '-y'
-        ], check=True, capture_output=True)
+        cmd = ['ffmpeg', '-i', in_path, '-acodec', 'pcm_s16le', '-ac', '1', '-ar', '16000', out_path, '-y']
+        print(f"[convert] Команда: {' '.join(cmd)}")
+        subprocess.run(cmd, check=True, capture_output=True)
         with open(out_path, 'rb') as f:
             wav_bytes = f.read()
         os.unlink(in_path)
         os.unlink(out_path)
+        print(f"[convert] Успешно, размер WAV: {len(wav_bytes)} байт")
         return wav_bytes
     except Exception as e:
-        print(f"[STT] Ошибка конвертации OGG->WAV: {e}")
+        print(f"[convert] Ошибка: {e}")
         return None
 
 def speech_to_text_cloudflare(audio_bytes: bytes, lang: str = 'ru') -> Optional[str]:
-    """Распознаёт речь через Cloudflare Whisper."""
+    print("[Cloudflare] Попытка распознавания...")
+    wav_bytes = convert_ogg_to_wav(audio_bytes)
+    if not wav_bytes:
+        print("[Cloudflare] Не удалось конвертировать аудио")
+        return None
     try:
-        wav_bytes = convert_ogg_to_wav(audio_bytes)
-        if not wav_bytes:
-            wav_bytes = audio_bytes
         audio_base64 = base64.b64encode(wav_bytes).decode('utf-8')
         url = f'https://api.cloudflare.com/client/v4/accounts/{CF_ACCOUNT_ID}/ai/run/{WHISPER_MODEL}'
         headers = {
@@ -61,24 +79,28 @@ def speech_to_text_cloudflare(audio_bytes: bytes, lang: str = 'ru') -> Optional[
         payload = {'audio': audio_base64, 'language': lang}
         resp = requests.post(url, headers=headers, json=payload, timeout=15)
         data = resp.json()
-        print(f"[Whisper] Статус: {resp.status_code}")
+        print(f"[Cloudflare] Статус: {resp.status_code}")
         if data.get('success'):
-            return data['result'].get('text', '').strip()
+            text = data['result'].get('text', '').strip()
+            print(f"[Cloudflare] Распознано: {text}")
+            return text
         else:
-            print(f"[Whisper] Ошибка: {data}")
+            print(f"[Cloudflare] Ошибка: {data}")
             return None
     except Exception as e:
-        print(f"[Whisper] Исключение: {e}")
+        print(f"[Cloudflare] Исключение: {e}")
         return None
 
 def speech_to_text_google(audio_bytes: bytes, lang: str = 'ru') -> Optional[str]:
-    """Распознаёт речь через Google Speech Recognition (бесплатно, без ключа)."""
     if not GOOGLE_SPEECH_AVAILABLE:
+        print("[Google] Библиотека не доступна")
+        return None
+    print("[Google] Попытка распознавания...")
+    wav_bytes = convert_ogg_to_wav(audio_bytes)
+    if not wav_bytes:
+        print("[Google] Не удалось конвертировать аудио")
         return None
     try:
-        wav_bytes = convert_ogg_to_wav(audio_bytes)
-        if not wav_bytes:
-            return None
         with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp:
             tmp.write(wav_bytes)
             tmp_path = tmp.name
@@ -101,19 +123,19 @@ def speech_to_text_google(audio_bytes: bytes, lang: str = 'ru') -> Optional[str]
         return None
 
 def speech_to_text(audio_bytes: bytes, lang: str = 'ru') -> Optional[str]:
-    """Сначала пробует Cloudflare, при ошибке – Google (если доступен)."""
+    print("[STT] Запуск распознавания...")
     text = speech_to_text_cloudflare(audio_bytes, lang)
     if text:
         return text
     if GOOGLE_SPEECH_AVAILABLE:
-        print("[STT] Cloudflare не сработал, пробуем Google Speech...")
+        print("[STT] Cloudflare не сработал, пробуем Google...")
         text = speech_to_text_google(audio_bytes, lang)
         if text:
             return text
+    print("[STT] Распознавание не удалось")
     return None
 
 def classify_sounds_remote(audio_bytes: bytes) -> List[Tuple[str, float]]:
-    """Отправляет аудио на Space с YAMNet."""
     try:
         files = {'audio': ('voice.ogg', audio_bytes, 'audio/ogg')}
         resp = requests.post(f"{SOUND_SPACE_URL}/classify", files=files, timeout=10)
@@ -134,8 +156,3 @@ def speech_to_text_with_sounds(audio_bytes: bytes, lang: str = 'ru') -> Tuple[Op
     if text:
         sounds = classify_sounds_remote(audio_bytes)
     return text, sounds
-
-# Для обратной совместимости
-def process_voice_message(message, bot, lang: str, pet_name: str) -> bool:
-    # Этот код почти не используется, но оставим заглушку
-    return True
