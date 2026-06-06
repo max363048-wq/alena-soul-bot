@@ -1,5 +1,3 @@
-# stories.py — Генерация историй от первого лица с грамматическими правками
-
 import os
 import json
 import requests
@@ -11,49 +9,34 @@ STORIES_FILENAME = 'user_stories.json'
 
 def _get_gist_headers():
     token = os.getenv('GITHUB_TOKEN')
-    return {
-        'Authorization': f'token {token}',
-        'Accept': 'application/vnd.github.v3+json'
-    }
+    return {'Authorization': f'token {token}', 'Accept': 'application/vnd.github.v3+json'}
 
 def _get_gist_api_url():
     gist_id = os.getenv('GIST_ID')
     return f'https://api.github.com/gists/{gist_id}'
 
-def _load_stories(gist_id: str) -> dict:
+def _load_stories(gist_id):
     if not gist_id:
         return {}
     try:
-        headers = _get_gist_headers()
-        url = f'https://api.github.com/gists/{gist_id}'
-        resp = requests.get(url, headers=headers, timeout=5)
+        resp = requests.get(_get_gist_api_url(), headers=_get_gist_headers(), timeout=5)
         if resp.status_code == 200:
-            gist_data = resp.json()
-            files = gist_data.get('files', {})
+            files = resp.json().get('files', {})
             if STORIES_FILENAME in files:
-                content = files[STORIES_FILENAME].get('content', '{}')
-                return json.loads(content)
+                return json.loads(files[STORIES_FILENAME].get('content', '{}'))
         return {}
     except Exception as e:
-        print(f'Ошибка загрузки историй из Gist: {e}')
+        print(f'Ошибка загрузки историй: {e}')
         return {}
 
-def _save_stories(gist_id: str, data: dict):
+def _save_stories(gist_id, data):
     if not gist_id:
         return
     try:
-        headers = _get_gist_headers()
-        url = f'https://api.github.com/gists/{gist_id}'
-        payload = {
-            'files': {
-                STORIES_FILENAME: {
-                    'content': json.dumps(data, ensure_ascii=False)
-                }
-            }
-        }
-        requests.patch(url, headers=headers, json=payload, timeout=5)
+        payload = {'files': {STORIES_FILENAME: {'content': json.dumps(data, ensure_ascii=False)}}}
+        requests.patch(_get_gist_api_url(), headers=_get_gist_headers(), json=payload, timeout=5)
     except Exception as e:
-        print(f'Ошибка сохранения историй в Gist: {e}')
+        print(f'Ошибка сохранения историй: {e}')
 
 GRAMMAR_FIXES = {
     r'\bвесную\b': 'весёлую',
@@ -67,17 +50,16 @@ GRAMMAR_FIXES = {
     r'\bсмехать\b': 'смеяться',
 }
 
-def fix_grammar(text: str) -> str:
+def fix_grammar(text):
     for pattern, repl in GRAMMAR_FIXES.items():
         text = re.sub(pattern, repl, text, flags=re.IGNORECASE)
     return text
 
-def _fallback_story() -> str:
-    """Возвращает большую и интересную историю-заглушку (как раньше)."""
+def _fallback_story():
     return "Мы с подругой в прошлое воскресенье пошли в парк кататься на роликах, и я так разогналась, что врезалась в куст сирени! 😄 Было смешно и немного стыдно, зато теперь я умею тормозить правильно 💕"
 
-def generate_story(prompt: str, user_id: int, lang: str, client, gist_id: str) -> str:
-    print(f"[STORY] Запрос истории от user_id {user_id}: {prompt[:100]}")
+def generate_story(prompt, user_id, lang, client, gist_id):
+    print(f"[STORY] Запрос истории для user {user_id}: {prompt[:100]}")
     system_prompt = (
         'Ты Алёна — добрая, весёлая, обаятельная девушка 25 лет.\n'
         'Расскажи короткую (4-6 предложений) историю из своей жизни от первого лица.\n'
@@ -94,43 +76,32 @@ def generate_story(prompt: str, user_id: int, lang: str, client, gist_id: str) -
             ],
             temperature=0.75,
             max_tokens=600,
-            timeout=20   # увеличен таймаут
+            timeout=15  # увеличен
         )
         story = resp.choices[0].message.content.strip()
         print(f"[STORY] LLM ответ: {story[:150] if story else 'пусто'}")
         if not story:
-            print("[STORY] Пустой ответ, берём fallback")
             return _fallback_story()
-        
         forbidden = ['разведчик', 'шпион', 'секретная миссия', 'оружие', 'война', 'принцесс', 'солдат', 'командир', 'документы', 'крепость', 'враг', 'захват', 'компас', 'свадьбе сестры']
         if any(word in story.lower() for word in forbidden):
-            print("[STORY] Запрещённая тема, берём fallback")
             return _fallback_story()
-        
         story = clean_english_words(story)
         story = remove_non_russian(story)
         story = fix_grammar(story)
-        
         # Сохраняем в Gist
-        gist_id = gist_id or ''
         all_stories = _load_stories(gist_id)
         user_stories = all_stories.get(str(user_id), [])
-        user_stories.append({
-            'date': datetime.now().strftime('%d.%m.%Y %H:%M'),
-            'type': 'story',
-            'text': story
-        })
+        user_stories.append({'date': datetime.now().strftime('%d.%m.%Y %H:%M'), 'type': 'story', 'text': story})
         if len(user_stories) > 20:
             user_stories = user_stories[-20:]
         all_stories[str(user_id)] = user_stories
         _save_stories(gist_id, all_stories)
-        
         return story
     except Exception as e:
         print(f"[STORY] Ошибка: {e}")
         return _fallback_story()
 
-def creative_prompt(user_id: int, lang: str, client, gist_id: str) -> str:
+def creative_prompt(user_id, lang, client, gist_id):
     system_prompt = (
         'Ты Алёна — вдохновляющая, творческая девушка. Придумай одну короткую, конкретную идею для творчества '
         '(например: «нарисуй закат на море акварелью» или «напиши стих о летнем дожде»). '
@@ -140,32 +111,22 @@ def creative_prompt(user_id: int, lang: str, client, gist_id: str) -> str:
     try:
         resp = client.chat.completions.create(
             model='llama-3.1-8b-instant',
-            messages=[
-                {'role': 'system', 'content': system_prompt},
-                {'role': 'user', 'content': 'Дай мне творческую подсказку на сегодня'}
-            ],
-            temperature=0.95,
-            max_tokens=300,
-            timeout=10
+            messages=[{'role': 'system', 'content': system_prompt}, {'role': 'user', 'content': 'Дай мне творческую подсказку на сегодня'}],
+            temperature=0.95, max_tokens=300, timeout=10
         )
         idea = resp.choices[0].message.content.strip()
         if not idea:
             return 'Ой, муза сегодня капризничает... Давай попробуем ещё раз? 😊'
         idea = clean_english_words(idea)
         idea = remove_non_russian(idea)
-        gist_id = gist_id or ''
         all_stories = _load_stories(gist_id)
         user_stories = all_stories.get(str(user_id), [])
-        user_stories.append({
-            'date': datetime.now().strftime('%d.%m.%Y %H:%M'),
-            'type': 'creative_prompt',
-            'text': idea
-        })
+        user_stories.append({'date': datetime.now().strftime('%d.%m.%Y %H:%M'), 'type': 'creative_prompt', 'text': idea})
         if len(user_stories) > 20:
             user_stories = user_stories[-20:]
         all_stories[str(user_id)] = user_stories
         _save_stories(gist_id, all_stories)
         return idea
     except Exception as e:
-        print(f'Ошибка генерации творческой подсказки: {e}')
+        print(f'Ошибка творческой подсказки: {e}')
         return 'Что-то моя фантазия разыгралась не на шутку... Попробуем позже? 😅'
