@@ -1,3 +1,5 @@
+# main.py — Финальная версия (исправлены фото по голосу, увеличен таймаут)
+
 import os
 import telebot
 import re
@@ -21,7 +23,7 @@ import memory
 import gender
 import stt
 import safety
-from text_utils import clean_english_words, remove_non_russian, distribute_emojis, clean_profanity
+from text_utils import clean_english_words, remove_non_russian, distribute_emojis, SAFE_EMOJIS, clean_profanity
 
 BOT_TOKEN = os.getenv('BOT_TOKEN')
 GROQ_API_KEY = os.getenv('GROQ_API_KEY')
@@ -46,7 +48,7 @@ user_just_gave_horoscope: Dict[int, bool] = {}
 user_photo_just_sent: Dict[int, bool] = {}
 user_last_text_response: Dict[int, str] = {}
 
-# ---------- Функции GIST ----------
+# ---------- GIST ----------
 def save_user_history():
     memory.save_user_history(user_history)
 
@@ -300,12 +302,63 @@ def repeat_last_text(message: telebot.types.Message):
 
 @bot.message_handler(commands=['weather'])
 def weather_cmd(message: telebot.types.Message):
-    # полная реализация из твоего оригинала (сокращённо для краткости)
-    pass
+    user_id = message.from_user.id
+    lang = user_lang.get(user_id, 'ru')
+    parts = message.text.split(maxsplit=1)
+    pet_name = get_pet_name(user_id, message.from_user.first_name)
+    try:
+        if len(parts) < 2:
+            bot.send_message(message.chat.id, "Напиши город: /weather Москва")
+            return
+        city = parts[1].strip()
+        weather_data = weather.get_current_weather(city, lang)
+        if weather_data:
+            if 'timezone' in weather_data:
+                user_timezone[user_id] = weather_data['timezone']
+                save_user_timezone(user_timezone)
+            reply = weather.generate_natural_weather_response(city, weather_data, lang, is_forecast=False, client=client, pet_name=pet_name)
+        else:
+            reply = f"Не удалось получить погоду для {city}."
+        bot.send_message(message.chat.id, reply)
+    except Exception as e:
+        print(f'Ошибка weather_cmd: {e}')
+        traceback.print_exc()
 
 @bot.message_handler(commands=['forecast'])
 def forecast_cmd(message: telebot.types.Message):
-    pass
+    user_id = message.from_user.id
+    lang = user_lang.get(user_id, 'ru')
+    parts = message.text.split(maxsplit=1)
+    pet_name = get_pet_name(user_id, message.from_user.first_name)
+    try:
+        if len(parts) < 2:
+            bot.send_message(message.chat.id, "Напиши город и день: /forecast Москва завтра")
+            return
+        args = parts[1].strip().split()
+        if len(args) < 2:
+            bot.send_message(message.chat.id, "Укажи город и день (завтра/послезавтра). Пример: /forecast Москва завтра")
+            return
+        city = args[0]
+        day_word = args[1].lower()
+        if 'завтра' in day_word:
+            day_delta, day_name = 1, 'завтра'
+        elif 'послезавтра' in day_word:
+            day_delta, day_name = 2, 'послезавтра'
+        else:
+            bot.send_message(message.chat.id, "Укажи день: завтра или послезавтра")
+            return
+        forecast = weather.get_forecast_for_day(city, day_delta, lang)
+        if forecast:
+            if 'timezone' in forecast:
+                user_timezone[user_id] = forecast['timezone']
+                save_user_timezone(user_timezone)
+            reply = weather.generate_natural_weather_response(city, forecast, lang, is_forecast=True, day_name=day_name, client=client, pet_name=pet_name)
+        else:
+            reply = f"Не удалось получить прогноз на {day_name} для {city}."
+        bot.send_message(message.chat.id, reply)
+    except Exception as e:
+        print(f'Ошибка forecast_cmd: {e}')
+        traceback.print_exc()
 
 @bot.message_handler(commands=['date'])
 def date_cmd(message: telebot.types.Message):
@@ -317,6 +370,7 @@ def horoscope_command(message: telebot.types.Message):
     user_id = message.from_user.id
     pet_name = get_pet_name(user_id, message.from_user.first_name)
     horoscope.horoscope_cmd(message, bot, client, user_lang, user_zodiac, user_timezone, save_user_zodiac, add_message, save_user_history, pet_name=pet_name)
+    user_just_gave_horoscope[user_id] = True
 
 @bot.message_handler(commands=['quote'])
 def quote_cmd(message: telebot.types.Message):
@@ -387,13 +441,12 @@ def handle_message(message: telebot.types.Message):
         safety.reset_dating_attempts(user_id, user_dating_attempts)
 
     # --- ИСТОРИИ (расширенное регулярное выражение) ---
-    # Поддерживает: "расскажи историю", "расскажи какую-нибудь историю", "какую нибудь историю", "историю пожалуйста" и т.д.
     if re.search(r'(расскажи|поделись|придумай|дай|хочешь рассказать).*?(историю|рассказ|случай|байку|истории)\b|какую(?:-?нибудь|-?то)?\s+историю', user_text, re.IGNORECASE):
         print(f"[DEBUG] Генерация истории по запросу: {user_text[:100]}")
         story = stories.generate_story(user_text, user_id, lang, client, os.getenv('GIST_ID'))
         reply = story
     else:
-        # Обычный диалог через LLM
+        # Обычный диалог через LLM с повторными попытками
         add_message(user_id, 'user', user_text)
         now = datetime.now()
         current_date = now.strftime('%d.%m.%Y')
@@ -403,28 +456,38 @@ def handle_message(message: telebot.types.Message):
         if dating_instruction:
             system_prompt += "\n\n" + dating_instruction
         messages = build_messages(user_id, system_prompt, user_text)
-        try:
-            resp = client.chat.completions.create(
-                model='llama-3.1-8b-instant',
-                messages=messages,
-                temperature=0.8,
-                max_tokens=600,
-                timeout=10
-            )
-            reply = resp.choices[0].message.content.strip()
-            reply = clean_english_words(reply)
-            reply = remove_non_russian(reply)
-            reply = clean_profanity(reply)
-            reply = distribute_emojis(reply)
-        except Exception as e:
-            print(f"LLM ошибка: {e}")
-            reply = "Ой, что-то пошло не так... Попробуй ещё раз 😊"
+        
+        reply = None
+        for attempt in range(2):
+            try:
+                resp = client.chat.completions.create(
+                    model='llama-3.1-8b-instant',
+                    messages=messages,
+                    temperature=0.8,
+                    max_tokens=600,
+                    timeout=20
+                )
+                reply = resp.choices[0].message.content.strip()
+                reply = clean_english_words(reply)
+                reply = remove_non_russian(reply)
+                reply = clean_profanity(reply)
+                reply = distribute_emojis(reply)
+                break
+            except Exception as e:
+                print(f"LLM ошибка (попытка {attempt+1}): {e}")
+                if attempt == 1:
+                    reply = "Ой, что-то пошло не так... Попробуй ещё раз 😊"
+                else:
+                    time.sleep(2)
+        
+        if reply is None:
+            reply = "Не удалось сгенерировать ответ 😅"
 
     user_last_text_response[user_id] = reply
     add_message(user_id, 'assistant', reply)
     save_user_history()
 
-    # Отправка (голосом, если нужно)
+    # Отправка ответа (голосом, если нужно)
     if hasattr(message, 'should_voice_reply') and message.should_voice_reply:
         audio = tts_synthesize(reply)
         if audio:
@@ -453,7 +516,7 @@ def run_web():
 threading.Thread(target=run_web, daemon=True).start()
 
 if __name__ == '__main__':
-    print('✅ Алёна — финальная версия (истории, голос, ударения v1.2)')
+    print('✅ Алёна — финальная версия (голос, фото, истории, ударения)')
     try:
         bot.infinity_polling()
     except Exception as e:
