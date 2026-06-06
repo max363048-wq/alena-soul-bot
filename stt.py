@@ -7,7 +7,7 @@ from typing import Optional, List, Tuple
 
 CF_ACCOUNT_ID = os.getenv('CF_ACCOUNT_ID')
 CF_API_TOKEN = os.getenv('CF_API_TOKEN')
-WHISPER_MODEL = '@cf/openai/whisper'
+WHISPER_MODEL = '@cf/openai/whisper-large-v3-turbo'
 
 # Адрес Space для анализа фоновых звуков
 SOUND_SPACE_URL = "https://max363048-alena-sound.hf.space"
