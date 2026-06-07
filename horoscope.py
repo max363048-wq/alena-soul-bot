@@ -1,5 +1,3 @@
-# horoscope.py — Модуль гороскопа для Алёны
-
 import re
 from datetime import datetime
 from typing import Dict, Optional
@@ -62,7 +60,11 @@ def horoscope_cmd(message: telebot.types.Message, bot, client, user_lang, user_z
         else:
             bot.send_message(message.chat.id, "Не поняла знак или дату. Напиши, например: /horoscope козерог или /horoscope 15 июня")
             return
-    today = datetime.now().strftime('%Y-%m-%d')
+
+    # Используем ТЕКУЩУЮ дату, а не завтрашнюю
+    today = datetime.now()
+    current_date_str = today.strftime('%Y-%m-%d')
+    # Добавим в промпт только текущую дату, без упоминания завтра
     local_time_note = ''
     if user_id in user_timezone:
         local_time_str = format_local_time(user_timezone[user_id])
@@ -70,12 +72,12 @@ def horoscope_cmd(message: telebot.types.Message, bot, client, user_lang, user_z
 
     greeting = f'{pet_name}, ' if pet_name else ''
     try:
-        prompt = (f"Ты астролог. Составь короткое доброе предсказание для знака {sign.capitalize()} на {today}.{local_time_note} "
+        prompt = (f"Ты астролог. Составь короткое доброе предсказание для знака {sign.capitalize()} на сегодня, {current_date_str}.{local_time_note} "
                   f"Начни ответ с обращения к пользователю: '{greeting}' (если имя есть, то используй его ласковую форму). "
                   f"Добавь в конце 2-3 эмодзи (😊✨💖). "
                   f"Пиши на русском, без английских слов. НЕ начинай ответ с 'Здравствуй' или 'Привет'. "
                   f"НИ В КОЕМ СЛУЧАЕ не упоминай текущее время суток (утро, день, вечер, обед), не предполагай, что пользователь уже что-то сделал или не сделал. "
-                  f"Говори 'твой гороскоп', 'тебе предсказание', не путай 'свой' и 'твой'."
+                  f"Говори 'твой гороскоп', 'тебе предсказание', не путай 'свой' и 'твой'. "
                   f"Обращайся на 'ты'.")
         resp = client.chat.completions.create(
             model='llama-3.1-8b-instant',
@@ -97,13 +99,9 @@ def horoscope_cmd(message: telebot.types.Message, bot, client, user_lang, user_z
 def handle_natural_horoscope(message: telebot.types.Message, bot, client, user_lang, user_zodiac, user_timezone, save_user_zodiac, add_message, save_user_history, pet_name: str = ''):
     user_id = message.from_user.id
     user_text = message.text
-    
-    # Защита от повторного гороскопа при похвале
     if re.search(r'(отличный гороскоп|классный гороскоп|супер гороскоп|хороший гороскоп|спасибо за гороскоп|правда же\?|здорово|круто)', user_text, re.IGNORECASE):
-        # Если нет явной просьбы рассказать новый гороскоп
         if not re.search(r'(расскажи|составь|какой будет|предскажи|покажи|дай|напиши)', user_text, re.IGNORECASE):
             return False
-    
     if re.search(r'(расскажи гороскоп|составь гороскоп|какой гороскоп|что говорят звёзды|предскажи гороскоп|расскажи мне гороскоп)', user_text, re.IGNORECASE):
         if user_id in user_zodiac:
             sign = user_zodiac[user_id]
