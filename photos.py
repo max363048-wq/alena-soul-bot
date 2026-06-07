@@ -1,5 +1,3 @@
-# photos.py — Модуль фотоальбома Алёны (добавлена show_random_photo)
-
 import os
 import random
 import base64
@@ -17,7 +15,7 @@ KEYWORD_MAP = {
     'кормит птиц': ['кормит птиц', 'птиц', 'голуби', 'корм'],
     'зима': ['зима', 'зимой', 'зимние', 'лыжи', 'лыжах', 'кататься', 'катаешься'],
     'пикник': ['пикник', 'пикнике', 'пикника', 'пикником', 'плед', 'корзина', 'еда', 'фрукты', 'клубника'],
-    'париж': ['париж', 'франция', 'eiffel', 'лувр', 'парк', 'фонтан', 'мост', 'мосту', 'моста', 'мостом'],
+    'париж': ['париж', 'франция', 'eiffel', 'лувр', 'парк', 'фонтан', 'мост', 'мосту', 'мостом'],
     'осень': ['осень', 'осенние', 'осенью', 'листья'],
     'собака': ['собака', 'собакой', 'собаке', 'собаку', 'пёс', 'щенок', 'играю', 'играешь', 'гуляю', 'гуляешь'],
     'набережная': ['набережная', 'набережную', 'набережной', 'причал', 'яхта', 'порт'],
@@ -34,12 +32,10 @@ user_no_photos: Dict[int, bool] = {}
 user_thematic_history: Dict[int, Dict[str, set]] = {}
 user_last_category: Dict[int, str] = {}
 user_last_user_image_desc: Dict[int, str] = {}
-
 user_last_photo_request: Dict[int, Dict[str, str]] = {}
 user_pending_photo_offer: Dict[int, bool] = {}
 user_last_favorite_photo: Dict[int, str] = {}
 
-# ---------- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ----------
 def get_photo_list() -> List[str]:
     if not os.path.exists(PHOTO_FOLDER):
         os.makedirs(PHOTO_FOLDER, exist_ok=True)
@@ -146,6 +142,8 @@ def analyze_user_photo(message, bot, client, lang: str) -> bool:
         description = analyze_photo_with_vision(temp_path, prompt, client, lang)
         os.remove(temp_path)
         user_last_user_image_desc[message.from_user.id] = description
+        # Диагностика: выводим в лог сохранённое описание
+        print(f"[PHOTO] Сохранено описание картинки пользователя: {description[:100]}")
         bot.send_message(message.chat.id, description)
         return True
     except Exception as e:
@@ -161,12 +159,10 @@ def try_paris_photo(user_id: int, user_text: str, lang: str, bot, message, clien
         return False
     if not re.search(r'(фото|фотки|фотографии)', user_text, re.IGNORECASE):
         return False
-
     all_photos = get_photo_list()
     paris_photos = [p for p in all_photos if 'мост' in get_keywords_from_photo_name(p) and 'париж' in get_keywords_from_photo_name(p)]
     if not paris_photos:
         paris_photos = [p for p in all_photos if 'мост' in get_keywords_from_photo_name(p)]
-
     if paris_photos:
         category = 'париж'
         user_last_category[user_id] = category
@@ -180,13 +176,11 @@ def try_paris_photo(user_id: int, user_text: str, lang: str, bot, message, clien
                 chosen_photo = random.choice(paris_photos)
         else:
             chosen_photo = random.choice(paris_photos)
-
         if user_id not in user_thematic_history:
             user_thematic_history[user_id] = {}
         if category not in user_thematic_history[user_id]:
             user_thematic_history[user_id][category] = set()
         user_thematic_history[user_id][category].add(chosen_photo)
-
         user_last_sent_photo[user_id] = chosen_photo
         save_user_last_photo_func(user_id, chosen_photo)
         try:
@@ -224,24 +218,17 @@ def handle_favorite_photo_repeat(user_id, lang, bot, message):
             return False
     return False
 
-# --- НОВАЯ ФУНКЦИЯ: показать случайное фото (для ответа на предложение) ---
 def show_random_photo(user_id: int, lang: str, bot, message, client,
                       add_message, save_user_history, save_user_last_photo_func,
                       save_user_last_favorite_photo_func, user_has_no_photos: bool = False) -> bool:
     all_photos = get_photo_list()
     if not all_photos:
         msg = "У меня ещё нет фотоальбома, но Максик обещал скоро добавить! 😊" if lang == 'ru' else "I don't have a photo album yet, but Max promised to add it soon! 😊"
-        try:
-            bot.send_message(message.chat.id, msg)
-        except:
-            pass
+        bot.send_message(message.chat.id, msg)
         return False
-
     chosen_photo = random.choice(all_photos)
     user_last_sent_photo[user_id] = chosen_photo
     save_user_last_photo_func(user_id, chosen_photo)
-
-    # Запоминаем категорию для последующих "ещё таких"
     photo_name = get_keywords_from_photo_name(chosen_photo)
     cat_found = False
     for cat, words in KEYWORD_MAP.items():
@@ -256,7 +243,6 @@ def show_random_photo(user_id: int, lang: str, bot, message, client,
             break
     if not cat_found:
         user_last_category[user_id] = None
-
     try:
         prompt = "Начни свой ответ с душевного восклицания, например: 'Конечно, у меня есть такие фото!' или 'С удовольствием покажу!' Затем опиши фото: что ты на нём делаешь, где ты, какое у тебя настроение. Расскажи короткую историю. Обязательно добавь 2-3 эмодзи, чтобы описание было живым. Не начинай ответ с 'Привет'."
         description = analyze_photo_with_vision(chosen_photo, prompt, client, lang)
@@ -283,16 +269,15 @@ def show_random_photo(user_id: int, lang: str, bot, message, client,
         except:
             return False
 
-# --- ГЛАВНАЯ ФУНКЦИЯ ОБРАБОТКИ ФОТО-ЗАПРОСОВ ---
 def handle_photo_request(user_id: int, user_text: str, lang: str, bot, message, client,
                          add_message, save_user_history, save_user_last_photo_func,
                          save_user_last_favorite_photo_func, user_has_no_photos: bool = False):
-    # --- ГАРАНТИРОВАННЫЙ ПАРИЖ (САМЫЙ ПЕРВЫЙ!) ---
+    # Гарантированный Париж (самый первый)
     if try_paris_photo(user_id, user_text, lang, bot, message, client, add_message, save_user_history, save_user_last_photo_func):
         user_pending_photo_offer[user_id] = False
         return True
 
-    # --- Просьба "ещё такие же фото" ---
+    # Просьба "ещё такие же фото"
     if user_id in user_last_category and user_last_category[user_id] is not None and re.search(r'(еще такие фото|еще такие фотки|такие же фото|такие же фотки|похожие фото|похожие фотки|аналогичные фото|аналогичные фотки|другие фото|другое фото|ещё такие|еще такие|еще такое фото|ещё такое фото|такое же фото|ещё такие фотки)', user_text, re.IGNORECASE):
         user_pending_photo_offer[user_id] = False
         last_cat = user_last_category[user_id]
@@ -315,42 +300,31 @@ def handle_photo_request(user_id: int, user_text: str, lang: str, bot, message, 
                         user_thematic_history[user_id][last_cat] = set()
                     user_thematic_history[user_id][last_cat].add(chosen_photo)
                 else:
-                    try:
-                        bot.send_message(message.chat.id, "У меня пока только это фото на тему «Париж». Хочешь, покажу что-нибудь из другого альбома? 😊")
-                    except:
-                        pass
+                    bot.send_message(message.chat.id, "У меня пока только это фото на тему «Париж». Хочешь, покажу что-нибудь из другого альбома? 😊")
                     return True
             else:
-                try:
-                    bot.send_message(message.chat.id, "Ой, не могу найти парижские фото, попробуй ещё раз 😅")
-                except:
-                    pass
+                bot.send_message(message.chat.id, "Ой, не могу найти парижские фото, попробуй ещё раз 😅")
                 return True
         else:
             chosen_photo = select_thematic_photo(user_id, last_cat)
             if chosen_photo is None:
-                try:
-                    bot.send_message(message.chat.id, f"У меня пока только это фото на тему «{last_cat}». Хочешь, покажу что-нибудь из другого альбома? 😊")
-                except:
-                    pass
+                bot.send_message(message.chat.id, f"У меня пока только это фото на тему «{last_cat}». Хочешь, покажу что-нибудь из другого альбома? 😊")
                 return True
-
         if chosen_photo:
             user_last_sent_photo[user_id] = chosen_photo
             save_user_last_photo_func(user_id, chosen_photo)
             compliment = bool(re.search(r'(красавица|красивая|умница|прекрасна|великолепна|шикарна|обалденная|потрясающая|чудесная|восхитительная|симпатичная|милашка|хорошенькая|обворожительная|божественно|как красиво|какая ты красивая|какая ты классная|какая ты хорошая)', user_text, re.IGNORECASE))
-            apology = ""
             try:
                 if lang == 'ru':
                     analysis_prompt = ""
                     if compliment:
                         analysis_prompt += "Ты ДОЛЖНА сначала поблагодарить пользователя за комплимент (например, 'Спасибо, мне очень приятно! 😊'), а затем уже описывай фото. "
-                    analysis_prompt += apology + "Начни свой ответ с душевного восклицания, например: 'Конечно, у меня есть такие фото!' или 'С удовольствием покажу!' Затем опиши фото: что ты на нём делаешь, где ты, какое у тебя настроение. Расскажи короткую историю. Обязательно добавь 2-3 эмодзи, чтобы описание было живым. Не начинай ответ с 'Привет'."
+                    analysis_prompt += "Начни свой ответ с душевного восклицания, например: 'Конечно, у меня есть такие фото!' или 'С удовольствием покажу!' Затем опиши фото: что ты на нём делаешь, где ты, какое у тебя настроение. Расскажи короткую историю. Обязательно добавь 2-3 эмодзи, чтобы описание было живым. Не начинай ответ с 'Привет'."
                 else:
                     analysis_prompt = ""
                     if compliment:
                         analysis_prompt += "You MUST first thank the user for the compliment (e.g., 'Thank you, I'm very pleased! 😊'), and then describe the photo. "
-                    analysis_prompt += apology + "Start your answer with a warm phrase, e.g., 'I'm so glad you asked! Here's one of my photos...' Then describe the photo: what you are doing, where you are, what mood you are in. Tell a short story. Be sure to add 2-3 emojis to make the description lively. Do not start with 'Hello'."
+                    analysis_prompt += "Start your answer with a warm phrase, e.g., 'I'm so glad you asked! Here's one of my photos...' Then describe the photo: what you are doing, where you are, what mood you are in. Tell a short story. Be sure to add 2-3 emojis to make the description lively. Do not start with 'Hello'."
                 description = analyze_photo_with_vision(chosen_photo, analysis_prompt, client, lang)
                 if description.startswith('Привет'):
                     description = re.sub(r'^Привет[,!\s]*', '', description)
@@ -362,13 +336,10 @@ def handle_photo_request(user_id: int, user_text: str, lang: str, bot, message, 
                 save_user_history()
             except Exception as e:
                 print(f"Ошибка отправки ещё одного фото: {e}")
-                try:
-                    bot.send_message(message.chat.id, "Ой, не могу показать другое фото, попробуй ещё раз 😅")
-                except:
-                    pass
+                bot.send_message(message.chat.id, "Ой, не могу показать другое фото, попробуй ещё раз 😅")
             return True
 
-    # --- Основной показ фото (любимое, тематическое, случайное) ---
+    # Основной показ фото (любимое, тематическое, случайное)
     if re.search(r'(фотки|какие нибудь фото|а у тебя есть фотографии|есть фотографии|у тебя есть фото|покажи свои фото|покажи фото|покажи мне фото|покажи мне фотки|покажешь фото|покажешь мне фото|фотоальбом|покажи себя|своё фото|свое фото|мои фото|свои фотографии|покажи альбом|покажи где ты была|покажи, где ты|покажи картинку|покажи изображение|есть фото|есть ли у тебя фото|посмотреть твои фото|покажи свои фотографии|любимые фото|любимое фото|любимых фото|есть еще фото|другие фото|покажи другое фото|ещё фото|какое твое любимое фото|покажи любимое фото|покажи другое|такие фото|такие фотки|фото где ты|фотки где ты|какие фото у тебя еще есть|какие фото ещё есть|какие у тебя ещё фото|какие ещё фото|какие фото еще|какие еще фото|какие у тебя есть фото)', user_text, re.IGNORECASE):
         user_pending_photo_offer[user_id] = False
 
@@ -382,28 +353,19 @@ def handle_photo_request(user_id: int, user_text: str, lang: str, bot, message, 
         all_photos = get_photo_list()
         if not all_photos:
             msg = "У меня ещё нет фотоальбома, но Максик обещал скоро добавить! 😊" if lang == 'ru' else "I don't have a photo album yet, but Max promised to add it soon! 😊"
-            try:
-                bot.send_message(message.chat.id, msg)
-            except:
-                pass
+            bot.send_message(message.chat.id, msg)
             return True
 
-        compliment = False
-        if re.search(r'(красавица|красивая|умница|прекрасна|великолепна|шикарна|обалденная|потрясающая|чудесная|восхитительная|симпатичная|милашка|хорошенькая|обворожительная|божественно|как красиво|какая ты красивая|какая ты классная|какая ты хорошая)', user_text, re.IGNORECASE):
-            compliment = True
+        compliment = bool(re.search(r'(красавица|красивая|умница|прекрасна|великолепна|шикарна|обалденная|потрясающая|чудесная|восхитительная|симпатичная|милашка|хорошенькая|обворожительная|божественно|как красиво|какая ты красивая|какая ты классная|какая ты хорошая)', user_text, re.IGNORECASE))
 
         # Любимое фото (первый показ)
-                # Любимое фото (первый показ)
         if re.search(r'(любимые? фото|любимых? фото|какое твое любимое фото|покажи любимое фото|какая нибудь любимая фотка|есть ли у тебя любимая фотка|покажи любимую фотку|у тебя есть любимое фото|любимая фотка)', user_text, re.IGNORECASE):
             chosen_photo = random.choice(all_photos)
             apology = ""
             user_last_sent_photo[user_id] = chosen_photo
             save_user_last_photo_func(user_id, chosen_photo)
-            # Запоминаем как последнее любимое фото
             user_last_favorite_photo[user_id] = chosen_photo
             save_user_last_favorite_photo_func()
-            # НЕ переопределяем категорию!
-
             max_attempts = 3
             attempt = 0
             sent = False
@@ -445,10 +407,7 @@ def handle_photo_request(user_id: int, user_text: str, lang: str, bot, message, 
                             sent = True
                         except Exception as e2:
                             print(f"Ошибка запасной отправки любимого фото: {e2}")
-                            try:
-                                bot.send_message(message.chat.id, "Не могу отправить фото, что-то не так 😅")
-                            except:
-                                pass
+                            bot.send_message(message.chat.id, "Не могу отправить фото, что-то не так 😅")
             if sent:
                 add_message(user_id, 'user', user_text)
                 add_message(user_id, 'assistant', description)
@@ -479,7 +438,6 @@ def handle_photo_request(user_id: int, user_text: str, lang: str, bot, message, 
                     else:
                         apology = ""
                 else:
-                    # Случайное фото – запоминаем категорию
                     chosen_photo = random.choice(all_photos)
                     apology = ""
                     photo_name = get_keywords_from_photo_name(chosen_photo)
@@ -496,10 +454,8 @@ def handle_photo_request(user_id: int, user_text: str, lang: str, bot, message, 
                             break
                     if not cat_found:
                         user_last_category[user_id] = None
-
             user_last_sent_photo[user_id] = chosen_photo
             save_user_last_photo_func(user_id, chosen_photo)
-
             max_attempts = 3
             attempt = 0
             sent = False
@@ -519,19 +475,16 @@ def handle_photo_request(user_id: int, user_text: str, lang: str, bot, message, 
                     description = analyze_photo_with_vision(chosen_photo, analysis_prompt, client, lang)
                     if description.startswith('Привет'):
                         description = re.sub(r'^Привет[,!\s]*', '', description)
-
                     if not category and not re.search(r'(такие|таких|похожие|аналогичные)', user_text, re.IGNORECASE):
                         if lang == 'ru':
                             description += "\n\nКстати, у меня много разных фотографий! Есть где я на пляже, в горах или на природе... Какие именно тебя интересуют? 😊"
                         else:
                             description += "\n\nBy the way, I have a lot of different photos! I have some at the beach, in the mountains, or in nature... Which ones are you interested in? 😊"
-
                     if user_has_no_photos:
                         if lang == 'ru':
                             description += "\n\nКак жаль, а я бы с удовольствием посмотрела на тебя! 😊 Но ничего страшного, мне и так хорошо с тобой."
                         else:
                             description += "\n\nWhat a pity, I would love to see you! 😊 But it's okay, I feel good with you anyway."
-
                     description = distribute_emojis(description)
                     with open(chosen_photo, 'rb') as photo:
                         bot.send_photo(message.chat.id, photo, caption=description)
@@ -558,14 +511,10 @@ def handle_photo_request(user_id: int, user_text: str, lang: str, bot, message, 
                             user_last_category[user_id] = None
                     else:
                         error_msg = "Не могу отправить фото, что-то не так 😅" if lang=='ru' else "I can't send the photo, something went wrong 😅"
-                        try:
-                            bot.send_message(message.chat.id, error_msg)
-                        except:
-                            pass
+                        bot.send_message(message.chat.id, error_msg)
             if sent:
                 add_message(user_id, 'user', user_text)
                 add_message(user_id, 'assistant', description)
                 save_user_history()
                 return True
-
     return False
