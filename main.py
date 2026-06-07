@@ -28,7 +28,7 @@ def handle_message(message):
     print(f"[OpenRouter] Получено сообщение: {message.text}")
     try:
         resp = client.chat.completions.create(
-            model="openrouter/mistral-7b-instruct:free",  # заменили на рабочую
+            model="openai/gpt-oss-20b:free",  # заменили на рабочую
             messages=[{"role": "user", "content": message.text}],
             temperature=0.7,
             max_tokens=200,
