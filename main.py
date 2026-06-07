@@ -1,5 +1,3 @@
-# main.py — полная версия с балансировщиком и отладочным принтом для продолжения диалога по картинке
-
 import os
 import telebot
 import re
@@ -190,7 +188,7 @@ def get_motivation(lang: str = 'ru') -> str:
     except:
         return "Ты сможешь всё! 💖"
 
-# ---------- Системный промпт (полный, с 18 правилами) ----------
+# ---------- Системный промпт ----------
 def get_system_prompt(lang: str, current_date: str, user_id: int) -> str:
     time_note = ''
     if user_id in user_timezone:
@@ -511,14 +509,35 @@ def handle_message(message: telebot.types.Message):
             photos.user_pending_photo_offer[user_id] = False
         return
 
-    # --- ОБРАБОТКА ЗАПРОСОВ ФОТО (показать свои фото) ---
+    # === ОБРАБОТКА ЗАПРОСОВ ФОТО ===
+    # Добавим диагностику
+    print(f"[PHOTO_REQUEST] Проверка сообщения: {user_text[:100]}")
+    # Усилим условие для любимого фото
+    if re.search(r'(любимое фото|любимое|любимых фото|какое твое любимое фото|покажи любимое фото|любимая фотка|есть ли у тебя любимое фото)', user_text, re.IGNORECASE):
+        print(f"[PHOTO_REQUEST] Сработало условие 'любимое фото'")
+        # Пытаемся показать любимое фото (если уже было) или случайное
+        if user_id in photos.user_last_favorite_photo:
+            if photos.handle_favorite_photo_repeat(user_id, lang, bot, message):
+                return
+        # Если любимого нет, покажем случайное
+        if photos.show_random_photo(user_id, lang, bot, message, client,
+                                    add_message, save_user_history, save_user_last_photo,
+                                    save_user_last_favorite_photo):
+            return
+        else:
+            bot.send_message(message.chat.id, "У меня пока нет любимого фото, но я могу показать другие! 😊")
+            return
+
+    # Общий запрос фото (через handle_photo_request)
     if re.search(r'(покажи|покажешь|хочу увидеть|хочу посмотреть|показать|дай|есть ли у тебя|свои фото|свои фотки|фото где ты|фотки где ты|свои фотографии|альбом|покажи себя|покажи свои фото|покажи свои картинки|покажи изображение|покажи фотку|покажи фото|какие у тебя есть фото|какие есть фото)', user_text, re.IGNORECASE):
+        print(f"[PHOTO_REQUEST] Общий запрос фото")
         if photos.handle_photo_request(user_id, user_text, lang, bot, message, client,
                                        add_message, save_user_history, save_user_last_photo,
                                        save_user_last_favorite_photo):
             user_photo_just_sent[user_id] = True
             return
         else:
+            # Если не сработало, попробуем случайное
             if photos.show_random_photo(user_id, lang, bot, message, client,
                                         add_message, save_user_history, save_user_last_photo,
                                         save_user_last_favorite_photo):
@@ -683,7 +702,6 @@ def handle_message(message: telebot.types.Message):
     sound_match = re.search(r'\[фоновый звук:\s*([^\]]+)\]', user_text)
     if sound_match:
         context_sound = sound_match.group(1).strip()
-        # пока не используем, можно добавить в промпт
 
     system_prompt = get_system_prompt(lang, current_date, user_id) + no_jokes_note + no_photos_note + f' Имя пользователя (ласково): {pet_name}.'
     if sensitive_instruction:
@@ -691,7 +709,7 @@ def handle_message(message: telebot.types.Message):
     if dating_instruction:
         system_prompt += "\n\n" + dating_instruction
 
-    # БЛОК ПРОДОЛЖЕНИЯ ДИАЛОГА ПО КАРТИНКЕ (с добавленным принтом)
+    # Блок продолжения диалога по картинке
     if user_id in photos.user_last_user_image_desc and re.search(r'(мы бы с тобой|смотрелись вместе|отдохнуть вместе|побыть вдвоём|представь|помечта)', user_text, re.IGNORECASE):
         print(f"[CONTEXT] Сработало условие продолжения диалога по картинке. Описание: {photos.user_last_user_image_desc[user_id][:100]}")
         system_prompt += f'\n\nПользователь показал картинку, которую ты описала так: "{photos.user_last_user_image_desc[user_id]}". ОТВЕЧАЙ ТОЛЬКО НА ОСНОВЕ ЭТОГО ОПИСАНИЯ, ИГНОРИРУЙ ВСЕ ПРЕДЫДУЩИЕ ТЕМЫ. Представь, что вы вдвоём находятся в этом месте, опиши ощущения.'
@@ -764,7 +782,7 @@ def run_web():
 threading.Thread(target=run_web, daemon=True).start()
 
 if __name__ == '__main__':
-    print('✅ Алёна — финальная версия с диагностикой продолжения диалога по картинке')
+    print('✅ Алёна — финальная версия с диагностикой фото')
     try:
         bot.infinity_polling()
     except Exception as e:
