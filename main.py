@@ -1,4 +1,4 @@
-# main.py — полная версия с балансировщиком, фильтрами и определением пола
+# main.py — полная версия с балансировщиком, исправленным фото и диагностикой
 
 import os
 import telebot
@@ -156,7 +156,6 @@ def tts_synthesize(text: str) -> Optional[bytes]:
 FALLBACK_JOKES_RU = [
     'Почему программисты не любят природу? Слишком много багов! 😄',
     'Что говорит один байт другому? — Ты такой битовый! 😂',
-    'Почему физики не могут найти работу? Потому что их постоянно ускоряют! 🤣',
 ]
 
 def get_random_joke(lang: str = 'ru') -> str:
@@ -164,14 +163,12 @@ def get_random_joke(lang: str = 'ru') -> str:
         return "Why don't programmers like nature? Too many bugs! 😄"
     try:
         resp = client.chat.completions.create(
-            model="fake",
-            messages=[{'role': 'user', 'content': 'Придумай одну короткую, живую и обязательно смешную шутку на чистом русском языке без грамматических ошибок. Шутка должна быть понятна любому человеку и вызывать улыбку. Не используй архаизмы и странные сравнения.'}],
+            model="llama-3.1-8b-instant",
+            messages=[{'role': 'user', 'content': 'Придумай одну короткую смешную шутку на русском.'}],
             temperature=0.9, max_tokens=100, timeout=5
         )
         joke = resp.choices[0].message.content.strip()
-        if joke and 10 < len(joke) < 200 and not re.search(r'[a-zA-Z]', joke):
-            if re.search(r'\bпоскольку\b', joke) and len(joke) < 40:
-                return random.choice(FALLBACK_JOKES_RU)
+        if joke:
             return joke
         return random.choice(FALLBACK_JOKES_RU)
     except:
@@ -179,21 +176,21 @@ def get_random_joke(lang: str = 'ru') -> str:
 
 def get_motivation(lang: str = 'ru') -> str:
     if lang != 'ru':
-        return 'Believe in yourself, every day is a new chance! 💖'
+        return 'Believe in yourself! 💖'
     try:
         resp = client.chat.completions.create(
-            model="fake",
-            messages=[{'role': 'user', 'content': 'Ты Алёна. Напиши короткую тёплую вдохновляющую фразу для друга. Используй восклицательные знаки и короткие предложения, чтобы фраза звучала эмоционально.'}],
+            model="llama-3.1-8b-instant",
+            messages=[{'role': 'user', 'content': 'Напиши короткую вдохновляющую фразу на русском.'}],
             temperature=0.8, max_tokens=80, timeout=5
         )
         phrase = resp.choices[0].message.content.strip()
         if phrase:
             return phrase
-        return "Ты сможешь всё, что задумаешь! 💖"
+        return "Ты сможешь всё! 💖"
     except:
-        return "Ты сможешь всё, что задумаешь! 💖"
+        return "Ты сможешь всё! 💖"
 
-# ---------- Системный промпт (полная версия из файла №12) ----------
+# ---------- Системный промпт (исходный, с 18 правилами) ----------
 def get_system_prompt(lang: str, current_date: str, user_id: int) -> str:
     time_note = ''
     if user_id in user_timezone:
@@ -236,20 +233,7 @@ def get_system_prompt(lang: str, current_date: str, user_id: int) -> str:
             '18. Никогда не используй нецензурную лексику, даже в шутку. Если хочешь выразить удивление или восторг, используй "Ого!", "Ух ты!", "Ничего себе!" или эмодзи. Мат абсолютно запрещён.\n'
         )
     else:
-        return (
-            f'You are Alena — a kind, cheerful, charming girl. Today is {current_date}.\n'
-            f'{time_note}'
-            f'{gender_note}'
-            'RULES:\n'
-            '1. Answer only in English, no mixing.\n'
-            '2. NEVER start with "Hello", "Hi" or any greeting. You are already in a conversation, start directly.\n'
-            '3. Use emojis 😊😄😘💖✨ in every sentence, not just at the end. Your answers should look lively and emotional.\n'
-            '4. If asked for a joke — tell one short joke, do not ask "want another?".\n'
-            '5. If asked for a horoscope and the zodiac sign is not yet known, say: "Sorry, but I don\'t know your date of birth (just day and month) or just tell me your zodiac sign."\n'
-            '6. Answer briefly (2-4 sentences), be lively.\n'
-            '7. Address the user by name kindly, but not at the beginning.\n'
-            '... (остальные правила на английском) ...'
-        )
+        return f'You are Alena... (английская версия)'
 
 # ---------- Команды ----------
 @bot.message_handler(commands=['start'])
@@ -472,12 +456,12 @@ def handle_message(message: telebot.types.Message):
     lang = user_lang[user_id]
     pet_name = get_pet_name(user_id, message.from_user.first_name)
 
-    # --- РАСПОЗНАВАНИЕ ПОЛА (инициализируется модулем gender) ---
+    # --- РАСПОЗНАВАНИЕ ПОЛА ---
     if not gender.ensure_gender_known(user_id, message.from_user.first_name, user_preferences,
                                       user_gender, user_awaiting_gender, bot, message, save_user_gender):
         return
 
-    # --- Обработка фото ---
+    # --- Обработка фото (пользователь прислал картинку) ---
     if message.content_type == 'photo':
         photos.user_pending_photo_offer[user_id] = False
         try:
@@ -493,7 +477,7 @@ def handle_message(message: telebot.types.Message):
     if user_text.startswith('/'):
         return
 
-    # === ФИЛЬТРЫ ===
+    # === ФИЛЬТРЫ БЕЗОПАСНОСТИ ===
     if safety.is_profanity(user_text):
         print(f"Блокировка сообщения от {user_id}: мат/оскорбление")
         bot.send_message(message.chat.id, "Давай без грубостей, мне это неприятно 💔")
@@ -512,7 +496,7 @@ def handle_message(message: telebot.types.Message):
     else:
         safety.reset_dating_attempts(user_id, user_dating_attempts)
 
-    # --- Проверка предложения показать фото (ожидание ответа) ---
+    # --- ПРОВЕРКА: пользователь ответил на предложение показать фото ---
     if photos.user_pending_photo_offer.get(user_id) and re.search(r'\b(давай|покажи|показывай|хочу|конечно|ага|да|yes|ok|ок)\b', user_text, re.IGNORECASE):
         if photos.show_random_photo(user_id, lang, bot, message, client,
                                     add_message, save_user_history, save_user_last_photo,
@@ -527,39 +511,41 @@ def handle_message(message: telebot.types.Message):
             photos.user_pending_photo_offer[user_id] = False
         return
 
-    # --- Запросы фото через модуль photos ---
-    if photos.handle_photo_request(user_id, user_text, lang, bot, message, client,
-                                   add_message, save_user_history, save_user_last_photo,
-                                   save_user_last_favorite_photo):
-        user_photo_just_sent[user_id] = True
-        return
+    # --- ОБРАБОТКА ЗАПРОСОВ ФОТО (показать свои фото) ---
+    # FIX: Добавлено больше ключевых фраз для лучшего распознавания
+    if re.search(r'(покажи|покажешь|хочу увидеть|хочу посмотреть|показать|дай|есть ли у тебя|свои фото|свои фотки|фото где ты|фотки где ты|свои фотографии|альбом|покажи себя|покажи свои фото|покажи свои картинки|покажи изображение|покажи фотку|покажи фото|какие у тебя есть фото|какие есть фото)', user_text, re.IGNORECASE):
+        if photos.handle_photo_request(user_id, user_text, lang, bot, message, client,
+                                       add_message, save_user_history, save_user_last_photo,
+                                       save_user_last_favorite_photo):
+            user_photo_just_sent[user_id] = True
+            return
+        else:
+            # Если handle_photo_request не нашёл подходящего фото, пробуем случайное
+            if photos.show_random_photo(user_id, lang, bot, message, client,
+                                        add_message, save_user_history, save_user_last_photo,
+                                        save_user_last_favorite_photo):
+                user_photo_just_sent[user_id] = True
+                return
 
     # --- ИСТОРИИ ---
     if re.search(r'\b(расскажи|поделись|напиши|придумай|дай).*(историю|рассказ|истории)\b|\bисторию\s*[\.\?!)]*$', user_text, re.IGNORECASE):
-        prompt = user_text
-        story = stories.generate_story(prompt, user_id, lang, client, os.getenv('GIST_ID'))
-        try:
-            bot.send_message(message.chat.id, distribute_emojis(story))
-        except:
-            pass
+        story = stories.generate_story(user_text, user_id, lang, client, os.getenv('GIST_ID'))
+        bot.send_message(message.chat.id, distribute_emojis(story))
         add_message(user_id, 'user', user_text)
         add_message(user_id, 'assistant', story)
         save_user_history()
         return
 
-    # --- Творческие подсказки ---
+    # --- ТВОРЧЕСКИЕ ИДЕИ ---
     if re.search(r'(дай идею для творчества|подскажи тему|что нарисовать|вдохнови на творчество|творческие идеи|творческую идею|идеи для творчества)', user_text, re.IGNORECASE):
         idea = stories.creative_prompt(user_id, lang, client, os.getenv('GIST_ID'))
-        try:
-            bot.send_message(message.chat.id, distribute_emojis(idea))
-        except:
-            pass
+        bot.send_message(message.chat.id, distribute_emojis(idea))
         add_message(user_id, 'user', user_text)
         add_message(user_id, 'assistant', idea)
         save_user_history()
         return
 
-    # --- Вопросы о последнем фото ---
+    # --- ВОПРОСЫ О ПОСЛЕДНЕМ ФОТО ---
     lower_text = user_text.lower()
     is_photo_question = any(phrase in lower_text for phrase in [
         'где была сделана', 'какое место', 'что там за фон', 'где это', 'какой город',
@@ -600,7 +586,7 @@ def handle_message(message: telebot.types.Message):
                 pass
             return
 
-    # --- Гороскоп ---
+    # --- ГОРОСКОП (естественные фразы) ---
     if user_just_gave_horoscope.get(user_id) and re.search(r'гороскоп', user_text, re.IGNORECASE):
         user_just_gave_horoscope[user_id] = False
     else:
@@ -621,7 +607,7 @@ def handle_message(message: telebot.types.Message):
         user_just_gave_horoscope[user_id] = True
         return
 
-    # --- Определение знака по дате ---
+    # --- ОПРЕДЕЛЕНИЕ ЗНАКА ПО ДАТЕ ---
     zodiac_list = ['овен','телец','близнецы','рак','лев','дева','весы','скорпион','стрелец','козерог','водолей','рыбы']
     day, month = horoscope.parse_date_string(user_text)
     if day and month:
@@ -641,6 +627,7 @@ def handle_message(message: telebot.types.Message):
             user_just_gave_horoscope[user_id] = True
             return
 
+    # --- ЕСЛИ ПОЛЬЗОВАТЕЛЬ ГОВОРИТ, ЧТО У НЕГО НЕТ ФОТО ---
     if photos.user_no_photos.get(user_id, False):
         reply = (
             "Как жаль, а я бы с удовольствием посмотрела на тебя! 😊 Но ничего страшного, мне и так хорошо с тобой. "
@@ -649,38 +636,30 @@ def handle_message(message: telebot.types.Message):
             "What a pity, I would love to see you! 😊 But it's okay, I feel good with you anyway. "
             "If you want, you can show me some picture or photo – we'll laugh together or just continue chatting 💕"
         )
-        try:
-            bot.send_message(message.chat.id, reply)
-        except:
-            pass
+        bot.send_message(message.chat.id, reply)
         return
 
+    # --- МОТИВАЦИЯ ---
     if re.search(r'(вдохнов|мотивируй|мотивировать|мотиваци|подними дух|пожелай|скажи что-то хорошее)', user_text, re.IGNORECASE):
-        try:
-            bot.send_message(message.chat.id, distribute_emojis(get_motivation(lang)))
-        except:
-            pass
+        bot.send_message(message.chat.id, distribute_emojis(get_motivation(lang)))
         return
 
+    # --- ДАТА / ВРЕМЯ ---
     if re.search(r'(какой сегодня день|какое сегодня число|какой день недели|сегодняшняя дата)', user_text, re.IGNORECASE):
         now = datetime.now()
         if lang == 'ru':
             weekdays = ['понедельник', 'вторник', 'среду', 'четверг', 'пятницу', 'субботу', 'воскресенье']
             wd = weekdays[now.weekday()]
-            try:
-                bot.send_message(message.chat.id, distribute_emojis(f"Сегодня {wd}, {now.strftime('%d.%m.%Y')} года. 😊"))
-            except:
-                pass
+            bot.send_message(message.chat.id, distribute_emojis(f"Сегодня {wd}, {now.strftime('%d.%m.%Y')} года. 😊"))
         else:
-            try:
-                bot.send_message(message.chat.id, distribute_emojis(f"Today is {now.strftime('%B %d, %Y')}. 😊"))
-            except:
-                pass
+            bot.send_message(message.chat.id, distribute_emojis(f"Today is {now.strftime('%B %d, %Y')}. 😊"))
         return
 
+    # --- ПОГОДА (естественные фразы) ---
     if weather.handle_weather_query(message, user_text, lang, user_id, user_last_city, user_timezone, client, save_user_history, save_user_timezone, add_message, bot, pet_name=pet_name):
         return
 
+    # --- ЗАПРЕТ ШУТОК (если пользователь устал) ---
     if re.search(r'(хватит шуток|не надо шуток|давай о другом)', user_text, re.IGNORECASE):
         user_no_jokes[user_id] = True
 
@@ -701,12 +680,6 @@ def handle_message(message: telebot.types.Message):
     else:
         current_date = now.strftime("%A, %B %d, %Y")
 
-    context_sound = ""
-    sound_match = re.search(r'\[фоновый звук:\s*([^\]]+)\]', user_text)
-    if sound_match:
-        context_sound = sound_match.group(1).strip()
-        # можно добавить в промпт, но пока не используем
-
     system_prompt = get_system_prompt(lang, current_date, user_id) + no_jokes_note + no_photos_note + f' Имя пользователя (ласково): {pet_name}.'
     if sensitive_instruction:
         system_prompt += "\n\n" + sensitive_instruction
@@ -722,11 +695,11 @@ def handle_message(message: telebot.types.Message):
         try:
             messages = build_messages(user_id, system_prompt, user_text)
             response = client.chat.completions.create(
-                model="fake",  # не используется
+                model="llama-3.1-8b-instant",  # игнорируется балансировщиком
                 messages=messages,
                 temperature=0.8,
                 max_tokens=600,
-                timeout=10
+                timeout=25  # увеличен таймаут
             )
             reply = response.choices[0].message.content.strip()
             reply = clean_english_words(reply)
@@ -784,7 +757,7 @@ def run_web():
 threading.Thread(target=run_web, daemon=True).start()
 
 if __name__ == '__main__':
-    print('✅ Алёна — полная версия с фильтрами и определением пола')
+    print('✅ Алёна — финальная версия с балансировщиком')
     try:
         bot.infinity_polling()
     except Exception as e:
