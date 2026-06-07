@@ -1,4 +1,4 @@
-# main.py — полная версия с балансировщиком, всеми правилами и живыми ответами
+# main.py — полная версия с балансировщиком, фильтрами и определением пола
 
 import os
 import telebot
@@ -26,13 +26,12 @@ import safety
 from text_utils import clean_english_words, remove_non_russian, distribute_emojis, clean_profanity
 
 BOT_TOKEN = os.getenv('BOT_TOKEN')
-# Балансировщик на Hugging Face
 client = OpenAI(api_key="fake", base_url="https://max363048-alena-llm-gateway.hf.space/v1")
 
 bot = telebot.TeleBot(BOT_TOKEN)
 BOT_USERNAME = 'AlenaSoul_bot'
 
-# ---------- Словари (как в оригинале) ----------
+# ---------- Словари ----------
 user_history: Dict[int, Deque] = {}
 user_no_jokes: Dict[int, bool] = {}
 user_preferences: Dict[int, str] = {}
@@ -47,7 +46,7 @@ user_just_gave_horoscope: Dict[int, bool] = {}
 user_photo_just_sent: Dict[int, bool] = {}
 user_last_text_response: Dict[int, str] = {}
 
-# ---------- Функции GIST ----------
+# ---------- GIST ----------
 def save_user_history():
     memory.save_user_history(user_history)
 
@@ -165,7 +164,7 @@ def get_random_joke(lang: str = 'ru') -> str:
         return "Why don't programmers like nature? Too many bugs! 😄"
     try:
         resp = client.chat.completions.create(
-            model="llama-3.1-8b-instant",  # не используется, но нужно
+            model="fake",
             messages=[{'role': 'user', 'content': 'Придумай одну короткую, живую и обязательно смешную шутку на чистом русском языке без грамматических ошибок. Шутка должна быть понятна любому человеку и вызывать улыбку. Не используй архаизмы и странные сравнения.'}],
             temperature=0.9, max_tokens=100, timeout=5
         )
@@ -183,7 +182,7 @@ def get_motivation(lang: str = 'ru') -> str:
         return 'Believe in yourself, every day is a new chance! 💖'
     try:
         resp = client.chat.completions.create(
-            model="llama-3.1-8b-instant",
+            model="fake",
             messages=[{'role': 'user', 'content': 'Ты Алёна. Напиши короткую тёплую вдохновляющую фразу для друга. Используй восклицательные знаки и короткие предложения, чтобы фраза звучала эмоционально.'}],
             temperature=0.8, max_tokens=80, timeout=5
         )
@@ -194,7 +193,7 @@ def get_motivation(lang: str = 'ru') -> str:
     except:
         return "Ты сможешь всё, что задумаешь! 💖"
 
-# ---------- Системный промпт (полная версия из №12, с женским родом) ----------
+# ---------- Системный промпт (полная версия из файла №12) ----------
 def get_system_prompt(lang: str, current_date: str, user_id: int) -> str:
     time_note = ''
     if user_id in user_timezone:
@@ -241,7 +240,15 @@ def get_system_prompt(lang: str, current_date: str, user_id: int) -> str:
             f'You are Alena — a kind, cheerful, charming girl. Today is {current_date}.\n'
             f'{time_note}'
             f'{gender_note}'
-            f'... (остальные правила на английском) ...'
+            'RULES:\n'
+            '1. Answer only in English, no mixing.\n'
+            '2. NEVER start with "Hello", "Hi" or any greeting. You are already in a conversation, start directly.\n'
+            '3. Use emojis 😊😄😘💖✨ in every sentence, not just at the end. Your answers should look lively and emotional.\n'
+            '4. If asked for a joke — tell one short joke, do not ask "want another?".\n'
+            '5. If asked for a horoscope and the zodiac sign is not yet known, say: "Sorry, but I don\'t know your date of birth (just day and month) or just tell me your zodiac sign."\n'
+            '6. Answer briefly (2-4 sentences), be lively.\n'
+            '7. Address the user by name kindly, but not at the beginning.\n'
+            '... (остальные правила на английском) ...'
         )
 
 # ---------- Команды ----------
@@ -449,7 +456,7 @@ def voice_cmd(message: telebot.types.Message):
     else:
         bot.send_message(message.chat.id, "Сначала напиши мне что-нибудь! 😊")
 
-# ---------- ГЛАВНЫЙ ОБРАБОТЧИК (с балансировщиком) ----------
+# ---------- ГЛАВНЫЙ ОБРАБОТЧИК ----------
 @bot.message_handler(func=lambda message: True, content_types=['text', 'photo'])
 def handle_message(message: telebot.types.Message):
     user_id = message.from_user.id
@@ -465,7 +472,7 @@ def handle_message(message: telebot.types.Message):
     lang = user_lang[user_id]
     pet_name = get_pet_name(user_id, message.from_user.first_name)
 
-    # --- РАСПОЗНАВАНИЕ ПОЛА ---
+    # --- РАСПОЗНАВАНИЕ ПОЛА (инициализируется модулем gender) ---
     if not gender.ensure_gender_known(user_id, message.from_user.first_name, user_preferences,
                                       user_gender, user_awaiting_gender, bot, message, save_user_gender):
         return
@@ -694,12 +701,11 @@ def handle_message(message: telebot.types.Message):
     else:
         current_date = now.strftime("%A, %B %d, %Y")
 
-    # Извлекаем фоновый звук (если есть)
     context_sound = ""
     sound_match = re.search(r'\[фоновый звук:\s*([^\]]+)\]', user_text)
     if sound_match:
         context_sound = sound_match.group(1).strip()
-        # пока не используем, но можно добавить в промпт
+        # можно добавить в промпт, но пока не используем
 
     system_prompt = get_system_prompt(lang, current_date, user_id) + no_jokes_note + no_photos_note + f' Имя пользователя (ласково): {pet_name}.'
     if sensitive_instruction:
@@ -716,7 +722,7 @@ def handle_message(message: telebot.types.Message):
         try:
             messages = build_messages(user_id, system_prompt, user_text)
             response = client.chat.completions.create(
-                model="llama-3.1-8b-instant",  # не используется, но обязательно
+                model="fake",  # не используется
                 messages=messages,
                 temperature=0.8,
                 max_tokens=600,
@@ -778,7 +784,7 @@ def run_web():
 threading.Thread(target=run_web, daemon=True).start()
 
 if __name__ == '__main__':
-    print('✅ Алёна — полная версия с балансировщиком и полным системным промптом')
+    print('✅ Алёна — полная версия с фильтрами и определением пола')
     try:
         bot.infinity_polling()
     except Exception as e:
