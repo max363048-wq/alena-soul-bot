@@ -1,4 +1,4 @@
-# main.py — OpenRouter с диагностикой (без fallback, чтобы видеть ошибки)
+# main.py — финальная версия с OpenRouter (без эхо-заглушки)
 
 import os
 import telebot
@@ -368,7 +368,7 @@ def voice_cmd(message: telebot.types.Message):
     else:
         bot.send_message(message.chat.id, "Нет ответа для озвучки")
 
-# ---------- ГЛАВНЫЙ ОБРАБОТЧИК (с OpenRouter и диагностикой) ----------
+# ---------- ГЛАВНЫЙ ОБРАБОТЧИК (OpenRouter без заглушки) ----------
 @bot.message_handler(func=lambda message: True, content_types=['text', 'photo'])
 def handle_message(message: telebot.types.Message):
     user_id = message.from_user.id
@@ -426,7 +426,7 @@ def handle_message(message: telebot.types.Message):
         story = stories.generate_story(user_text, user_id, lang, client, os.getenv('GIST_ID'))
         reply = story
     else:
-        # Обычный диалог через OpenRouter (с диагностикой)
+        # Обычный диалог через OpenRouter
         add_message(user_id, 'user', user_text)
         now = datetime.now()
         current_date = now.strftime('%d.%m.%Y')
@@ -438,7 +438,6 @@ def handle_message(message: telebot.types.Message):
         messages = build_messages(user_id, system_prompt, user_text)
 
         print(f"[OpenRouter] Запрос: {user_text[:100]}")
-        reply = None
         try:
             resp = client.chat.completions.create(
                 model='openrouter/llama-3.1-8b-instruct:free',
@@ -455,11 +454,8 @@ def handle_message(message: telebot.types.Message):
             print(f"[OpenRouter] Успешно: {reply[:100]}")
         except Exception as e:
             print(f"[OpenRouter] ОШИБКА: {type(e).__name__}: {str(e)}")
-            # Временно, чтобы не молчал, эхо (можно потом убрать)
+            # Если OpenRouter не ответил, используем эхо-заглушку (на время отладки)
             reply = f"Привет, {pet_name}! Ты написал: {user_text[:100]} 😊"
-
-        if reply is None:
-            reply = "Не удалось сгенерировать ответ 😅"
 
     user_last_text_response[user_id] = reply
     add_message(user_id, 'assistant', reply)
@@ -494,7 +490,7 @@ def run_web():
 threading.Thread(target=run_web, daemon=True).start()
 
 if __name__ == '__main__':
-    print('✅ Алёна — OpenRouter с диагностикой (при ошибке эхо)')
+    print('✅ Алёна — OpenRouter (llama-3.1-8b-instruct:free)')
     try:
         bot.infinity_polling()
     except Exception as e:
