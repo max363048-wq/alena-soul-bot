@@ -1,6 +1,4 @@
-# main.py — финальная версия с OpenRouter и всеми функциями
-
-print("!!! ЗАПУСК ФИНАЛЬНОЙ ВЕРСИИ АЛЁНЫ С OPENROUTER !!!")
+# main.py — полная рабочая версия с балансировщиком и исправленным промптом
 
 import os
 import telebot
@@ -28,13 +26,8 @@ import safety
 from text_utils import clean_english_words, remove_non_russian, distribute_emojis, clean_profanity
 
 BOT_TOKEN = os.getenv('BOT_TOKEN')
-OPENROUTER_API_KEY = os.getenv('OPENROUTER_API_KEY')
-
-# Клиент OpenRouter (используем рабочую модель openai/gpt-oss-20b:free)
-client = OpenAI(
-    base_url="https://openrouter.ai/api/v1",
-    api_key=OPENROUTER_API_KEY,
-)
+# Балансировщик на Hugging Face (ключ не важен)
+client = OpenAI(api_key="fake", base_url="https://max363048-alena-llm-gateway.hf.space/v1")
 
 bot = telebot.TeleBot(BOT_TOKEN)
 BOT_USERNAME = 'AlenaSoul_bot'
@@ -141,7 +134,7 @@ def get_pet_name(user_id: int, first_name: str) -> str:
     return default_pet_name(first_name)
 
 # ---------- TTS ----------
-HF_SPACE_URL = "https://max363048-alena-voice.hf.space"
+HF_VOICE_URL = "https://max363048-alena-voice.hf.space"
 
 def tts_synthesize(text: str) -> Optional[bytes]:
     try:
@@ -150,7 +143,7 @@ def tts_synthesize(text: str) -> Optional[bytes]:
         if not clean_text:
             return None
         payload = {"text": clean_text}
-        resp = requests.post(f"{HF_SPACE_URL}/synthesize", json=payload, timeout=30)
+        resp = requests.post(f"{HF_VOICE_URL}/synthesize", json=payload, timeout=30)
         if resp.status_code == 200 and resp.content:
             return resp.content
         else:
@@ -160,7 +153,7 @@ def tts_synthesize(text: str) -> Optional[bytes]:
         print(f"[TTS] Исключение: {e}")
         return None
 
-# ---------- Шутки, мотивация (через OpenRouter) ----------
+# ---------- Шутки, мотивация (через балансировщик) ----------
 FALLBACK_JOKES_RU = [
     'Почему программисты не любят природу? Слишком много багов! 😄',
     'Что говорит один байт другому? — Ты такой битовый! 😂',
@@ -171,7 +164,7 @@ def get_random_joke(lang: str = 'ru') -> str:
         return "Why don't programmers like nature? Too many bugs! 😄"
     try:
         resp = client.chat.completions.create(
-            model='openai/gpt-oss-20b:free',
+            model="fake",
             messages=[{'role': 'user', 'content': 'Придумай одну короткую смешную шутку на русском.'}],
             temperature=0.9, max_tokens=100, timeout=5
         )
@@ -188,7 +181,7 @@ def get_motivation(lang: str = 'ru') -> str:
         return 'Believe in yourself! 💖'
     try:
         resp = client.chat.completions.create(
-            model='openai/gpt-oss-20b:free',
+            model="fake",
             messages=[{'role': 'user', 'content': 'Напиши короткую вдохновляющую фразу на русском.'}],
             temperature=0.8, max_tokens=80, timeout=5
         )
@@ -199,7 +192,7 @@ def get_motivation(lang: str = 'ru') -> str:
     except:
         return "Ты сможешь всё! 💖"
 
-# ---------- Системный промпт ----------
+# ---------- Системный промпт (исправлен: нет повторяющихся похвал) ----------
 def get_system_prompt(lang: str, current_date: str, user_id: int) -> str:
     time_note = ''
     if user_id in user_timezone:
@@ -214,11 +207,12 @@ def get_system_prompt(lang: str, current_date: str, user_id: int) -> str:
             gender_note = 'Пользователь — девушка. Общайся нежно, как с подругой.\n'
 
     alena_gender_rule = 'ТЫ — ДЕВУШКА. О себе говори только в женском роде: "я рада", "я пошла", "я сделала", "я хорошая", "я весёлая", "я активна".\n'
+    no_praise_rule = 'НЕ НАЧИНАЙ ОТВЕТ СО СЛОВ "ты хороший", "ты умный", "ты умная" или других похвал. Отвечай естественно, разнообразно, по делу. Похвалу можно использовать редко и в конце.\n'
 
     if lang == 'ru':
         return (
             f'Ты Алёна — добрая, весёлая, обаятельная девушка. Сегодня {current_date}.\n'
-            f'{time_note}{gender_note}{alena_gender_rule}'
+            f'{time_note}{gender_note}{alena_gender_rule}{no_praise_rule}'
             'ПРАВИЛА:\n'
             '1. Отвечай только на русском, без английских слов.\n'
             '2. НИКОГДА не начинай ответ с "Здравствуйте", "Привет", "Здравствуй".\n'
@@ -328,6 +322,7 @@ def weather_cmd(message: telebot.types.Message):
 
 @bot.message_handler(commands=['forecast'])
 def forecast_cmd(message: telebot.types.Message):
+    # упрощённо
     pass
 
 @bot.message_handler(commands=['date'])
@@ -370,7 +365,7 @@ def voice_cmd(message: telebot.types.Message):
     else:
         bot.send_message(message.chat.id, "Нет ответа для озвучки")
 
-# ---------- ГЛАВНЫЙ ОБРАБОТЧИК (OpenRouter) ----------
+# ---------- ГЛАВНЫЙ ОБРАБОТЧИК ----------
 @bot.message_handler(func=lambda message: True, content_types=['text', 'photo'])
 def handle_message(message: telebot.types.Message):
     user_id = message.from_user.id
@@ -428,7 +423,7 @@ def handle_message(message: telebot.types.Message):
         story = stories.generate_story(user_text, user_id, lang, client, os.getenv('GIST_ID'))
         reply = story
     else:
-        # Обычный диалог через OpenRouter
+        # Обычный диалог через балансировщик
         add_message(user_id, 'user', user_text)
         now = datetime.now()
         current_date = now.strftime('%d.%m.%Y')
@@ -439,25 +434,33 @@ def handle_message(message: telebot.types.Message):
             system_prompt += "\n\n" + dating_instruction
         messages = build_messages(user_id, system_prompt, user_text)
 
-        print(f"[OpenRouter] Запрос: {user_text[:100]}")
-        try:
-            resp = client.chat.completions.create(
-                model='openai/gpt-oss-20b:free',
-                messages=messages,
-                temperature=0.8,
-                max_tokens=600,
-                timeout=25
-            )
-            reply = resp.choices[0].message.content.strip()
-            reply = clean_english_words(reply)
-            reply = remove_non_russian(reply)
-            reply = clean_profanity(reply)
-            reply = distribute_emojis(reply)
-            print(f"[OpenRouter] Успешно: {reply[:100]}")
-        except Exception as e:
-            print(f"[OpenRouter] ОШИБКА: {type(e).__name__}: {str(e)}")
-            # fallback на эхо (на время отладки)
-            reply = f"Привет, {pet_name}! Ты написал: {user_text[:100]} 😊"
+        reply = None
+        for attempt in range(2):
+            try:
+                print(f"[LLM] Попытка {attempt+1}, балансировщик")
+                resp = client.chat.completions.create(
+                    model="fake",  # не используется
+                    messages=messages,
+                    temperature=0.8,
+                    max_tokens=600,
+                    timeout=25
+                )
+                reply = resp.choices[0].message.content.strip()
+                reply = clean_english_words(reply)
+                reply = remove_non_russian(reply)
+                reply = clean_profanity(reply)
+                reply = distribute_emojis(reply)
+                print(f"[LLM] Успешно: {reply[:100]}")
+                break
+            except Exception as e:
+                print(f"[LLM] Ошибка (попытка {attempt+1}): {type(e).__name__}: {str(e)}")
+                if attempt == 1:
+                    reply = f"Привет, {pet_name}! Я тебя слышу, но сейчас что-то с моим умом. Давай просто поболтаем: {user_text[:80]}... 😊"
+                else:
+                    time.sleep(2)
+
+        if reply is None:
+            reply = "Не удалось сгенерировать ответ 😅"
 
     user_last_text_response[user_id] = reply
     add_message(user_id, 'assistant', reply)
@@ -492,7 +495,7 @@ def run_web():
 threading.Thread(target=run_web, daemon=True).start()
 
 if __name__ == '__main__':
-    print('✅ Алёна — финальная версия с OpenRouter (openai/gpt-oss-20b:free)')
+    print('✅ Алёна — финальная версия с балансировщиком и исправленным промптом')
     try:
         bot.infinity_polling()
     except Exception as e:
