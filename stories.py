@@ -1,4 +1,4 @@
-# stories.py — финальная версия с исправлением типичных ошибок
+# stories.py — исходная версия с грамматическими правками и эмодзи
 
 import os
 import json
@@ -15,6 +15,10 @@ def _get_gist_headers():
         'Authorization': f'token {token}',
         'Accept': 'application/vnd.github.v3+json'
     }
+
+def _get_gist_api_url():
+    gist_id = os.getenv('GIST_ID')
+    return f'https://api.github.com/gists/{gist_id}'
 
 def _load_stories(gist_id: str) -> dict:
     if not gist_id:
@@ -51,24 +55,20 @@ def _save_stories(gist_id: str, data: dict):
     except Exception as e:
         print(f'Ошибка сохранения историй в Gist: {e}')
 
-# --- ФИЛЬТР ГРАММАТИЧЕСКИХ ОШИБОК ---
 GRAMMAR_FIXES = {
     r'\bвесную\b': 'весёлую',
     r'\bвесёную\b': 'весёлую',
-    r'\bнесуразно\b': 'несуразно',   # уже правильно, но оставим
     r'\bпоразговаривать\b': 'поговорить',
     r'\bобедение\b': 'обед',
-    r'\bвремяпровождение\b': 'время',
-    r'\bдевятнадцать лет назад\b': 'несколько лет назад',   # конкретное число не нужно
+    r'\bдевятнадцать лет назад\b': 'несколько лет назад',
     r'\bдолго ждали заказов\b': 'долго ждали заказы',
     r'\bдобротно разговариваем\b': 'душевно разговаривали',
-    r'\bлежанку\b': 'покрывало',    # более естественно
+    r'\bлежанку\b': 'покрывало',
     r'\bстесненном положении\b': 'неловком положении',
     r'\bсмехать\b': 'смеяться',
 }
 
 def fix_grammar(text: str) -> str:
-    """Применяет ручные правки к тексту истории."""
     for pattern, repl in GRAMMAR_FIXES.items():
         text = re.sub(pattern, repl, text, flags=re.IGNORECASE)
     return text
@@ -84,7 +84,7 @@ def generate_story(prompt: str, user_id: int, lang: str, client, gist_id: str) -
     )
     try:
         resp = client.chat.completions.create(
-            model='llama-3.1-8b-instant',
+            model="llama-3.1-8b-instant",  # не используется, но нужно
             messages=[
                 {'role': 'system', 'content': system_prompt},
                 {'role': 'user', 'content': prompt}
@@ -97,16 +97,14 @@ def generate_story(prompt: str, user_id: int, lang: str, client, gist_id: str) -
         if not story:
             return "Мы как-то с подругой пошли в парк кататься на роликах, и я так разогналась, что врезалась в куст сирени! 😄 Было смешно и немного стыдно, зато теперь я умею тормозить правильно 💕"
 
-        # Фильтр запрещённых тем
         forbidden = ['разведчик', 'шпион', 'секретная миссия', 'оружие', 'война', 'принцесс', 'солдат', 'командир', 'документы', 'крепость', 'враг', 'захват', 'компас', 'свадьбе сестры']
         if any(word in story.lower() for word in forbidden):
             return "Лучше расскажу, как мы с подругой в прошлое воскресенье пошли в кафе и ели огромное мороженое с клубникой! 🍓🍦 Было так весело, что даже официант засмеялся 😄 А потом гуляли по парку и кормили уток. 💕"
 
         story = clean_english_words(story)
         story = remove_non_russian(story)
-        story = fix_grammar(story)   # применяем ручные правки
+        story = fix_grammar(story)
 
-        # Сохраняем в Gist
         gist_id = gist_id or ''
         all_stories = _load_stories(gist_id)
         user_stories = all_stories.get(str(user_id), [])
@@ -126,7 +124,6 @@ def generate_story(prompt: str, user_id: int, lang: str, client, gist_id: str) -
         return "Ой, кажется, моя фантазия сегодня устала... Давай попробуем позже? 😊"
 
 def creative_prompt(user_id: int, lang: str, client, gist_id: str) -> str:
-    # (без изменений, уже хороший)
     system_prompt = (
         'Ты Алёна — вдохновляющая, творческая девушка. Придумай одну короткую, конкретную идею для творчества '
         '(например: «нарисуй закат на море акварелью» или «напиши стих о летнем дожде»). '
@@ -135,7 +132,7 @@ def creative_prompt(user_id: int, lang: str, client, gist_id: str) -> str:
     )
     try:
         resp = client.chat.completions.create(
-            model='llama-3.1-8b-instant',
+            model="llama-3.1-8b-instant",
             messages=[
                 {'role': 'system', 'content': system_prompt},
                 {'role': 'user', 'content': 'Дай мне творческую подсказку на сегодня'}
