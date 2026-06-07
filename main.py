@@ -1,4 +1,4 @@
-# main.py — полная версия с балансировщиком, исправленным фото и диагностикой
+# main.py — полная версия с балансировщиком и отладочным принтом для продолжения диалога по картинке
 
 import os
 import telebot
@@ -190,7 +190,7 @@ def get_motivation(lang: str = 'ru') -> str:
     except:
         return "Ты сможешь всё! 💖"
 
-# ---------- Системный промпт (исходный, с 18 правилами) ----------
+# ---------- Системный промпт (полный, с 18 правилами) ----------
 def get_system_prompt(lang: str, current_date: str, user_id: int) -> str:
     time_note = ''
     if user_id in user_timezone:
@@ -512,7 +512,6 @@ def handle_message(message: telebot.types.Message):
         return
 
     # --- ОБРАБОТКА ЗАПРОСОВ ФОТО (показать свои фото) ---
-    # FIX: Добавлено больше ключевых фраз для лучшего распознавания
     if re.search(r'(покажи|покажешь|хочу увидеть|хочу посмотреть|показать|дай|есть ли у тебя|свои фото|свои фотки|фото где ты|фотки где ты|свои фотографии|альбом|покажи себя|покажи свои фото|покажи свои картинки|покажи изображение|покажи фотку|покажи фото|какие у тебя есть фото|какие есть фото)', user_text, re.IGNORECASE):
         if photos.handle_photo_request(user_id, user_text, lang, bot, message, client,
                                        add_message, save_user_history, save_user_last_photo,
@@ -520,7 +519,6 @@ def handle_message(message: telebot.types.Message):
             user_photo_just_sent[user_id] = True
             return
         else:
-            # Если handle_photo_request не нашёл подходящего фото, пробуем случайное
             if photos.show_random_photo(user_id, lang, bot, message, client,
                                         add_message, save_user_history, save_user_last_photo,
                                         save_user_last_favorite_photo):
@@ -680,13 +678,22 @@ def handle_message(message: telebot.types.Message):
     else:
         current_date = now.strftime("%A, %B %d, %Y")
 
+    # Извлекаем фоновый звук (если есть)
+    context_sound = ""
+    sound_match = re.search(r'\[фоновый звук:\s*([^\]]+)\]', user_text)
+    if sound_match:
+        context_sound = sound_match.group(1).strip()
+        # пока не используем, можно добавить в промпт
+
     system_prompt = get_system_prompt(lang, current_date, user_id) + no_jokes_note + no_photos_note + f' Имя пользователя (ласково): {pet_name}.'
     if sensitive_instruction:
         system_prompt += "\n\n" + sensitive_instruction
     if dating_instruction:
         system_prompt += "\n\n" + dating_instruction
 
+    # БЛОК ПРОДОЛЖЕНИЯ ДИАЛОГА ПО КАРТИНКЕ (с добавленным принтом)
     if user_id in photos.user_last_user_image_desc and re.search(r'(мы бы с тобой|смотрелись вместе|отдохнуть вместе|побыть вдвоём|представь|помечта)', user_text, re.IGNORECASE):
+        print(f"[CONTEXT] Сработало условие продолжения диалога по картинке. Описание: {photos.user_last_user_image_desc[user_id][:100]}")
         system_prompt += f'\n\nПользователь показал картинку, которую ты описала так: "{photos.user_last_user_image_desc[user_id]}". ОТВЕЧАЙ ТОЛЬКО НА ОСНОВЕ ЭТОГО ОПИСАНИЯ, ИГНОРИРУЙ ВСЕ ПРЕДЫДУЩИЕ ТЕМЫ. Представь, что вы вдвоём находятся в этом месте, опиши ощущения.'
 
     max_retries = 2
@@ -695,11 +702,11 @@ def handle_message(message: telebot.types.Message):
         try:
             messages = build_messages(user_id, system_prompt, user_text)
             response = client.chat.completions.create(
-                model="llama-3.1-8b-instant",  # игнорируется балансировщиком
+                model="llama-3.1-8b-instant",
                 messages=messages,
                 temperature=0.8,
                 max_tokens=600,
-                timeout=25  # увеличен таймаут
+                timeout=25
             )
             reply = response.choices[0].message.content.strip()
             reply = clean_english_words(reply)
@@ -757,7 +764,7 @@ def run_web():
 threading.Thread(target=run_web, daemon=True).start()
 
 if __name__ == '__main__':
-    print('✅ Алёна — финальная версия с балансировщиком')
+    print('✅ Алёна — финальная версия с диагностикой продолжения диалога по картинке')
     try:
         bot.infinity_polling()
     except Exception as e:
