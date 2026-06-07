@@ -1,5 +1,3 @@
-# stories.py — полная версия с грамматическими правками и эмодзи
-
 import os
 import json
 import requests
@@ -62,7 +60,6 @@ GRAMMAR_FIXES = {
     r'\bобедение\b': 'обед',
     r'\bдевятнадцать лет назад\b': 'несколько лет назад',
     r'\bдолго ждали заказов\b': 'долго ждали заказы',
-    r'\bдобротно разговариваем\b': 'душевно разговаривали',
     r'\bлежанку\b': 'покрывало',
     r'\bстесненном положении\b': 'неловком положении',
     r'\bсмехать\b': 'смеяться',
@@ -78,19 +75,19 @@ def generate_story(prompt: str, user_id: int, lang: str, client, gist_id: str) -
         'Ты Алёна — добрая, весёлая, обаятельная девушка 25 лет.\n'
         'Расскажи короткую (4-6 предложений) логичную историю из твоей жизни от первого лица.\n'
         'История должна быть тёплой, повседневной и правдоподобной: прогулка, встреча с друзьями, забавный случай.\n'
-        'Обязательно заверши историю, не обрывай на полуслове. Не используй странные слова и лишние детали.\n'
-        'ЗАПРЕЩЕНО: войны, политика, разведчики, странные предметы, неестественные числа.\n'
-        'Пиши на русском, с 2-3 эмодзи в конце. Не начинай с приветствия.\n'
+        'ОБЯЗАТЕЛЬНО заверши историю, не обрывай на полуслове. Не придумывай странных деталей (например, "лежанка", "обедение").\n'
+        'ЗАПРЕЩЕНО: войны, политика, разведчики, странные предметы (компас, цветок на свадьбе сестры), неестественные числа.\n'
+        'Пиши на русском, с 2-3 эмодзи в конце. Не начинай с приветствия. Не обрывай мысль.'
     )
     try:
         resp = client.chat.completions.create(
-            model="fake",
+            model="llama-3.1-8b-instant",
             messages=[
                 {'role': 'system', 'content': system_prompt},
                 {'role': 'user', 'content': prompt}
             ],
-            temperature=0.7,
-            max_tokens=500,
+            temperature=0.75,
+            max_tokens=600,
             timeout=10
         )
         story = resp.choices[0].message.content.strip()
@@ -105,6 +102,7 @@ def generate_story(prompt: str, user_id: int, lang: str, client, gist_id: str) -
         story = remove_non_russian(story)
         story = fix_grammar(story)
 
+        # Сохраняем в Gist
         gist_id = gist_id or ''
         all_stories = _load_stories(gist_id)
         user_stories = all_stories.get(str(user_id), [])
@@ -132,7 +130,7 @@ def creative_prompt(user_id: int, lang: str, client, gist_id: str) -> str:
     )
     try:
         resp = client.chat.completions.create(
-            model="fake",
+            model="llama-3.1-8b-instant",
             messages=[
                 {'role': 'system', 'content': system_prompt},
                 {'role': 'user', 'content': 'Дай мне творческую подсказку на сегодня'}
