@@ -1,5 +1,3 @@
-# photos.py — исходный, полностью рабочий (из №5), с поддержкой «ещё такие же»
-
 import os
 import random
 import base64
@@ -272,12 +270,12 @@ def show_random_photo(user_id: int, lang: str, bot, message, client,
 def handle_photo_request(user_id: int, user_text: str, lang: str, bot, message, client,
                          add_message, save_user_history, save_user_last_photo_func,
                          save_user_last_favorite_photo_func, user_has_no_photos: bool = False):
-    # --- Гарантированный Париж (самый первый) ---
+    # Гарантированный Париж (самый первый)
     if try_paris_photo(user_id, user_text, lang, bot, message, client, add_message, save_user_history, save_user_last_photo_func):
         user_pending_photo_offer[user_id] = False
         return True
 
-    # --- Просьба "ещё такие же фото" ---
+    # Просьба "ещё такие же фото"
     if user_id in user_last_category and user_last_category[user_id] is not None and re.search(r'(еще такие фото|еще такие фотки|такие же фото|такие же фотки|похожие фото|похожие фотки|аналогичные фото|аналогичные фотки|другие фото|другое фото|ещё такие|еще такие|еще такое фото|ещё такое фото|такое же фото|ещё такие фотки)', user_text, re.IGNORECASE):
         user_pending_photo_offer[user_id] = False
         last_cat = user_last_category[user_id]
@@ -339,7 +337,7 @@ def handle_photo_request(user_id: int, user_text: str, lang: str, bot, message, 
                 bot.send_message(message.chat.id, "Ой, не могу показать другое фото, попробуй ещё раз 😅")
             return True
 
-    # --- Основной показ фото (любимое, тематическое, случайное) ---
+    # Основной показ фото (любимое, тематическое, случайное)
     if re.search(r'(фотки|какие нибудь фото|а у тебя есть фотографии|есть фотографии|у тебя есть фото|покажи свои фото|покажи фото|покажи мне фото|покажи мне фотки|покажешь фото|покажешь мне фото|фотоальбом|покажи себя|своё фото|свое фото|мои фото|свои фотографии|покажи альбом|покажи где ты была|покажи, где ты|покажи картинку|покажи изображение|есть фото|есть ли у тебя фото|посмотреть твои фото|покажи свои фотографии|любимые фото|любимое фото|любимых фото|есть еще фото|другие фото|покажи другое фото|ещё фото|какое твое любимое фото|покажи любимое фото|покажи другое|такие фото|такие фотки|фото где ты|фотки где ты|какие фото у тебя еще есть|какие фото ещё есть|какие у тебя ещё фото|какие ещё фото|какие фото еще|какие еще фото|какие у тебя есть фото)', user_text, re.IGNORECASE):
         user_pending_photo_offer[user_id] = False
 
