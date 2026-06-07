@@ -142,8 +142,6 @@ def analyze_user_photo(message, bot, client, lang: str) -> bool:
         description = analyze_photo_with_vision(temp_path, prompt, client, lang)
         os.remove(temp_path)
         user_last_user_image_desc[message.from_user.id] = description
-        # Диагностика: выводим в лог сохранённое описание
-        print(f"[PHOTO] Сохранено описание картинки пользователя: {description[:100]}")
         bot.send_message(message.chat.id, description)
         return True
     except Exception as e:
