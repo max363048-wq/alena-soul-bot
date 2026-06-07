@@ -1,4 +1,4 @@
-# main.py — финальная версия с рабочей моделью llama-3.3-70b-versatile
+# main.py — финальная версия с OpenRouter (бесплатные модели)
 
 import os
 import telebot
@@ -26,11 +26,15 @@ import safety
 from text_utils import clean_english_words, remove_non_russian, distribute_emojis, clean_profanity
 
 BOT_TOKEN = os.getenv('BOT_TOKEN')
-GROQ_API_KEY = os.getenv('GROQ_API_KEY')
+OPENROUTER_API_KEY = os.getenv('OPENROUTER_API_KEY')
+
+# Инициализация клиента OpenRouter (интерфейс совместим с OpenAI)
+client = OpenAI(
+    base_url="https://openrouter.ai/api/v1",
+    api_key=OPENROUTER_API_KEY,
+)
 
 bot = telebot.TeleBot(BOT_TOKEN)
-client = OpenAI(api_key=GROQ_API_KEY, base_url='https://api.groq.com/openai/v1')
-
 BOT_USERNAME = 'AlenaSoul_bot'
 
 # ---------- Словари ----------
@@ -165,7 +169,7 @@ def get_random_joke(lang: str = 'ru') -> str:
         return "Why don't programmers like nature? Too many bugs! 😄"
     try:
         resp = client.chat.completions.create(
-            model='gemma2-9b-it',
+            model='openrouter/llama-3.1-8b-instruct:free',
             messages=[{'role': 'user', 'content': 'Придумай одну короткую смешную шутку на русском.'}],
             temperature=0.9, max_tokens=100, timeout=5
         )
@@ -173,7 +177,8 @@ def get_random_joke(lang: str = 'ru') -> str:
         if joke:
             return joke
         return random.choice(FALLBACK_JOKES_RU)
-    except:
+    except Exception as e:
+        print(f"Ошибка шутки: {e}")
         return random.choice(FALLBACK_JOKES_RU)
 
 def get_motivation(lang: str = 'ru') -> str:
@@ -181,7 +186,7 @@ def get_motivation(lang: str = 'ru') -> str:
         return 'Believe in yourself! 💖'
     try:
         resp = client.chat.completions.create(
-            model='gemma2-9b-it',
+            model='openrouter/llama-3.1-8b-instruct:free',
             messages=[{'role': 'user', 'content': 'Напиши короткую вдохновляющую фразу на русском.'}],
             temperature=0.8, max_tokens=80, timeout=5
         )
@@ -421,7 +426,7 @@ def handle_message(message: telebot.types.Message):
         story = stories.generate_story(user_text, user_id, lang, client, os.getenv('GIST_ID'))
         reply = story
     else:
-        # Обычный диалог через Groq с повторными попытками и fallback
+        # Обычный диалог через OpenRouter (бесплатная модель)
         add_message(user_id, 'user', user_text)
         now = datetime.now()
         current_date = now.strftime('%d.%m.%Y')
@@ -435,9 +440,9 @@ def handle_message(message: telebot.types.Message):
         reply = None
         for attempt in range(2):
             try:
-                print(f"[Groq] Попытка {attempt+1}, модель: gemma2-9b-it")
+                print(f"[OpenRouter] Попытка {attempt+1}, модель: llama-3.1-8b-instruct:free")
                 resp = client.chat.completions.create(
-                    model='gemma2-9b-it',
+                    model='openrouter/llama-3.1-8b-instruct:free',
                     messages=messages,
                     temperature=0.8,
                     max_tokens=600,
@@ -448,12 +453,11 @@ def handle_message(message: telebot.types.Message):
                 reply = remove_non_russian(reply)
                 reply = clean_profanity(reply)
                 reply = distribute_emojis(reply)
-                print(f"[Groq] Успешно получен ответ: {reply[:100]}")
+                print(f"[OpenRouter] Успешно: {reply[:100]}")
                 break
             except Exception as e:
-                print(f"[Groq] Ошибка (попытка {attempt+1}): {type(e).__name__}: {str(e)}")
+                print(f"[OpenRouter] Ошибка (попытка {attempt+1}): {type(e).__name__}: {str(e)}")
                 if attempt == 1:
-                    # fallback: тёплый ответ, чтобы бот не молчал
                     reply = f"Привет, {pet_name}! Я тебя слышу, но сейчас что-то с моим умом. Давай просто поболтаем: {user_text[:80]}... 😊"
                 else:
                     time.sleep(2)
@@ -494,7 +498,7 @@ def run_web():
 threading.Thread(target=run_web, daemon=True).start()
 
 if __name__ == '__main__':
-    print('✅ Алёна — финальная версия с моделью gemma2-9b-it')
+    print('✅ Алёна — финальная версия с OpenRouter (бесплатные модели)')
     try:
         bot.infinity_polling()
     except Exception as e:
