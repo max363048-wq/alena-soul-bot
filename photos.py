@@ -3,7 +3,6 @@ import random
 import base64
 import re
 import time
-import requests
 from typing import Dict, Optional, List
 from text_utils import clean_english_words, remove_non_russian, distribute_emojis, SAFE_EMOJIS
 
@@ -11,44 +10,6 @@ PHOTO_FOLDER = 'images'
 SUPPORTED_EXTENSIONS = ('.jpg', '.jpeg', '.png', '.gif')
 MAX_BASE64_SIZE = 4 * 1024 * 1024
 
-# --- Cloudflare Workers AI Vision ---
-CF_ACCOUNT_ID = os.getenv('CF_ACCOUNT_ID')
-CF_API_TOKEN = os.getenv('CF_API_TOKEN')
-CF_VISION_MODEL = "@cf/meta/llama-3.2-11b-vision-instruct"
-CF_API_URL = f"https://api.cloudflare.com/client/v4/accounts/{CF_ACCOUNT_ID}/ai/run/{CF_VISION_MODEL}"
-
-def get_vision_description(image_bytes: bytes, prompt: str = "Опиши это фото коротко, 2-3 предложения. Будь тёплой, добавь эмодзи.") -> str:
-    """Отправляет изображение в Cloudflare Workers AI и возвращает описание."""
-    if not CF_ACCOUNT_ID or not CF_API_TOKEN:
-        print("[VISION] Cloudflare keys missing")
-        return ""
-    try:
-        img_base64 = base64.b64encode(image_bytes).decode('utf-8')
-        payload = {
-            "messages": [
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": prompt},
-                        {"type": "image", "image": img_base64}
-                    ]
-                }
-            ]
-        }
-        headers = {"Authorization": f"Bearer {CF_API_TOKEN}", "Content-Type": "application/json"}
-        resp = requests.post(CF_API_URL, json=payload, headers=headers, timeout=15)
-        if resp.status_code == 200:
-            data = resp.json()
-            description = data.get("result", {}).get("response", "")
-            return description.strip()
-        else:
-            print(f"[VISION] CF error: {resp.status_code} {resp.text}")
-            return ""
-    except Exception as e:
-        print(f"[VISION] CF exception: {e}")
-        return ""
-
-# --- ОСТАЛЬНОЙ КОД (с исправлениями категорий) ---
 KEYWORD_MAP = {
     'кормит птиц': ['кормит птиц', 'птиц', 'голуби', 'корм'],
     'зима': ['зима', 'зимой', 'зимние', 'лыжи', 'лыжах', 'кататься', 'катаешься'],
@@ -127,24 +88,8 @@ def select_thematic_photo(user_id: int, category: str) -> Optional[str]:
     return chosen
 
 def analyze_photo_with_vision(image_path: str, prompt: str, vision_client=None, lang: str = 'ru') -> str:
-    """Использует Cloudflare Workers AI для описания фото."""
-    try:
-        file_size = os.path.getsize(image_path)
-        if file_size > MAX_BASE64_SIZE:
-            return "Файл слишком большой, попробуй сжать изображение."
-        with open(image_path, "rb") as f:
-            img_bytes = f.read()
-        description = get_vision_description(img_bytes, prompt)
-        if not description:
-            raise ValueError("Empty description from CF")
-        if lang == 'ru':
-            description = clean_english_words(description)
-            description = remove_non_russian(description)
-            description = distribute_emojis(description)
-        return description
-    except Exception as e:
-        print(f"[VISION] Ошибка: {e}")
-        return "На этом фото я смотрюсь очень душевно и естественно. 😊 Прекрасный момент, наполненный теплом и радостью. 💖"
+    # Временно отключаем vision, возвращаем душевную фразу
+    return "На этом фото я смотрюсь очень душевно и естественно. 😊 Прекрасный момент, наполненный теплом и радостью. 💖"
 
 def analyze_user_photo(message, bot, vision_client, lang: str) -> bool:
     try:
@@ -156,7 +101,7 @@ def analyze_user_photo(message, bot, vision_client, lang: str) -> bool:
         temp_path = f"temp_user_image_{message.from_user.id}_{int(time.time())}.jpg"
         with open(temp_path, 'wb') as f:
             f.write(downloaded_file)
-        description = analyze_photo_with_vision(temp_path, "Опиши это фото коротко, 2-3 предложения. Будь тёплой, добавь эмодзи.", None, lang)
+        description = analyze_photo_with_vision(temp_path, "", None, lang)
         os.remove(temp_path)
         user_last_user_image_desc[message.from_user.id] = description
         bot.send_message(message.chat.id, description)
@@ -259,7 +204,7 @@ def show_random_photo(user_id: int, lang: str, bot, message, vision_client,
     if not cat_found:
         user_last_category[user_id] = None
     try:
-        description = analyze_photo_with_vision(chosen_photo, "Начни свой ответ с душевного восклицания, например: 'Конечно, у меня есть такие фото!' или 'С удовольствием покажу!' Затем опиши фото: что ты на нём делаешь, где ты, какое у тебя настроение. Расскажи короткую историю. Обязательно добавь 2-3 эмодзи, чтобы описание было живым. Не начинай ответ с 'Привет'.", vision_client, lang)
+        description = analyze_photo_with_vision(chosen_photo, "", vision_client, lang)
         if description.startswith('Привет'):
             description = re.sub(r'^Привет[,!\s]*', '', description)
         if user_has_no_photos:
@@ -380,10 +325,9 @@ def handle_photo_request(user_id: int, user_text: str, lang: str, bot, message, 
             save_user_last_photo_func(user_id, chosen_photo)
             user_last_favorite_photo[user_id] = chosen_photo
             save_user_last_favorite_photo_func()
-            # --- УЛУЧШЕННОЕ ОПРЕДЕЛЕНИЕ КАТЕГОРИИ ---
+            # Определяем категорию
             photo_name = get_keywords_from_photo_name(chosen_photo)
             cat_found = False
-            # Сначала по карте
             for cat, words in KEYWORD_MAP.items():
                 if any(syn in photo_name for syn in words):
                     user_last_category[user_id] = cat
@@ -395,35 +339,9 @@ def handle_photo_request(user_id: int, user_text: str, lang: str, bot, message, 
                     cat_found = True
                     print(f"[PHOTO] Любимое фото отнесено к категории '{cat}'")
                     break
-            # Если не нашли, пробуем по прямым маркерам (на случай, если ключевые слова не сработали)
-            if not cat_found:
-                if 'пляж' in photo_name or 'море' in photo_name or 'песок' in photo_name:
-                    user_last_category[user_id] = 'пляж'
-                    cat_found = True
-                elif 'парк' in photo_name or 'осень' in photo_name or 'листья' in photo_name:
-                    user_last_category[user_id] = 'парк'
-                    cat_found = True
-                elif 'собака' in photo_name or 'ретривер' in photo_name:
-                    user_last_category[user_id] = 'собака'
-                    cat_found = True
-                elif 'горы' in photo_name or 'лыжи' in photo_name or 'курорт' in photo_name:
-                    user_last_category[user_id] = 'горы'
-                    cat_found = True
-                elif 'париж' in photo_name or 'мост' in photo_name:
-                    user_last_category[user_id] = 'париж'
-                    cat_found = True
-                if cat_found:
-                    if user_id not in user_thematic_history:
-                        user_thematic_history[user_id] = {}
-                    cat = user_last_category[user_id]
-                    if cat not in user_thematic_history[user_id]:
-                        user_thematic_history[user_id][cat] = set()
-                    user_thematic_history[user_id][cat].add(chosen_photo)
-                    print(f"[PHOTO] Любимое фото отнесено к категории '{cat}' по прямым маркерам")
             if not cat_found:
                 user_last_category[user_id] = None
                 print("[PHOTO] Категория для любимого фото не определена")
-            # --------------------------------------------
             max_attempts = 3
             attempt = 0
             sent = False
@@ -471,18 +389,7 @@ def handle_photo_request(user_id: int, user_text: str, lang: str, bot, message, 
                                 cat_found = True
                                 break
                         if not cat_found:
-                            if 'пляж' in photo_name or 'море' in photo_name:
-                                user_last_category[user_id] = 'пляж'
-                            elif 'парк' in photo_name or 'осень' in photo_name:
-                                user_last_category[user_id] = 'парк'
-                            elif 'собака' in photo_name:
-                                user_last_category[user_id] = 'собака'
-                            elif 'горы' in photo_name:
-                                user_last_category[user_id] = 'горы'
-                            elif 'париж' in photo_name or 'мост' in photo_name:
-                                user_last_category[user_id] = 'париж'
-                            else:
-                                user_last_category[user_id] = None
+                            user_last_category[user_id] = None
                     else:
                         try:
                             with open(chosen_photo, 'rb') as photo:
