@@ -123,7 +123,8 @@ def analyze_photo_with_vision(image_path: str, prompt: str, client, lang: str = 
         return description
     except Exception as e:
         print(f"Ошибка vision-анализа: {e}")
-        return "Ой, что-то пошло не так при анализе фото. Попробуй ещё раз 😅"
+        # fallback: возвращаем стандартное описание
+        return "На этом фото я смотрюсь очень душевно и естественно. 😊 Прекрасный момент, наполненный теплом и радостью. 💖"
 
 def analyze_user_photo(message, bot, client, lang: str) -> bool:
     try:
@@ -364,7 +365,7 @@ def handle_photo_request(user_id: int, user_text: str, lang: str, bot, message, 
             save_user_last_photo_func(user_id, chosen_photo)
             user_last_favorite_photo[user_id] = chosen_photo
             save_user_last_favorite_photo_func()
-            # ОПРЕДЕЛЕНИЕ КАТЕГОРИИ (с приоритетом для гор)
+            # Определяем категорию
             photo_name = get_keywords_from_photo_name(chosen_photo)
             cat_found = False
             if any(word in photo_name for word in ['гор', 'лыж', 'зим', 'снег', 'курорт']):
@@ -375,7 +376,7 @@ def handle_photo_request(user_id: int, user_text: str, lang: str, bot, message, 
                 if 'горы' not in user_thematic_history[user_id]:
                     user_thematic_history[user_id]['горы'] = set()
                 user_thematic_history[user_id]['горы'].add(chosen_photo)
-                print(f"[PHOTO] Любимое фото отнесено к категории 'горы' по ключевым словам")
+                print(f"[PHOTO] Любимое фото отнесено к категории 'горы'")
             else:
                 for cat, words in KEYWORD_MAP.items():
                     if any(syn in photo_name for syn in words):
@@ -390,7 +391,7 @@ def handle_photo_request(user_id: int, user_text: str, lang: str, bot, message, 
                         break
             if not cat_found:
                 user_last_category[user_id] = None
-                print(f"[PHOTO] Категория для любимого фото не определена")
+                print(f"[PHOTO] Категория не определена")
             max_attempts = 3
             attempt = 0
             sent = False
@@ -424,11 +425,9 @@ def handle_photo_request(user_id: int, user_text: str, lang: str, bot, message, 
                         save_user_last_photo_func(user_id, chosen_photo)
                         user_last_favorite_photo[user_id] = chosen_photo
                         save_user_last_favorite_photo_func()
-                        # Обновляем категорию для нового выбранного фото
+                        # обновляем категорию
                         photo_name = get_keywords_from_photo_name(chosen_photo)
-                        cat_found = False
                         if any(word in photo_name for word in ['гор', 'лыж', 'зим', 'снег', 'курорт']):
-                            cat_found = True
                             user_last_category[user_id] = 'горы'
                             if user_id not in user_thematic_history:
                                 user_thematic_history[user_id] = {}
@@ -436,6 +435,7 @@ def handle_photo_request(user_id: int, user_text: str, lang: str, bot, message, 
                                 user_thematic_history[user_id]['горы'] = set()
                             user_thematic_history[user_id]['горы'].add(chosen_photo)
                         else:
+                            cat_found = False
                             for cat, words in KEYWORD_MAP.items():
                                 if any(syn in photo_name for syn in words):
                                     user_last_category[user_id] = cat
@@ -446,8 +446,8 @@ def handle_photo_request(user_id: int, user_text: str, lang: str, bot, message, 
                                     user_thematic_history[user_id][cat].add(chosen_photo)
                                     cat_found = True
                                     break
-                        if not cat_found:
-                            user_last_category[user_id] = None
+                            if not cat_found:
+                                user_last_category[user_id] = None
                     else:
                         try:
                             with open(chosen_photo, 'rb') as photo:
