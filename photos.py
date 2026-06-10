@@ -8,9 +8,46 @@ from text_utils import clean_english_words, remove_non_russian, distribute_emoji
 
 PHOTO_FOLDER = 'images'
 SUPPORTED_EXTENSIONS = ('.jpg', '.jpeg', '.png', '.gif')
-VISION_MODEL = "llama-3.2-11b-vision-preview"
 MAX_BASE64_SIZE = 4 * 1024 * 1024
 
+# --- ПРИОРИТЕТНЫЙ СПИСОК МОДЕЛЕЙ ДЛЯ VISION (от лучшей к худшей) ---
+PREFERRED_VISION_MODELS = [
+    "llama-3.2-90b-vision-preview",   # самая мощная, но может быть платной
+    "llama-3.2-11b-vision-preview",   # отличный баланс скорости и качества
+    # При необходимости можно добавить другие
+]
+
+# Глобальная переменная для хранения рабочей модели (определится при первом вызове)
+_working_vision_model = None
+
+def _get_working_vision_model(vision_client) -> str:
+    """Возвращает первую доступную модель из списка."""
+    global _working_vision_model
+    if _working_vision_model is not None:
+        return _working_vision_model
+
+    for model in PREFERRED_VISION_MODELS:
+        try:
+            # Лёгкий тестовый запрос для проверки доступности модели
+            vision_client.chat.completions.create(
+                model=model,
+                messages=[{"role": "user", "content": "test"}],
+                max_tokens=5,
+                timeout=10
+            )
+            print(f"[VISION] Модель '{model}' доступна и будет использоваться.")
+            _working_vision_model = model
+            return model
+        except Exception as e:
+            print(f"[VISION] Модель '{model}' недоступна: {e}")
+            continue
+
+    # Если ни одна модель не сработала
+    print("[VISION] КРИТИЧЕСКАЯ ОШИБКА: Ни одна из vision-моделей недоступна.")
+    _working_vision_model = None
+    return None
+
+# --- ОСТАЛЬНОЙ КОД (словари, вспомогательные функции) БЕЗ ИЗМЕНЕНИЙ ---
 KEYWORD_MAP = {
     'кормит птиц': ['кормит птиц', 'птиц', 'голуби', 'корм'],
     'зима': ['зима', 'зимой', 'зимние', 'лыжи', 'лыжах', 'кататься', 'катаешься'],
@@ -88,7 +125,13 @@ def select_thematic_photo(user_id: int, category: str) -> Optional[str]:
     shown.add(chosen)
     return chosen
 
-def analyze_photo_with_vision(image_path: str, prompt: str, client, lang: str = 'ru') -> str:
+def analyze_photo_with_vision(image_path: str, prompt: str, vision_client, lang: str = 'ru') -> str:
+    """Анализирует фото, автоматически выбирая рабочую модель vision."""
+    # Определяем рабочую модель (один раз)
+    model = _get_working_vision_model(vision_client)
+    if not model:
+        return "Ой, у меня сейчас проблемы со зрением, но фото очень красивое! 😊💖"
+
     try:
         file_size = os.path.getsize(image_path)
         if file_size > MAX_BASE64_SIZE:
@@ -100,8 +143,9 @@ def analyze_photo_with_vision(image_path: str, prompt: str, client, lang: str = 
             mime_type = "image/png"
         elif image_path.lower().endswith('.gif'):
             mime_type = "image/gif"
-        response = client.chat.completions.create(
-            model=VISION_MODEL,
+
+        response = vision_client.chat.completions.create(
+            model=model,
             messages=[
                 {
                     "role": "user",
@@ -123,10 +167,13 @@ def analyze_photo_with_vision(image_path: str, prompt: str, client, lang: str = 
         return description
     except Exception as e:
         print(f"Ошибка vision-анализа: {e}")
-        # fallback: возвращаем стандартное описание
-        return "На этом фото я смотрюсь очень душевно и естественно. 😊 Прекрасный момент, наполненный теплом и радостью. 💖"
+        # Если текущая модель не сработала, сбрасываем её и пробуем другую
+        global _working_vision_model
+        _working_vision_model = None
+        # Повторяем вызов (рекурсивно)
+        return analyze_photo_with_vision(image_path, prompt, vision_client, lang)
 
-def analyze_user_photo(message, bot, client, lang: str) -> bool:
+def analyze_user_photo(message, bot, vision_client, lang: str) -> bool:
     try:
         if not message.photo:
             bot.send_message(message.chat.id, "Пожалуйста, отправь фото как изображение, а не как файл 😊")
@@ -140,7 +187,7 @@ def analyze_user_photo(message, bot, client, lang: str) -> bool:
             prompt = "Ты Алёна, добрая, весёлая, обаятельная девушка. Опиши это фото коротко (2-3 предложения). Будь тёплой, добавь эмодзи. Не начинай ответ с 'Привет'."
         else:
             prompt = "You are Alena, a kind, cheerful, charming girl. Describe this photo briefly (2-3 sentences). Be warm, add emojis. Do not start with 'Hello'."
-        description = analyze_photo_with_vision(temp_path, prompt, client, lang)
+        description = analyze_photo_with_vision(temp_path, prompt, vision_client, lang)
         os.remove(temp_path)
         user_last_user_image_desc[message.from_user.id] = description
         bot.send_message(message.chat.id, description)
@@ -153,7 +200,7 @@ def analyze_user_photo(message, bot, client, lang: str) -> bool:
             bot.send_message(message.chat.id, "Something's wrong with the photo, maybe try another one? 😊")
         return False
 
-def try_paris_photo(user_id: int, user_text: str, lang: str, bot, message, client, add_message, save_user_history, save_user_last_photo_func):
+def try_paris_photo(user_id: int, user_text: str, lang: str, bot, message, vision_client, add_message, save_user_history, save_user_last_photo_func):
     if 'мосту' not in user_text.lower():
         return False
     if not re.search(r'(фото|фотки|фотографии)', user_text, re.IGNORECASE):
@@ -187,7 +234,7 @@ def try_paris_photo(user_id: int, user_text: str, lang: str, bot, message, clien
                 analysis_prompt = "Начни свой ответ с душевного восклицания, например: 'Конечно, у меня есть такие фото!' или 'С удовольствием покажу!' Затем опиши фото: что ты на нём делаешь, где ты, какое у тебя настроение. Расскажи короткую историю. Обязательно добавь 2-3 эмодзи, чтобы описание было живым. Не начинай ответ с 'Привет'."
             else:
                 analysis_prompt = "Start your answer with a warm phrase, e.g., 'I'm so glad you asked! Here's one of my photos...' Then describe the photo: what you are doing, where you are, what mood you are in. Tell a short story. Be sure to add 2-3 emojis to make the description lively. Do not start with 'Hello'."
-            description = analyze_photo_with_vision(chosen_photo, analysis_prompt, client, lang)
+            description = analyze_photo_with_vision(chosen_photo, analysis_prompt, vision_client, lang)
             if description.startswith('Привет'):
                 description = re.sub(r'^Привет[,!\s]*', '', description)
             description = distribute_emojis(description)
@@ -217,7 +264,7 @@ def handle_favorite_photo_repeat(user_id, lang, bot, message):
             return False
     return False
 
-def show_random_photo(user_id: int, lang: str, bot, message, client,
+def show_random_photo(user_id: int, lang: str, bot, message, vision_client,
                       add_message, save_user_history, save_user_last_photo_func,
                       save_user_last_favorite_photo_func, user_has_no_photos: bool = False) -> bool:
     all_photos = get_photo_list()
@@ -244,7 +291,7 @@ def show_random_photo(user_id: int, lang: str, bot, message, client,
         user_last_category[user_id] = None
     try:
         prompt = "Начни свой ответ с душевного восклицания, например: 'Конечно, у меня есть такие фото!' или 'С удовольствием покажу!' Затем опиши фото: что ты на нём делаешь, где ты, какое у тебя настроение. Расскажи короткую историю. Обязательно добавь 2-3 эмодзи, чтобы описание было живым. Не начинай ответ с 'Привет'."
-        description = analyze_photo_with_vision(chosen_photo, prompt, client, lang)
+        description = analyze_photo_with_vision(chosen_photo, prompt, vision_client, lang)
         if description.startswith('Привет'):
             description = re.sub(r'^Привет[,!\s]*', '', description)
         if user_has_no_photos:
@@ -268,11 +315,11 @@ def show_random_photo(user_id: int, lang: str, bot, message, client,
         except:
             return False
 
-def handle_photo_request(user_id: int, user_text: str, lang: str, bot, message, client,
+def handle_photo_request(user_id: int, user_text: str, lang: str, bot, message, vision_client,
                          add_message, save_user_history, save_user_last_photo_func,
                          save_user_last_favorite_photo_func, user_has_no_photos: bool = False):
     # Гарантированный Париж (самый первый)
-    if try_paris_photo(user_id, user_text, lang, bot, message, client, add_message, save_user_history, save_user_last_photo_func):
+    if try_paris_photo(user_id, user_text, lang, bot, message, vision_client, add_message, save_user_history, save_user_last_photo_func):
         user_pending_photo_offer[user_id] = False
         return True
 
@@ -324,7 +371,7 @@ def handle_photo_request(user_id: int, user_text: str, lang: str, bot, message, 
                     if compliment:
                         analysis_prompt += "You MUST first thank the user for the compliment (e.g., 'Thank you, I'm very pleased! 😊'), and then describe the photo. "
                     analysis_prompt += "Start your answer with a warm phrase, e.g., 'I'm so glad you asked! Here's one of my photos...' Then describe the photo: what you are doing, where you are, what mood you are in. Tell a short story. Be sure to add 2-3 emojis to make the description lively. Do not start with 'Hello'."
-                description = analyze_photo_with_vision(chosen_photo, analysis_prompt, client, lang)
+                description = analyze_photo_with_vision(chosen_photo, analysis_prompt, vision_client, lang)
                 if description.startswith('Привет'):
                     description = re.sub(r'^Привет[,!\s]*', '', description)
                 description = distribute_emojis(description)
@@ -365,8 +412,7 @@ def handle_photo_request(user_id: int, user_text: str, lang: str, bot, message, 
             save_user_last_photo_func(user_id, chosen_photo)
             user_last_favorite_photo[user_id] = chosen_photo
             save_user_last_favorite_photo_func()
-            # Определяем категорию так, как это было в исходном коде (через search_category_by_query)
-            # Но для любимого фото категория определяется по имени файла
+            # Определяем категорию
             photo_name = get_keywords_from_photo_name(chosen_photo)
             cat_found = False
             for cat, words in KEYWORD_MAP.items():
@@ -396,7 +442,7 @@ def handle_photo_request(user_id: int, user_text: str, lang: str, bot, message, 
                         analysis_prompt += apology + "Начни свой ответ с тёплой фразы, например: 'Вот моё любимое фото...' Затем опиши фото: что ты на нём делаешь, где ты, какое у тебя настроение. Расскажи короткую историю. Обязательно добавь 2-3 эмодзи, чтобы описание было живым. Не начинай ответ с 'Привет'."
                     else:
                         analysis_prompt += apology + "Start your answer with a warm phrase, e.g., 'Here's my favorite photo...' Then describe the photo: what you are doing, where you are, what mood you are in. Tell a short story. Be sure to add 2-3 emojis to make the description lively. Do not start with 'Hello'."
-                    description = analyze_photo_with_vision(chosen_photo, analysis_prompt, client, lang)
+                    description = analyze_photo_with_vision(chosen_photo, analysis_prompt, vision_client, lang)
                     if description.startswith('Привет'):
                         description = re.sub(r'^Привет[,!\s]*', '', description)
                     if user_has_no_photos:
@@ -504,7 +550,7 @@ def handle_photo_request(user_id: int, user_text: str, lang: str, bot, message, 
                             analysis_prompt += apology + "Начни свой ответ с душевного восклицания, например: 'Конечно, у меня есть такие фото!' или 'С удовольствием покажу!' Затем опиши фото: что ты на нём делаешь, где ты, какое у тебя настроение. Расскажи короткую историю. Обязательно добавь 2-3 эмодзи, чтобы описание было живым. Не начинай ответ с 'Привет'."
                     else:
                         analysis_prompt += apology + "Start your answer with a warm phrase, e.g., 'I'm so glad you asked! Here's one of my photos...' Then describe the photo: what you are doing, where you are, what mood you are in. Tell a short story. Be sure to add 2-3 emojis to make the description lively. Do not start with 'Hello'."
-                    description = analyze_photo_with_vision(chosen_photo, analysis_prompt, client, lang)
+                    description = analyze_photo_with_vision(chosen_photo, analysis_prompt, vision_client, lang)
                     if description.startswith('Привет'):
                         description = re.sub(r'^Привет[,!\s]*', '', description)
                     if not category and not re.search(r'(такие|таких|похожие|аналогичные)', user_text, re.IGNORECASE):
