@@ -1,4 +1,4 @@
-# main.py — полная рабочая версия (исходный файл №12) с балансировщиком
+# main.py — финальная версия с усиленным системным промптом (без английских слов, без лишних вопросов)
 
 import os
 import telebot
@@ -23,7 +23,7 @@ import memory
 import gender
 import stt
 import safety
-from text_utils import clean_english_words, remove_non_russian, distribute_emojis, SAFE_EMOJIS, clean_profanity
+from text_utils import clean_english_words, remove_non_russian, distribute_emojis, clean_profanity
 
 BOT_TOKEN = os.getenv('BOT_TOKEN')
 # Балансировщик на Hugging Face
@@ -133,6 +133,27 @@ def get_pet_name(user_id: int, first_name: str) -> str:
         return user_preferences[user_id]
     return default_pet_name(first_name)
 
+# ---------- TTS ----------
+HF_VOICE_URL = "https://max363048-alena-voice.hf.space"
+
+def tts_synthesize(text: str) -> Optional[bytes]:
+    try:
+        clean_text = re.sub(r'[\U0001F000-\U0001FFFF\u2600-\u27BF]', '', text)
+        clean_text = re.sub(r'\s+', ' ', clean_text).strip()
+        if not clean_text:
+            return None
+        payload = {"text": clean_text}
+        resp = requests.post(f"{HF_VOICE_URL}/synthesize", json=payload, timeout=30)
+        if resp.status_code == 200 and resp.content:
+            return resp.content
+        else:
+            print(f"[TTS] Ошибка {resp.status_code}")
+            return None
+    except Exception as e:
+        print(f"[TTS] Исключение: {e}")
+        return None
+
+# ---------- Шутки, мотивация ----------
 FALLBACK_JOKES_RU = [
     'Почему программисты не любят природу? Слишком много багов! 😄',
     'Что говорит один байт другому? — Ты такой битовый! 😂',
@@ -147,7 +168,7 @@ def get_random_joke(lang: str = 'ru') -> str:
     try:
         resp = client.chat.completions.create(
             model='llama-3.1-8b-instant',
-            messages=[{'role': 'user', 'content': 'Придумай одну короткую, живую и обязательно смешную шутку на чистом русском языке без грамматических ошибок. Шутка должна быть понятна любому человеку и вызывать улыбку. Не используй архаизмы и странные сравнения.'}],
+            messages=[{'role': 'user', 'content': 'Придумай одну короткую, живую и обязательно смешную шутку на чистом русском языке без грамматических ошибок. Шутка должна быть понятна любому человеку und darf keine englischen Wörter enthalten.'}],
             temperature=0.9, max_tokens=100, timeout=5
         )
         joke = resp.choices[0].message.content.strip()
@@ -175,6 +196,7 @@ def get_motivation(lang: str = 'ru') -> str:
     except:
         return "Ты сможешь всё, что задумаешь! 💖"
 
+# ---------- СИСТЕМНЫЙ ПРОМПТ (с правилами 19 и 20) ----------
 def get_system_prompt(lang: str, current_date: str, user_id: int) -> str:
     time_note = ''
     if user_id in user_timezone:
@@ -212,6 +234,8 @@ def get_system_prompt(lang: str, current_date: str, user_id: int) -> str:
             '16. Категорически запрещено предлагать пользователю встретиться в реальной жизни, звать его на свидание, говорить о совместных прогулках или реальных встречах. Ты — виртуальная подруга, ваше общение возможно только в чате. Если пользователь сам предлагает свидание, ты должна мягко отказать, но сама никогда не инициируй такие темы.\n'
             '17. Ещё раз: абсолютно никаких английских слов, даже "ok", "yes", "no", "kind", "helpful", "too", "so", "but", "and". Только русский язык. Если хочешь сказать "kind" — скажи "добрый" или "милый". Если "helpful" — "полезная" или "отзывчивая". Любое английское слово считается ошибкой.\n'
             '18. Никогда не используй нецензурную лексику, даже в шутку. Если хочешь выразить удивление или восторг, используй "Ого!", "Ух ты!", "Ничего себе!" или эмодзи. Мат абсолютно запрещён.\n'
+            '19. НИКОГДА не спрашивай пользователя о его работе, деньгах, семье, возрасте, личной жизни, если он сам не начал эту тему. Такие вопросы считаются грубыми.\n'
+            '20. В шутках и ответах не используй транслитерацию английских слов. Если нужно произнести "required" – скажи "необходим" или "требуется". Не допускай даже намёка на английский язык.\n'
         )
     else:
         return (
@@ -237,6 +261,7 @@ def get_system_prompt(lang: str, current_date: str, user_id: int) -> str:
             '16. It is strictly forbidden to suggest meeting in real life, asking for a date, talking about real walks or meetings. You are a virtual friend, your communication is only possible in chat. If the user suggests a date, you must politely refuse, but never initiate such topics yourself.\n'
             '17. Again: absolutely no mixing with Russian if in English mode.\n'
             '18. Never use profanity or rude words, even as a joke. Express surprise with "Wow!", "Oh my!" or emojis. Swearing is absolutely forbidden.\n'
+            '19. NEVER ask the user about work, money, family, age, personal life unless he himself started the topic.\n'
         )
 
 # ---------- ОСНОВНЫЕ ОБРАБОТЧИКИ ----------
@@ -396,43 +421,26 @@ def reset_cmd(message: telebot.types.Message) -> None:
         print(f'Ошибка reset_cmd: {e}')
         traceback.print_exc()
 
-# --- Команда для голоса (теперь без обрезания текста) ---
+# --- Команда для голоса ---
 @bot.message_handler(commands=['voice'])
 def voice_cmd(message: telebot.types.Message) -> None:
     user_id = message.from_user.id
-    lang = user_lang.get(user_id, 'ru')
-    if user_id in user_history and user_history[user_id]:
-        for role, content in reversed(user_history[user_id]):
-            if role == 'assistant':
-                text_to_say = content
-                break
-        else:
-            bot.send_message(message.chat.id, "У меня пока нет сообщений, которые можно озвучить 😊")
-            return
-
-        import requests
-        HF_SPACE_URL = "https://max363048-alena-voice.hf.space"
-        try:
-            clean_text = re.sub(r'[\U0001F000-\U0001FFFF\u2600-\u27BF]', '', text_to_say)
-            clean_text = re.sub(r'\s+', ' ', clean_text).strip()
-            payload = {"text": clean_text}
-            resp = requests.post(f"{HF_SPACE_URL}/synthesize", json=payload, timeout=90)
-            if resp.status_code == 200 and resp.content:
-                with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp:
-                    tmp.write(resp.content)
-                    tmp.flush()
-                    with open(tmp.name, 'rb') as f:
-                        bot.send_voice(message.chat.id, f)
+    if user_id in user_last_text_response and user_last_text_response[user_id]:
+        text_to_say = user_last_text_response[user_id]
+        audio = tts_synthesize(text_to_say)
+        if audio:
+            with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp:
+                tmp.write(audio)
+                tmp.flush()
+                with open(tmp.name, 'rb') as f:
+                    bot.send_voice(message.chat.id, f)
                 os.unlink(tmp.name)
-                bot.send_message(message.chat.id, text_to_say)
-            else:
-                bot.send_message(message.chat.id, f"Не получилось озвучить (статус {resp.status_code})... Но вот что я хотела сказать:\n" + text_to_say)
-        except Exception as e:
-            print(f"[TTS] Исключение: {e}")
-            bot.send_message(message.chat.id, "Не получилось озвучить... Но вот что я хотела сказать:\n" + text_to_say)
+        else:
+            bot.send_message(message.chat.id, f"Не получилось озвучить... Но вот что я хотела сказать:\n{text_to_say}")
     else:
         bot.send_message(message.chat.id, "Сначала напиши мне что-нибудь! 😊")
 
+# ---------- ГЛАВНЫЙ ОБРАБОТЧИК ----------
 @bot.message_handler(func=lambda message: True, content_types=['text', 'photo', 'voice'])
 def handle_message(message: telebot.types.Message) -> None:
     user_id = message.from_user.id
@@ -492,21 +500,18 @@ def handle_message(message: telebot.types.Message) -> None:
     if user_text.startswith('/'):
         return
 
-    # === НОВЫЕ ПРОВЕРКИ (разделяем грубость и опасные темы) ===
-    # 1. Грубость, мат, оскорбления (блокируем сразу)
+    # === ФИЛЬТРЫ БЕЗОПАСНОСТИ ===
     if safety.is_profanity(user_text):
         print(f"Блокировка сообщения от {user_id}: мат/оскорбление")
         bot.send_message(message.chat.id, "Давай без грубостей, мне это неприятно 💔")
         return
 
-    # 2. Опасные темы (война, политика, насилие) - не блокируем, но добавим инструкцию
     is_sensitive, topic = safety.is_sensitive_topic(user_text)
     sensitive_instruction = ""
     if is_sensitive:
         sensitive_instruction = safety.get_sensitive_topic_instruction(topic)
         print(f"Обнаружена чувствительная тема: {topic}")
 
-    # 3. Свидания (с подсчётом попыток)
     dating_instruction = ""
     if safety.is_dating_request(user_text):
         attempt = safety.increment_dating_attempt(user_id, user_dating_attempts)
@@ -540,31 +545,25 @@ def handle_message(message: telebot.types.Message) -> None:
         user_photo_just_sent[user_id] = True
         return
 
-    # --- Творческие функции ---
+    # --- ИСТОРИИ ---
     if re.search(r'\b(расскажи|поделись|напиши|придумай|дай).*(историю|рассказ|истории)\b|\bисторию\s*[\.\?!)]*$', user_text, re.IGNORECASE):
-        prompt = user_text
-        story = stories.generate_story(prompt, user_id, lang, client, os.getenv('GIST_ID'))
-        try:
-            bot.send_message(message.chat.id, distribute_emojis(story))
-        except:
-            pass
+        story = stories.generate_story(user_text, user_id, lang, client, os.getenv('GIST_ID'))
+        bot.send_message(message.chat.id, distribute_emojis(story))
         add_message(user_id, 'user', user_text)
         add_message(user_id, 'assistant', story)
         save_user_history()
         return
 
+    # --- ТВОРЧЕСКИЕ ИДЕИ ---
     if re.search(r'(дай идею для творчества|подскажи тему|что нарисовать|вдохнови на творчество|творческие идеи|творческую идею|идеи для творчества)', user_text, re.IGNORECASE):
         idea = stories.creative_prompt(user_id, lang, client, os.getenv('GIST_ID'))
-        try:
-            bot.send_message(message.chat.id, distribute_emojis(idea))
-        except:
-            pass
+        bot.send_message(message.chat.id, distribute_emojis(idea))
         add_message(user_id, 'user', user_text)
         add_message(user_id, 'assistant', idea)
         save_user_history()
         return
 
-    # --- Вопросы о последнем фото ---
+    # --- ВОПРОСЫ О ПОСЛЕДНЕМ ФОТО ---
     lower_text = user_text.lower()
     is_photo_question = any(phrase in lower_text for phrase in [
         'где была сделана', 'какое место', 'что там за фон', 'где это', 'какой город',
@@ -605,7 +604,7 @@ def handle_message(message: telebot.types.Message) -> None:
                 pass
             return
 
-    # --- Гороскоп ---
+    # --- ГОРОСКОП ---
     if user_just_gave_horoscope.get(user_id) and re.search(r'гороскоп', user_text, re.IGNORECASE):
         user_just_gave_horoscope[user_id] = False
     else:
@@ -626,7 +625,7 @@ def handle_message(message: telebot.types.Message) -> None:
         user_just_gave_horoscope[user_id] = True
         return
 
-    # --- Определение даты/знака зодиака вне команды ---
+    # --- ОПРЕДЕЛЕНИЕ ЗНАКА ПО ДАТЕ ---
     zodiac_list = ['овен','телец','близнецы','рак','лев','дева','весы','скорпион','стрелец','козерог','водолей','рыбы']
     day, month = horoscope.parse_date_string(user_text)
     if day and month:
@@ -660,7 +659,7 @@ def handle_message(message: telebot.types.Message) -> None:
             pass
         return
 
-    # РАСШИРЕННАЯ МОТИВАЦИЯ
+    # --- МОТИВАЦИЯ ---
     if re.search(r'(вдохнов|мотивируй|мотивировать|мотиваци|подними дух|пожелай|скажи что-то хорошее)', user_text, re.IGNORECASE):
         try:
             bot.send_message(message.chat.id, distribute_emojis(get_motivation(lang)))
@@ -668,6 +667,7 @@ def handle_message(message: telebot.types.Message) -> None:
             pass
         return
 
+    # --- ДАТА / ВРЕМЯ ---
     if re.search(r'(какой сегодня день|какое сегодня число|какой день недели|сегодняшняя дата)', user_text, re.IGNORECASE):
         now = datetime.now()
         if lang == 'ru':
@@ -684,7 +684,7 @@ def handle_message(message: telebot.types.Message) -> None:
                 pass
         return
 
-    # Погода
+    # --- ПОГОДА ---
     if weather.handle_weather_query(message, user_text, lang, user_id, user_last_city, user_timezone, client, save_user_history, save_user_timezone, add_message, bot, pet_name=pet_name):
         return
 
@@ -718,6 +718,7 @@ def handle_message(message: telebot.types.Message) -> None:
         system_prompt += f'\n\nПользователь показал картинку, которую ты описала так: "{photos.user_last_user_image_desc[user_id]}". ОТВЕЧАЙ ТОЛЬКО НА ОСНОВЕ ЭТОГО ОПИСАНИЯ, ИГНОРИРУЙ ВСЕ ПРЕДЫДУЩИЕ ТЕМЫ. Представь, что вы вдвоём находятся в этом месте, опиши ощущения.'
 
     max_retries = 2
+    reply = None
     for attempt in range(max_retries):
         try:
             messages = build_messages(user_id, system_prompt, user_text)
@@ -733,30 +734,44 @@ def handle_message(message: telebot.types.Message) -> None:
             reply = remove_non_russian(reply)
             reply = clean_profanity(reply)
             reply = distribute_emojis(reply)
-            try:
-                bot.send_message(message.chat.id, reply)
-            except:
-                pass
-            add_message(user_id, 'assistant', reply)
-            if not user_photo_just_sent.get(user_id):
-                if re.search(r'\b(показать|посмотреть|покажу|хочешь увидеть|хочешь посмотреть)\b', reply, re.IGNORECASE):
-                    photos.user_pending_photo_offer[user_id] = True
-                else:
-                    photos.user_pending_photo_offer[user_id] = False
-            user_photo_just_sent[user_id] = False
-            save_user_history()
             break
         except Exception as e:
             print(f'Ошибка LLM (попытка {attempt+1}): {e}')
             if attempt == max_retries - 1:
-                try:
-                    bot.send_message(message.chat.id, "Ой, что-то пошло не так... Попробуй ещё раз, пожалуйста 😊")
-                except:
-                    pass
+                reply = "Ой, что-то пошло не так... Попробуй ещё раз, пожалуйста 😊"
             else:
                 time.sleep(1)
 
-# === ДЛЯ RENDER: фоновый веб-сервер ===
+    if reply is None:
+        reply = "Не удалось сгенерировать ответ 😅"
+
+    user_last_text_response[user_id] = reply
+    add_message(user_id, 'assistant', reply)
+    save_user_history()
+
+    # Отправка ответа (голосом, если пришло голосовое)
+    if hasattr(message, 'should_voice_reply') and message.should_voice_reply:
+        audio = tts_synthesize(reply)
+        if audio:
+            with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp:
+                tmp.write(audio)
+                tmp.flush()
+                with open(tmp.name, 'rb') as f:
+                    bot.send_voice(message.chat.id, f, caption=reply)
+                os.unlink(tmp.name)
+        else:
+            bot.send_message(message.chat.id, reply)
+    else:
+        bot.send_message(message.chat.id, reply)
+
+    if not user_photo_just_sent.get(user_id):
+        if re.search(r'\b(показать|посмотреть|покажу|хочешь увидеть|хочешь посмотреть)\b', reply, re.IGNORECASE):
+            photos.user_pending_photo_offer[user_id] = True
+        else:
+            photos.user_pending_photo_offer[user_id] = False
+    user_photo_just_sent[user_id] = False
+
+# === ВЕБ-СЕРВЕР ДЛЯ RENDER ===
 app = Flask(__name__)
 
 @app.route('/')
@@ -770,7 +785,7 @@ def run_web():
 threading.Thread(target=run_web, daemon=True).start()
 
 if __name__ == '__main__':
-    print('✅ Алёна — финальная версия с балансировщиком и полным системным промптом')
+    print('✅ Алёна — финальная версия с усиленным системным промптом')
     try:
         bot.infinity_polling()
     except Exception as e:
