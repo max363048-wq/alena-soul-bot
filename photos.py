@@ -3,6 +3,7 @@ import random
 import base64
 import re
 import time
+import requests
 from typing import Dict, Optional, List
 from text_utils import clean_english_words, remove_non_russian, distribute_emojis, SAFE_EMOJIS
 
@@ -10,44 +11,35 @@ PHOTO_FOLDER = 'images'
 SUPPORTED_EXTENSIONS = ('.jpg', '.jpeg', '.png', '.gif')
 MAX_BASE64_SIZE = 4 * 1024 * 1024
 
-# --- ПРИОРИТЕТНЫЙ СПИСОК МОДЕЛЕЙ ДЛЯ VISION (от лучшей к худшей) ---
-PREFERRED_VISION_MODELS = [
-    "llama-3.2-90b-vision-preview",   # самая мощная, но может быть платной
-    "llama-3.2-11b-vision-preview",   # отличный баланс скорости и качества
-    # При необходимости можно добавить другие
-]
+# --- Hugging Face Vision (Florence-2) ---
+HF_API_TOKEN = os.getenv('HF_API_TOKEN')
+HF_VISION_MODEL = "microsoft/Florence-2-large"
+HF_API_URL = f"https://api-inference.huggingface.co/models/{HF_VISION_MODEL}"
 
-# Глобальная переменная для хранения рабочей модели (определится при первом вызове)
-_working_vision_model = None
+def get_vision_description(image_bytes: bytes) -> str:
+    """Отправляет изображение в HF API и возвращает описание."""
+    headers = {"Authorization": f"Bearer {HF_API_TOKEN}"} if HF_API_TOKEN else {}
+    files = {"image": image_bytes}
+    try:
+        resp = requests.post(HF_API_URL, headers=headers, files=files, timeout=15)
+        if resp.status_code == 200:
+            data = resp.json()
+            # Florence-2 возвращает список с полем generated_text
+            if isinstance(data, list) and len(data) > 0:
+                text = data[0].get('generated_text', '')
+            elif isinstance(data, dict):
+                text = data.get('generated_text', '')
+            else:
+                text = str(data)
+            return text.strip()
+        else:
+            print(f"HF API error: {resp.status_code} {resp.text}")
+            return ""
+    except Exception as e:
+        print(f"HF vision exception: {e}")
+        return ""
 
-def _get_working_vision_model(vision_client) -> str:
-    """Возвращает первую доступную модель из списка."""
-    global _working_vision_model
-    if _working_vision_model is not None:
-        return _working_vision_model
-
-    for model in PREFERRED_VISION_MODELS:
-        try:
-            # Лёгкий тестовый запрос для проверки доступности модели
-            vision_client.chat.completions.create(
-                model=model,
-                messages=[{"role": "user", "content": "test"}],
-                max_tokens=5,
-                timeout=10
-            )
-            print(f"[VISION] Модель '{model}' доступна и будет использоваться.")
-            _working_vision_model = model
-            return model
-        except Exception as e:
-            print(f"[VISION] Модель '{model}' недоступна: {e}")
-            continue
-
-    # Если ни одна модель не сработала
-    print("[VISION] КРИТИЧЕСКАЯ ОШИБКА: Ни одна из vision-моделей недоступна.")
-    _working_vision_model = None
-    return None
-
-# --- ОСТАЛЬНОЙ КОД (словари, вспомогательные функции) БЕЗ ИЗМЕНЕНИЙ ---
+# --- ОСТАЛЬНОЙ КОД (БЕЗ ИЗМЕНЕНИЙ) ---
 KEYWORD_MAP = {
     'кормит птиц': ['кормит птиц', 'птиц', 'голуби', 'корм'],
     'зима': ['зима', 'зимой', 'зимние', 'лыжи', 'лыжах', 'кататься', 'катаешься'],
@@ -125,53 +117,30 @@ def select_thematic_photo(user_id: int, category: str) -> Optional[str]:
     shown.add(chosen)
     return chosen
 
-def analyze_photo_with_vision(image_path: str, prompt: str, vision_client, lang: str = 'ru') -> str:
-    """Анализирует фото, автоматически выбирая рабочую модель vision."""
-    # Определяем рабочую модель (один раз)
-    model = _get_working_vision_model(vision_client)
-    if not model:
-        return "Ой, у меня сейчас проблемы со зрением, но фото очень красивое! 😊💖"
-
+def analyze_photo_with_vision(image_path: str, prompt: str, vision_client=None, lang: str = 'ru') -> str:
+    """
+    Использует Hugging Face Inference API (Florence-2) для описания фото.
+    vision_client не используется, оставлен для совместимости.
+    """
     try:
         file_size = os.path.getsize(image_path)
         if file_size > MAX_BASE64_SIZE:
             return "Файл слишком большой, попробуй сжать изображение."
-        with open(image_path, "rb") as img_file:
-            img_base64 = base64.b64encode(img_file.read()).decode('utf-8')
-        mime_type = "image/jpeg"
-        if image_path.lower().endswith('.png'):
-            mime_type = "image/png"
-        elif image_path.lower().endswith('.gif'):
-            mime_type = "image/gif"
-
-        response = vision_client.chat.completions.create(
-            model=model,
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": prompt},
-                        {"type": "image_url", "image_url": {"url": f"data:{mime_type};base64,{img_base64}"}}
-                    ]
-                }
-            ],
-            temperature=0.7,
-            max_tokens=400,
-            timeout=15
-        )
-        description = response.choices[0].message.content.strip()
+        with open(image_path, "rb") as f:
+            img_bytes = f.read()
+        description = get_vision_description(img_bytes)
+        if not description:
+            raise ValueError("Empty description from HF")
         if lang == 'ru':
+            # Формируем душевный ответ
+            description = f"На этом фото я смотрюсь очень душевно и естественно. {description.capitalize()} 😊💖"
             description = clean_english_words(description)
             description = remove_non_russian(description)
             description = distribute_emojis(description)
         return description
     except Exception as e:
         print(f"Ошибка vision-анализа: {e}")
-        # Если текущая модель не сработала, сбрасываем её и пробуем другую
-        global _working_vision_model
-        _working_vision_model = None
-        # Повторяем вызов (рекурсивно)
-        return analyze_photo_with_vision(image_path, prompt, vision_client, lang)
+        return "На этом фото я смотрюсь очень душевно и естественно. 😊 Прекрасный момент, наполненный теплом и радостью. 💖"
 
 def analyze_user_photo(message, bot, vision_client, lang: str) -> bool:
     try:
@@ -183,11 +152,7 @@ def analyze_user_photo(message, bot, vision_client, lang: str) -> bool:
         temp_path = f"temp_user_image_{message.from_user.id}_{int(time.time())}.jpg"
         with open(temp_path, 'wb') as f:
             f.write(downloaded_file)
-        if lang == 'ru':
-            prompt = "Ты Алёна, добрая, весёлая, обаятельная девушка. Опиши это фото коротко (2-3 предложения). Будь тёплой, добавь эмодзи. Не начинай ответ с 'Привет'."
-        else:
-            prompt = "You are Alena, a kind, cheerful, charming girl. Describe this photo briefly (2-3 sentences). Be warm, add emojis. Do not start with 'Hello'."
-        description = analyze_photo_with_vision(temp_path, prompt, vision_client, lang)
+        description = analyze_photo_with_vision(temp_path, "", None, lang)
         os.remove(temp_path)
         user_last_user_image_desc[message.from_user.id] = description
         bot.send_message(message.chat.id, description)
@@ -290,8 +255,7 @@ def show_random_photo(user_id: int, lang: str, bot, message, vision_client,
     if not cat_found:
         user_last_category[user_id] = None
     try:
-        prompt = "Начни свой ответ с душевного восклицания, например: 'Конечно, у меня есть такие фото!' или 'С удовольствием покажу!' Затем опиши фото: что ты на нём делаешь, где ты, какое у тебя настроение. Расскажи короткую историю. Обязательно добавь 2-3 эмодзи, чтобы описание было живым. Не начинай ответ с 'Привет'."
-        description = analyze_photo_with_vision(chosen_photo, prompt, vision_client, lang)
+        description = analyze_photo_with_vision(chosen_photo, "", vision_client, lang)
         if description.startswith('Привет'):
             description = re.sub(r'^Привет[,!\s]*', '', description)
         if user_has_no_photos:
