@@ -8,7 +8,7 @@ from text_utils import clean_english_words, remove_non_russian, distribute_emoji
 
 PHOTO_FOLDER = 'images'
 SUPPORTED_EXTENSIONS = ('.jpg', '.jpeg', '.png', '.gif')
-VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
+VISION_MODEL = "llama-3.2-11b-vision-preview"
 MAX_BASE64_SIZE = 4 * 1024 * 1024
 
 KEYWORD_MAP = {
