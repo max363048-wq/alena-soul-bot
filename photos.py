@@ -13,15 +13,15 @@ MAX_BASE64_SIZE = 4 * 1024 * 1024
 
 KEYWORD_MAP = {
     'кормит птиц': ['кормит птиц', 'птиц', 'голуби', 'корм'],
-    'зима': ['зима', 'зимой', 'зимние', 'лыжи', 'лыжах', 'кататься', 'катаешься'],
+    'зима': ['зима', 'зимой', 'зимние', 'лыжи', 'лыжах', 'кататься', 'катаешься', 'снег', 'курорт'],
     'пикник': ['пикник', 'пикнике', 'пикника', 'пикником', 'плед', 'корзина', 'еда', 'фрукты', 'клубника'],
     'париж': ['париж', 'франция', 'eiffel', 'лувр', 'парк', 'фонтан', 'мост', 'мосту', 'мостом'],
-    'осень': ['осень', 'осенние', 'осенью', 'листья'],
-    'собака': ['собака', 'собакой', 'собаке', 'собаку', 'пёс', 'щенок', 'играю', 'играешь', 'гуляю', 'гуляешь'],
+    'осень': ['осень', 'осенние', 'осенью', 'листья', 'золотистые'],
+    'собака': ['собака', 'собакой', 'собаке', 'собаку', 'пёс', 'щенок', 'играю', 'играешь', 'гуляю', 'гуляешь', 'ретривер', 'лабрадор', 'друг'],
     'набережная': ['набережная', 'набережную', 'набережной', 'причал', 'яхта', 'порт'],
     'дома': ['дома', 'дом', 'квартира', 'комната', 'уют', 'свитер', 'плед', 'свечи'],
     'горы': ['горы', 'горах', 'гора', 'горный', 'вершина', 'скалы', 'лыжи', 'зима', 'курорт', 'снег'],
-    'парк': ['парк', 'парке', 'сквер', 'аллея', 'фонтан', 'зелень', 'голубей'],
+    'парк': ['парк', 'парке', 'сквер', 'аллея', 'фонтан', 'зелень', 'голубей', 'осень', 'листья', 'скамейка'],
     'пляж': ['пляж', 'море', 'берег', 'песок', 'океан', 'купальник', 'вода', 'воде', 'воду', 'водой', 'купаюсь', 'купаешься', 'купаться', 'плаваю', 'плаваешь'],
     'природа': ['природа', 'природе', 'на природе', 'поле', 'луг', 'лес', 'озеро', 'река', 'трава', 'деревья'],
     'город': ['город', 'городе', 'улица', 'проспект', 'площадь']
@@ -123,7 +123,6 @@ def analyze_photo_with_vision(image_path: str, prompt: str, client, lang: str = 
         return description
     except Exception as e:
         print(f"Ошибка vision-анализа: {e}")
-        # fallback: возвращаем стандартное описание
         return "На этом фото я смотрюсь очень душевно и естественно. 😊 Прекрасный момент, наполненный теплом и радостью. 💖"
 
 def analyze_user_photo(message, bot, client, lang: str) -> bool:
@@ -365,33 +364,55 @@ def handle_photo_request(user_id: int, user_text: str, lang: str, bot, message, 
             save_user_last_photo_func(user_id, chosen_photo)
             user_last_favorite_photo[user_id] = chosen_photo
             save_user_last_favorite_photo_func()
-            # Определяем категорию
+            # --- ОПРЕДЕЛЕНИЕ КАТЕГОРИИ (улучшенное) ---
             photo_name = get_keywords_from_photo_name(chosen_photo)
+            # Прямые совпадения для самых частых случаев
             cat_found = False
-            if any(word in photo_name for word in ['гор', 'лыж', 'зим', 'снег', 'курорт']):
-                cat_found = True
-                user_last_category[user_id] = 'горы'
-                if user_id not in user_thematic_history:
-                    user_thematic_history[user_id] = {}
-                if 'горы' not in user_thematic_history[user_id]:
-                    user_thematic_history[user_id]['горы'] = set()
-                user_thematic_history[user_id]['горы'].add(chosen_photo)
-                print(f"[PHOTO] Любимое фото отнесено к категории 'горы'")
-            else:
-                for cat, words in KEYWORD_MAP.items():
-                    if any(syn in photo_name for syn in words):
-                        user_last_category[user_id] = cat
-                        if user_id not in user_thematic_history:
-                            user_thematic_history[user_id] = {}
-                        if cat not in user_thematic_history[user_id]:
-                            user_thematic_history[user_id][cat] = set()
-                        user_thematic_history[user_id][cat].add(chosen_photo)
-                        cat_found = True
-                        print(f"[PHOTO] Любимое фото отнесено к категории '{cat}'")
-                        break
+            # Сначала попробуем найти по ключевым словам из карты
+            for cat, words in KEYWORD_MAP.items():
+                if any(syn in photo_name for syn in words):
+                    user_last_category[user_id] = cat
+                    if user_id not in user_thematic_history:
+                        user_thematic_history[user_id] = {}
+                    if cat not in user_thematic_history[user_id]:
+                        user_thematic_history[user_id][cat] = set()
+                    user_thematic_history[user_id][cat].add(chosen_photo)
+                    cat_found = True
+                    print(f"[PHOTO] Любимое фото отнесено к категории '{cat}'")
+                    break
+            # Если не нашлось, пробуем по специальным маркерам
+            if not cat_found:
+                if 'парк' in photo_name or 'осень' in photo_name or 'листья' in photo_name:
+                    user_last_category[user_id] = 'парк'
+                    if user_id not in user_thematic_history:
+                        user_thematic_history[user_id] = {}
+                    if 'парк' not in user_thematic_history[user_id]:
+                        user_thematic_history[user_id]['парк'] = set()
+                    user_thematic_history[user_id]['парк'].add(chosen_photo)
+                    cat_found = True
+                    print("[PHOTO] Любимое фото отнесено к категории 'парк' по прямым маркерам")
+                elif 'собака' in photo_name or 'ретривер' in photo_name:
+                    user_last_category[user_id] = 'собака'
+                    if user_id not in user_thematic_history:
+                        user_thematic_history[user_id] = {}
+                    if 'собака' not in user_thematic_history[user_id]:
+                        user_thematic_history[user_id]['собака'] = set()
+                    user_thematic_history[user_id]['собака'].add(chosen_photo)
+                    cat_found = True
+                    print("[PHOTO] Любимое фото отнесено к категории 'собака'")
+                elif 'горы' in photo_name or 'курорт' in photo_name or 'лыжи' in photo_name:
+                    user_last_category[user_id] = 'горы'
+                    if user_id not in user_thematic_history:
+                        user_thematic_history[user_id] = {}
+                    if 'горы' not in user_thematic_history[user_id]:
+                        user_thematic_history[user_id]['горы'] = set()
+                    user_thematic_history[user_id]['горы'].add(chosen_photo)
+                    cat_found = True
+                    print("[PHOTO] Любимое фото отнесено к категории 'горы'")
             if not cat_found:
                 user_last_category[user_id] = None
                 print(f"[PHOTO] Категория не определена")
+            # -------------------------------------------------------
             max_attempts = 3
             attempt = 0
             sent = False
@@ -425,29 +446,46 @@ def handle_photo_request(user_id: int, user_text: str, lang: str, bot, message, 
                         save_user_last_photo_func(user_id, chosen_photo)
                         user_last_favorite_photo[user_id] = chosen_photo
                         save_user_last_favorite_photo_func()
-                        # обновляем категорию
+                        # Обновляем категорию для нового выбранного фото
                         photo_name = get_keywords_from_photo_name(chosen_photo)
-                        if any(word in photo_name for word in ['гор', 'лыж', 'зим', 'снег', 'курорт']):
-                            user_last_category[user_id] = 'горы'
-                            if user_id not in user_thematic_history:
-                                user_thematic_history[user_id] = {}
-                            if 'горы' not in user_thematic_history[user_id]:
-                                user_thematic_history[user_id]['горы'] = set()
-                            user_thematic_history[user_id]['горы'].add(chosen_photo)
-                        else:
-                            cat_found = False
-                            for cat, words in KEYWORD_MAP.items():
-                                if any(syn in photo_name for syn in words):
-                                    user_last_category[user_id] = cat
-                                    if user_id not in user_thematic_history:
-                                        user_thematic_history[user_id] = {}
-                                    if cat not in user_thematic_history[user_id]:
-                                        user_thematic_history[user_id][cat] = set()
-                                    user_thematic_history[user_id][cat].add(chosen_photo)
-                                    cat_found = True
-                                    break
-                            if not cat_found:
-                                user_last_category[user_id] = None
+                        cat_found = False
+                        for cat, words in KEYWORD_MAP.items():
+                            if any(syn in photo_name for syn in words):
+                                user_last_category[user_id] = cat
+                                if user_id not in user_thematic_history:
+                                    user_thematic_history[user_id] = {}
+                                if cat not in user_thematic_history[user_id]:
+                                    user_thematic_history[user_id][cat] = set()
+                                user_thematic_history[user_id][cat].add(chosen_photo)
+                                cat_found = True
+                                break
+                        if not cat_found:
+                            if 'парк' in photo_name or 'осень' in photo_name:
+                                user_last_category[user_id] = 'парк'
+                                if user_id not in user_thematic_history:
+                                    user_thematic_history[user_id] = {}
+                                if 'парк' not in user_thematic_history[user_id]:
+                                    user_thematic_history[user_id]['парк'] = set()
+                                user_thematic_history[user_id]['парк'].add(chosen_photo)
+                                cat_found = True
+                            elif 'собака' in photo_name or 'ретривер' in photo_name:
+                                user_last_category[user_id] = 'собака'
+                                if user_id not in user_thematic_history:
+                                    user_thematic_history[user_id] = {}
+                                if 'собака' not in user_thematic_history[user_id]:
+                                    user_thematic_history[user_id]['собака'] = set()
+                                user_thematic_history[user_id]['собака'].add(chosen_photo)
+                                cat_found = True
+                            elif 'горы' in photo_name or 'курорт' in photo_name:
+                                user_last_category[user_id] = 'горы'
+                                if user_id not in user_thematic_history:
+                                    user_thematic_history[user_id] = {}
+                                if 'горы' not in user_thematic_history[user_id]:
+                                    user_thematic_history[user_id]['горы'] = set()
+                                user_thematic_history[user_id]['горы'].add(chosen_photo)
+                                cat_found = True
+                        if not cat_found:
+                            user_last_category[user_id] = None
                     else:
                         try:
                             with open(chosen_photo, 'rb') as photo:
@@ -557,7 +595,14 @@ def handle_photo_request(user_id: int, user_text: str, lang: str, bot, message, 
                                 cat_found = True
                                 break
                         if not cat_found:
-                            user_last_category[user_id] = None
+                            if 'парк' in photo_name or 'осень' in photo_name:
+                                user_last_category[user_id] = 'парк'
+                            elif 'собака' in photo_name or 'ретривер' in photo_name:
+                                user_last_category[user_id] = 'собака'
+                            elif 'горы' in photo_name or 'курорт' in photo_name:
+                                user_last_category[user_id] = 'горы'
+                            else:
+                                user_last_category[user_id] = None
                     else:
                         error_msg = "Не могу отправить фото, что-то не так 😅" if lang=='ru' else "I can't send the photo, something went wrong 😅"
                         bot.send_message(message.chat.id, error_msg)
